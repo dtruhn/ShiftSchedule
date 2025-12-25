@@ -1,0 +1,234 @@
+# agent.md — Weekly Schedule System (Current State)
+
+This repo is a doctors/clinicians scheduling system with a React frontend and a FastAPI backend + OR-Tools solver. It is local-first and stores state in SQLite via the API.
+
+---
+
+## 1) Tech Stack
+Frontend
+- React 18 + TypeScript
+- Vite
+- Tailwind CSS
+
+Backend
+- FastAPI + Uvicorn
+- OR-Tools CP-SAT
+- SQLite persistence (single JSON state row)
+
+---
+
+## 2) Core UI
+Top bar
+- Title, open slots badge, Settings button, avatar (top-right).
+- Width aligned to the schedule card.
+
+Schedule card
+- Week navigator (prev/next, Today, date range) lives inside the card header.
+- Today badge floats above the current day column header.
+- Week starts Monday, weekend columns shaded.
+- Control row between class rows and pool rows with icon buttons:
+  - Only necessary, Distribute all, Reset to free (week and per day), with tooltips.
+
+Rows
+- Class rows (editable, reorderable priority): MRI, CT, Sonography, Conventional, On Call, etc.
+- Pool rows (editable names, not deletable): Distribution Pool (id: pool-not-allocated), Vacation (id: pool-vacation).
+- Pool rows appear below a separator line.
+- Row labels are uppercase, no colored dots, truncate around 20 characters.
+
+Cells
+- Multiple clinician pills per cell, sorted by surname.
+- Empty slots shown as red dashed pills based on min slots.
+- Drag and drop is same-day only; other days grey out while dragging.
+- Eligible target cells for a dragged clinician show a green border.
+- Ineligible manual assignment is allowed, with a yellow warning icon.
+- No eligible classes shows a red warning icon.
+- Warning tooltips show only when hovering the icon itself.
+
+Pills
+- Compact blue pill, normal font weight.
+- Warning icons are small circular badges at top-right of the pill.
+
+---
+
+## 3) Settings
+Classes
+- Reorder by drag handle to set priority.
+- Rename, remove, add.
+- Min slots split into weekday vs weekend/holiday.
+
+Pools
+- Rename pool rows (Distribution Pool, Vacation). No deletion.
+
+Clinicians
+- List with Add Clinician and Edit buttons.
+- Editing uses the same modal as clicking a pill in the calendar.
+
+Clinician Editor (modal)
+- Eligible classes list is ordered. Drag to set priority (this order is also the preference list).
+- Toggle to add/remove eligible classes.
+- Vacation management with compact date inputs and a dash between start and end.
+- Past vacations collapsed in a <details>.
+- Modal body is scrollable for long vacation lists.
+
+---
+
+## 4) Data Model (Shared Concept)
+```ts
+type RowKind = "class" | "pool";
+
+type WorkplaceRow = {
+  id: string;
+  name: string;
+  kind: RowKind;
+  dotColorClass: string;
+};
+
+type VacationRange = { id: string; startISO: string; endISO: string };
+
+type Clinician = {
+  id: string;
+  name: string;
+  qualifiedClassIds: string[];
+  preferredClassIds: string[];
+  vacations: VacationRange[];
+};
+
+type Assignment = {
+  id: string;
+  rowId: string;
+  dateISO: string;
+  clinicianId: string;
+};
+
+type MinSlotsByRowId = Record<string, { weekday: number; weekend: number }>;
+```
+
+---
+
+## 5) Scheduling Logic (Frontend)
+- Vacation override: for each date, if clinician is on vacation, they appear in Vacation pool and their class assignment is suppressed.
+- Distribution Pool: any clinician not assigned to a class and not on vacation appears here.
+- Assignments stored in a map (rowId + dateISO -> list of assignments).
+- Drag and drop only within the same day.
+- Cell click does nothing (no cell modal).
+
+---
+
+## 6) Solver (Backend, OR-Tools)
+Endpoint: `POST /v1/solve`
+Payload:
+```json
+{ "dateISO": "YYYY-MM-DD", "only_fill_required": true|false }
+```
+
+Behavior
+- Uses only clinicians currently in Distribution Pool (unassigned and not on vacation).
+- Hard constraints:
+  - Qualification required.
+  - Vacation overrides assignment.
+  - Manual assignments remain in place; solver adds only from the pool.
+- Objective:
+  - Prioritize coverage by class order (top of class list is highest).
+  - Minimize missing required slots.
+  - If `only_fill_required=false`, add extras.
+  - Preferred classes (order of eligible classes) is a lower-weight tie breaker.
+
+---
+
+## 7) Backend State + Persistence
+Backend stores one JSON blob in SQLite:
+```json
+{
+  "rows": [...],
+  "clinicians": [...],
+  "assignments": [...],
+  "minSlotsByRowId": {...}
+}
+```
+Table: `app_state` (single row id = "state").
+
+Endpoints
+- `GET /health`
+- `GET /v1/state`
+- `POST /v1/state`
+- `POST /v1/solve`
+
+---
+
+## 8) Running Locally (Step-by-step)
+Prereqs
+- Python 3.9+
+- Node 18+
+
+Step 1: install backend deps
+```bash
+python3 -m pip install -r backend/requirements.txt
+```
+
+Step 2: install frontend deps
+```bash
+npm install
+```
+
+Step 3: start backend (Terminal 1)
+```bash
+python3 -m uvicorn backend.main:app --host localhost --port 8000
+```
+
+Step 4: start frontend (Terminal 2)
+```bash
+npm run dev -- --host localhost --port 5173
+```
+
+Step 5: open the app
+- http://localhost:5173
+
+If a port is already in use
+- Backend: pick another port, then set `VITE_API_URL` for the frontend:
+```bash
+python3 -m uvicorn backend.main:app --host localhost --port 8001
+VITE_API_URL=http://localhost:8001 npm run dev -- --host localhost --port 5173
+```
+- Frontend: pick another port with `--port 5175` and open that URL in the browser.
+
+If the UI says "Solver service is not responding"
+- Check backend health: `curl http://localhost:8000/health`
+- Ensure `VITE_API_URL` matches the backend host/port.
+- If using a non-localhost host (LAN or remote), set CORS explicitly:
+```bash
+CORS_ALLOW_ORIGINS=http://my-host:5173 python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
+
+Stopping servers
+- Press Ctrl+C in each terminal.
+
+Deployment note
+- Build the frontend with `VITE_API_URL=https://your-api.example.com npm run build`, then serve `dist/`.
+- Run the backend behind a reverse proxy (or public host) and set `CORS_ALLOW_ORIGINS` to your frontend origin.
+
+---
+
+## 9) Key Files
+Frontend
+- `src/pages/WeeklySchedulePage.tsx` (main state + logic)
+- `src/components/schedule/ScheduleGrid.tsx`
+- `src/components/schedule/ClinicianEditor.tsx`
+- `src/components/schedule/ClinicianEditModal.tsx`
+- `src/components/schedule/SettingsView.tsx`
+- `src/components/schedule/RowLabel.tsx`
+- `src/components/schedule/AssignmentPill.tsx`
+- `src/api/client.ts`
+
+Backend
+- `backend/main.py`
+- `backend/requirements.txt`
+- `backend/schedule.db`
+
+---
+
+## 10) Notes for New Agents
+- The calendar is the source of truth for edits; Settings manages class priority + min slots + pool names + clinician list.
+- Pool ids: Distribution Pool = `pool-not-allocated`, Vacation = `pool-vacation`.
+- Keep drag restricted to same day.
+- If you change the solver API, update `src/api/client.ts` and `WeeklySchedulePage.tsx`.
+- Legacy row id `pool-not-working` is filtered out on load.
