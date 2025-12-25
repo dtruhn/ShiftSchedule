@@ -85,7 +85,7 @@ export default function SettingsView({
               <div
                 key={row.id}
                 className={cx(
-                  "grid grid-cols-[auto_2fr_1fr_1fr_auto] items-center gap-3 px-4 py-3",
+                  "grid grid-cols-[auto_2fr_1fr_1fr_auto] items-center gap-3 px-4 py-3 dark:bg-slate-900/60",
                   dragOverId === row.id && "bg-sky-50",
                 )}
                 onDragOver={(event) => {
@@ -111,7 +111,7 @@ export default function SettingsView({
                 }}
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-slate-500">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                     {index + 1}
                   </span>
                   <button
@@ -126,20 +126,20 @@ export default function SettingsView({
                       setDraggingId(null);
                       setDragOverId(null);
                     }}
-                    className="cursor-grab rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50"
+                    className="cursor-grab rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
                     aria-label={`Reorder ${row.name}`}
                   >
                     ≡
                   </button>
                 </div>
-                <div className="text-sm font-semibold text-slate-900">
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   <input
                     type="text"
                     value={row.name}
                     onChange={(e) => onRenameClass(row.id, e.target.value)}
                     className={cx(
                       "w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                      "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
+                      "focus:border-sky-300 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100",
                     )}
                   />
                 </div>
@@ -158,7 +158,7 @@ export default function SettingsView({
                     }}
                     className={cx(
                       "w-28 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                      "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
+                      "focus:border-sky-300 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
                     )}
                   />
                 </div>
@@ -177,7 +177,7 @@ export default function SettingsView({
                     }}
                     className={cx(
                       "w-28 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                      "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
+                      "focus:border-sky-300 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
                     )}
                   />
                 </div>
@@ -188,7 +188,7 @@ export default function SettingsView({
                     className={cx(
                       "rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600",
                       "hover:bg-slate-50 hover:text-slate-900",
-                      "dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+                      "dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100",
                     )}
                   >
                     Remove
@@ -199,7 +199,7 @@ export default function SettingsView({
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900/60">
           <div className="text-base font-semibold text-slate-900 dark:text-slate-100">Pools</div>
           <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
             Rename pool rows (cannot be deleted).
@@ -213,10 +213,10 @@ export default function SettingsView({
                   onChange={(e) => onRenamePool(row.id, e.target.value)}
                   className={cx(
                     "w-full max-w-sm rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                    "focus:border-sky-300",
+                    "focus:border-sky-300 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100",
                   )}
                 />
-                <span className="text-xs font-semibold text-slate-400">
+                <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">
                   {poolNoteById[row.id] ?? "Pool"}
                 </span>
               </div>
@@ -224,11 +224,13 @@ export default function SettingsView({
           </div>
         </div>
 
-        <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900/60">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="text-base font-semibold text-slate-900">Clinicians</div>
-              <div className="mt-1 text-sm text-slate-600">
+              <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                Clinicians
+              </div>
+              <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
                 Manage clinicians and open the same editor as in the calendar.
               </div>
             </div>
@@ -241,7 +243,7 @@ export default function SettingsView({
               placeholder="New clinician name"
               className={cx(
                 "w-full max-w-xs rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                "focus:border-sky-300",
+                "focus:border-sky-300 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100",
               )}
             />
             <button
@@ -255,18 +257,19 @@ export default function SettingsView({
               className={cx(
                 "rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm",
                 "hover:bg-slate-50 active:bg-slate-100",
+                "dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
               )}
             >
               Add Clinician
             </button>
           </div>
-          <div className="mt-5 divide-y divide-slate-200 rounded-xl border border-slate-200">
+          <div className="mt-5 divide-y divide-slate-200 rounded-xl border border-slate-200 dark:border-slate-700 dark:divide-slate-800">
             {clinicians.map((clinician) => (
               <div
                 key={clinician.id}
-                className="flex items-center justify-between gap-4 px-4 py-3"
+                className="flex items-center justify-between gap-4 px-4 py-3 dark:bg-slate-900/60"
               >
-                <div className="text-sm font-semibold text-slate-900">
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   {clinician.name}
                 </div>
                 <div className="flex items-center gap-2">
@@ -276,6 +279,7 @@ export default function SettingsView({
                     className={cx(
                       "rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600",
                       "hover:bg-slate-50 hover:text-slate-900",
+                      "dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100",
                     )}
                   >
                     Edit
@@ -286,6 +290,7 @@ export default function SettingsView({
                     className={cx(
                       "rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600",
                       "hover:bg-rose-50 hover:text-rose-700",
+                      "dark:border-rose-500/40 dark:text-rose-200 dark:hover:bg-rose-900/30",
                     )}
                   >
                     Remove

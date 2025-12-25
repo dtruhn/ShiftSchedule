@@ -144,7 +144,7 @@ export default function ScheduleGrid({
                   gridTemplateColumns: "max-content repeat(7, minmax(120px, 1fr))",
                 }}
               >
-                <div className="flex items-center border-b border-r border-slate-200 bg-slate-50 px-4 py-2 dark:border-slate-800 dark:bg-slate-800">
+                <div className="flex items-center border-b border-r border-slate-200 bg-white px-4 py-2 dark:border-slate-800 dark:bg-slate-900">
                   <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
                     {leftHeaderTitle}
                   </div>
@@ -542,11 +542,13 @@ function ControlRow({
       {weekDays.map((day) => {
         const dateISO = toISODate(day);
         const isLastCol = dateISO === toISODate(weekDays[6]);
+        const isWeekend = day.getDay() === 0 || day.getDay() === 6;
         return (
           <div
             key={`control-${dateISO}`}
             className={cx(
-              "border-b border-r border-slate-200 bg-white px-4 py-3 text-center overflow-visible dark:border-slate-800 dark:bg-slate-900",
+              "border-b border-r border-slate-200 bg-white px-4 py-3 text-center overflow-visible dark:border-slate-800",
+              isWeekend ? "dark:bg-slate-800" : "dark:bg-slate-900",
               { "border-r-0": isLastCol },
             )}
           >

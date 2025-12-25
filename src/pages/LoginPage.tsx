@@ -44,9 +44,6 @@ export default function LoginPage({ onLogin, theme, onToggleTheme }: LoginPagePr
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
             Sign in
           </h1>
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-            Use the admin account created via environment variables to get started.
-          </p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
