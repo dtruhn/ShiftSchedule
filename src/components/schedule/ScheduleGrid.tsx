@@ -548,7 +548,7 @@ function ControlRow({
             key={`control-${dateISO}`}
             className={cx(
               "border-b border-r border-slate-200 bg-white px-4 py-3 text-center overflow-visible dark:border-slate-800",
-              isWeekend ? "dark:bg-slate-800" : "dark:bg-slate-900",
+              "dark:bg-slate-900",
               { "border-r-0": isLastCol },
             )}
           >
