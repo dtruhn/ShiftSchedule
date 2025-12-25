@@ -19,6 +19,13 @@ Prereqs:
 - Python 3.9+
 - Node 18+
 
+Auth setup (required for login):
+```bash
+export ADMIN_USERNAME=admin
+export ADMIN_PASSWORD=change-me
+export JWT_SECRET=change-me-too
+```
+
 1) Install backend deps
 ```bash
 python3 -m pip install -r backend/requirements.txt

@@ -38,19 +38,121 @@ export type AppState = {
   slotOverridesByKey?: Record<string, number>;
 };
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-const DEFAULT_USER_ID = "jk";
+export type UserRole = "admin" | "user";
 
-function buildHeaders(userId?: string) {
-  return {
-    "Content-Type": "application/json",
-    "X-User-Id": userId ?? DEFAULT_USER_ID,
-  };
+export type AuthUser = {
+  username: string;
+  role: UserRole;
+  active: boolean;
+};
+
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const TOKEN_STORAGE_KEY = "authToken";
+
+function readToken() {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(TOKEN_STORAGE_KEY);
 }
 
-export async function getState(userId?: string): Promise<AppState> {
+export function setAuthToken(token: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+}
+
+export function clearAuthToken() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+function buildHeaders() {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const token = readToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+export async function login(username: string, password: string): Promise<{
+  access_token: string;
+  token_type: string;
+  user: AuthUser;
+}> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: buildHeaders(),
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to login: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getCurrentUser(): Promise<AuthUser> {
+  const res = await fetch(`${API_BASE}/auth/me`, {
+    headers: buildHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch user: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function listUsers(): Promise<AuthUser[]> {
+  const res = await fetch(`${API_BASE}/auth/users`, {
+    headers: buildHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to list users: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function createUser(payload: {
+  username: string;
+  password: string;
+  role?: UserRole;
+}): Promise<AuthUser> {
+  const res = await fetch(`${API_BASE}/auth/users`, {
+    method: "POST",
+    headers: buildHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to create user: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function updateUser(
+  username: string,
+  payload: { active?: boolean; role?: UserRole; password?: string },
+): Promise<AuthUser> {
+  const res = await fetch(`${API_BASE}/auth/users/${encodeURIComponent(username)}`, {
+    method: "PATCH",
+    headers: buildHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to update user: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteUser(username: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/auth/users/${encodeURIComponent(username)}`, {
+    method: "DELETE",
+    headers: buildHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to delete user: ${res.status}`);
+  }
+}
+
+export async function getState(): Promise<AppState> {
   const res = await fetch(`${API_BASE}/v1/state`, {
-    headers: buildHeaders(userId),
+    headers: buildHeaders(),
   });
   if (!res.ok) {
     throw new Error(`Failed to fetch state: ${res.status}`);
@@ -58,10 +160,10 @@ export async function getState(userId?: string): Promise<AppState> {
   return res.json();
 }
 
-export async function saveState(state: AppState, userId?: string): Promise<AppState> {
+export async function saveState(state: AppState): Promise<AppState> {
   const res = await fetch(`${API_BASE}/v1/state`, {
     method: "POST",
-    headers: buildHeaders(userId),
+    headers: buildHeaders(),
     body: JSON.stringify(state),
   });
   if (!res.ok) {
@@ -72,7 +174,7 @@ export async function saveState(state: AppState, userId?: string): Promise<AppSt
 
 export async function solveDay(
   dateISO: string,
-  options?: { onlyFillRequired?: boolean; userId?: string },
+  options?: { onlyFillRequired?: boolean },
 ): Promise<{
   dateISO: string;
   assignments: Assignment[];
@@ -80,7 +182,7 @@ export async function solveDay(
 }> {
   const res = await fetch(`${API_BASE}/v1/solve`, {
     method: "POST",
-    headers: buildHeaders(options?.userId),
+    headers: buildHeaders(),
     body: JSON.stringify({
       dateISO,
       only_fill_required: options?.onlyFillRequired ?? false,

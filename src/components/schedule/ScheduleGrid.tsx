@@ -117,20 +117,20 @@ export default function ScheduleGrid({
     <div className="mx-auto w-full max-w-7xl px-6 pb-10">
       <div
         ref={cardRef}
-        className="relative mt-6 rounded-3xl border-2 border-slate-900/80 bg-white p-[2px] shadow-sm"
+        className="relative mt-6 rounded-3xl border-2 border-slate-900/80 bg-white p-[2px] shadow-sm dark:border-slate-700 dark:bg-slate-900"
       >
         <div
           ref={innerRef}
-          className="relative overflow-hidden rounded-[calc(1.5rem-2px)] bg-white"
+          className="relative overflow-hidden rounded-[calc(1.5rem-2px)] bg-white dark:bg-slate-900"
         >
           {header ? (
-            <div className="relative z-0 border-b border-slate-200 bg-white px-6 py-4">
+            <div className="relative z-0 border-b border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-900">
               {header}
             </div>
           ) : null}
         {todayBadgePos ? (
           <span
-            className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-full rounded-full border border-sky-200 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-600 shadow-sm"
+            className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-full rounded-full border border-sky-200 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-600 shadow-sm dark:border-sky-500/40 dark:bg-slate-900 dark:text-sky-200"
             style={{ left: todayBadgePos.left, top: todayBadgePos.top + 4 }}
           >
             Today
@@ -144,8 +144,8 @@ export default function ScheduleGrid({
                   gridTemplateColumns: "max-content repeat(7, minmax(120px, 1fr))",
                 }}
               >
-                <div className="flex items-center border-b border-r border-slate-200 bg-slate-50 px-4 py-2">
-                  <div className="text-base font-semibold text-slate-900">
+                <div className="flex items-center border-b border-r border-slate-200 bg-slate-50 px-4 py-2 dark:border-slate-800 dark:bg-slate-800">
+                  <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
                     {leftHeaderTitle}
                   </div>
                 </div>
@@ -165,18 +165,20 @@ export default function ScheduleGrid({
                         headerRefs.current[index] = node;
                       }}
                       className={cx(
-                      "relative border-b border-r border-slate-200 px-4 py-2 text-center overflow-visible",
-                        isWeekend ? "bg-slate-100" : "bg-slate-50",
+                      "relative border-b border-r border-slate-200 px-4 py-2 text-center overflow-visible dark:border-slate-800",
+                        isWeekend
+                          ? "bg-slate-100 dark:bg-slate-800"
+                          : "bg-slate-50 dark:bg-slate-900",
                         isActiveDay && "bg-sky-50",
                         isOtherDay && "bg-slate-200/70 text-slate-400 opacity-60",
                         { "border-r-0": isLastCol },
                       )}
                     >
                     <div className="flex flex-col items-center gap-1">
-                      <div className="text-[12px] font-semibold tracking-wide text-slate-500">
+                      <div className="text-[12px] font-semibold tracking-wide text-slate-500 dark:text-slate-300">
                         {weekday}
                       </div>
-                      <div className="text-xl font-semibold tracking-tight text-slate-900">
+                      <div className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
                         {dayOfMonth}
                       </div>
                     </div>
@@ -284,18 +286,21 @@ function RowSection({
 }) {
   const rowBg =
     row.id === "pool-vacation"
-      ? "bg-slate-200/80"
+      ? "bg-slate-200/80 dark:bg-slate-800/80"
       : row.id === "pool-manual"
-        ? "bg-slate-50/70"
-        : "bg-white";
+        ? "bg-slate-50/70 dark:bg-slate-900/70"
+        : "bg-white dark:bg-slate-900";
   const shouldInsertControlRow = showSeparator;
   const isDistributionPoolRow = row.id === "pool-not-allocated";
   const isManualPoolRow = row.id === "pool-manual";
-  const borderBottomClass = isDistributionPoolRow
-    ? "border-b-2 border-dashed border-slate-200"
-    : isManualPoolRow
-      ? "border-b-2 border-slate-300"
-      : "border-b border-slate-200";
+  const borderBottomClass =
+    row.id === "pool-vacation"
+      ? "border-b-0"
+      : isDistributionPoolRow
+        ? "border-b-2 border-dashed border-slate-200"
+        : isManualPoolRow
+          ? "border-b-2 border-slate-300"
+          : "border-b border-slate-200";
   return (
     <>
       {shouldInsertControlRow ? (
@@ -396,7 +401,7 @@ function RowSection({
               rowBg,
               "hover:bg-slate-50/70 active:bg-slate-50",
               { "border-r-0": isLastCol },
-              isWeekend ? "bg-slate-100/70" : "",
+              isWeekend ? "bg-slate-100/70 dark:bg-slate-800/70" : "",
               showQualified && "border-emerald-400 ring-2 ring-emerald-300 ring-inset",
               {
                 "ring-2 ring-sky-200 ring-inset bg-sky-50/40": isDragTarget,
@@ -515,7 +520,7 @@ function ControlRow({
 }) {
   return (
     <>
-      <div className="border-b border-r border-slate-200 bg-white px-5 py-3 overflow-visible">
+      <div className="border-b border-r border-slate-200 bg-white px-5 py-3 overflow-visible dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center gap-2">
           <ControlButton
             label="Only necessary (week)"
@@ -541,7 +546,7 @@ function ControlRow({
           <div
             key={`control-${dateISO}`}
             className={cx(
-              "border-b border-r border-slate-200 bg-white px-4 py-3 text-center overflow-visible",
+              "border-b border-r border-slate-200 bg-white px-4 py-3 text-center overflow-visible dark:border-slate-800 dark:bg-slate-900",
               { "border-r-0": isLastCol },
             )}
           >
@@ -585,6 +590,7 @@ function ControlButton({
       className={cx(
         "group relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500",
         "hover:bg-slate-50 hover:text-slate-700",
+        "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
       )}
       aria-label={label}
     >

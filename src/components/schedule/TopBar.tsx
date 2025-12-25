@@ -1,34 +1,59 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cx } from "../../lib/classNames";
 
 type TopBarProps = {
   openSlotsCount: number;
   viewMode: "calendar" | "settings";
   onToggleView: () => void;
-  activeUserId: string;
-  users: Array<{ id: string; label: string }>;
-  onSelectUser: (userId: string) => void;
+  username: string;
+  onLogout: () => void;
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
 };
 
 export default function TopBar({
   openSlotsCount,
   viewMode,
   onToggleView,
-  activeUserId,
-  users,
-  onSelectUser,
+  username,
+  onLogout,
+  theme,
+  onToggleTheme,
 }: TopBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const activeUser = users.find((user) => user.id === activeUserId) ?? users[0];
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!menuRef.current || menuRef.current.contains(target)) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [menuOpen]);
+  const badge = username
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
   return (
-    <div className="relative border-b border-slate-200 bg-white">
+    <div className="relative border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
         <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
             Weekly Schedule
           </h1>
           {viewMode === "calendar" ? (
-            <span className="inline-flex items-center rounded-full bg-rose-50 px-3 py-1 text-sm font-medium text-rose-600 ring-1 ring-inset ring-rose-200">
+            <span
+              className={cx(
+                "inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset",
+                openSlotsCount === 0
+                  ? "bg-emerald-50 text-emerald-600 ring-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:ring-emerald-500/40"
+                  : "bg-rose-50 text-rose-600 ring-rose-200 dark:bg-rose-900/40 dark:text-rose-200 dark:ring-rose-500/40",
+              )}
+            >
               {openSlotsCount} Open Slots
             </span>
           ) : null}
@@ -37,17 +62,30 @@ export default function TopBar({
         <div className="flex items-center gap-3">
           <button
             type="button"
+            onClick={onToggleTheme}
+            aria-label="Toggle theme"
+            className={cx(
+              "inline-flex items-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm",
+              "hover:bg-slate-50 active:bg-slate-100",
+              "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
+            )}
+          >
+            {theme === "dark" ? "☀" : "☾"}
+          </button>
+          <button
+            type="button"
             onClick={onToggleView}
             className={cx(
               "inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm",
               "hover:bg-slate-50 active:bg-slate-100",
+              "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
             )}
           >
             {viewMode === "calendar" ? "Settings" : "Back to Schedule"}
           </button>
         </div>
       </div>
-      <div className="absolute right-6 top-5">
+      <div className="absolute right-6 top-5" ref={menuRef}>
         <button
           type="button"
           aria-label="Account"
@@ -57,29 +95,27 @@ export default function TopBar({
             "hover:bg-sky-600 active:bg-sky-700",
           )}
         >
-          {activeUser?.label ?? "JK"}
+          {badge || "U"}
         </button>
         {menuOpen ? (
-          <div className="absolute right-0 mt-2 w-28 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-            {users.map((user) => (
-              <button
-                key={user.id}
-                type="button"
-                onClick={() => {
-                  onSelectUser(user.id);
-                  setMenuOpen(false);
-                }}
-                className={cx(
-                  "flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs font-semibold",
-                  user.id === activeUserId
-                    ? "bg-slate-100 text-slate-900"
-                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
-                )}
-              >
-                <span>{user.label}</span>
-                {user.id === activeUserId ? <span>✓</span> : null}
-              </button>
-            ))}
+          <div className="absolute right-0 z-50 mt-2 w-40 rounded-xl border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+            <div className="px-2 py-1 text-xs font-semibold text-slate-500 dark:text-slate-300">
+              {username}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onLogout();
+                setMenuOpen(false);
+              }}
+              className={cx(
+                "mt-1 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs font-semibold",
+                "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+                "dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+              )}
+            >
+              <span>Sign out</span>
+            </button>
           </div>
         ) : null}
       </div>

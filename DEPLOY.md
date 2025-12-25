@@ -46,6 +46,10 @@ Edit `.env`:
 ```
 DOMAIN=schedule.example.com
 LETSENCRYPT_EMAIL=admin@example.com
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-me
+JWT_SECRET=change-me-too
+JWT_EXPIRE_MINUTES=720
 ```
 
 ## 6) Run the stack
@@ -62,6 +66,10 @@ Edit `.env` to include:
 ```
 APP_ORIGIN=http://SERVER_IP
 VITE_API_URL=http://SERVER_IP:8000
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-me
+JWT_SECRET=change-me-too
+JWT_EXPIRE_MINUTES=720
 ```
 2) Start the IP-only stack:
 ```

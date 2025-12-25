@@ -4,7 +4,8 @@ import ScheduleGrid from "../components/schedule/ScheduleGrid";
 import SettingsView from "../components/schedule/SettingsView";
 import TopBar from "../components/schedule/TopBar";
 import WeekNavigator from "../components/schedule/WeekNavigator";
-import { getState, saveState, solveDay } from "../api/client";
+import AdminUsersPanel from "../components/auth/AdminUsersPanel";
+import { getState, saveState, solveDay, type AuthUser } from "../api/client";
 import {
   Assignment,
   assignments,
@@ -28,18 +29,23 @@ const CLASS_COLORS = [
   "bg-sky-500",
   "bg-lime-500",
 ];
+const FREE_POOL_ID = "pool-not-allocated";
 const MANUAL_POOL_ID = "pool-manual";
-const USERS = [
-  { id: "jk", label: "JK" },
-  { id: "ml", label: "ML" },
-];
+const VACATION_POOL_ID = "pool-vacation";
+type WeeklySchedulePageProps = {
+  currentUser: AuthUser;
+  onLogout: () => void;
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
+};
 
-export default function WeeklySchedulePage() {
+export default function WeeklySchedulePage({
+  currentUser,
+  onLogout,
+  theme,
+  onToggleTheme,
+}: WeeklySchedulePageProps) {
   const [viewMode, setViewMode] = useState<"calendar" | "settings">("calendar");
-  const [activeUserId, setActiveUserId] = useState(() => {
-    if (typeof window === "undefined") return "jk";
-    return window.localStorage.getItem("activeUserId") ?? "jk";
-  });
   const [anchorDate, setAnchorDate] = useState<Date>(new Date());
   const [assignmentMap, setAssignmentMap] = useState<Map<string, Assignment[]>>(() =>
     buildAssignmentMap(assignments),
@@ -84,8 +90,8 @@ export default function WeeklySchedulePage() {
   );
 
   const renderAssignmentMap = useMemo(() => {
-    const freePoolId = "pool-not-allocated";
-    const vacationPoolId = "pool-vacation";
+    const freePoolId = FREE_POOL_ID;
+    const vacationPoolId = VACATION_POOL_ID;
     const vacationByDate = new Map<string, Set<string>>();
     for (const clinician of clinicians) {
       for (const vacation of clinician.vacations) {
@@ -163,6 +169,99 @@ export default function WeeklySchedulePage() {
     );
   };
 
+  const shiftDateISO = (dateISO: string, delta: number) =>
+    toISODate(addDays(new Date(`${dateISO}T00:00:00`), delta));
+
+  const addVacationDay = (clinicianId: string, dateISO: string) => {
+    setClinicians((prev) =>
+      prev.map((clinician) => {
+        if (clinician.id !== clinicianId) return clinician;
+        if (
+          clinician.vacations.some(
+            (vacation) => vacation.startISO <= dateISO && dateISO <= vacation.endISO,
+          )
+        ) {
+          return clinician;
+        }
+        const nextVacations = [
+          ...clinician.vacations,
+          {
+            id: `vac-${clinicianId}-${Date.now().toString(36)}`,
+            startISO: dateISO,
+            endISO: dateISO,
+          },
+        ].sort((a, b) => a.startISO.localeCompare(b.startISO));
+        const merged: typeof nextVacations = [];
+        for (const vacation of nextVacations) {
+          const last = merged[merged.length - 1];
+          if (!last) {
+            merged.push(vacation);
+            continue;
+          }
+          const lastEndPlus = shiftDateISO(last.endISO, 1);
+          if (vacation.startISO <= lastEndPlus) {
+            merged[merged.length - 1] = {
+              ...last,
+              endISO: vacation.endISO > last.endISO ? vacation.endISO : last.endISO,
+            };
+          } else {
+            merged.push(vacation);
+          }
+        }
+        return { ...clinician, vacations: merged };
+      }),
+    );
+  };
+
+  const removeVacationDay = (clinicianId: string, dateISO: string) => {
+    setClinicians((prev) =>
+      prev.map((clinician) => {
+        if (clinician.id !== clinicianId) return clinician;
+        let changed = false;
+        const nextVacations: typeof clinician.vacations = [];
+        for (const vacation of clinician.vacations) {
+          if (dateISO < vacation.startISO || dateISO > vacation.endISO) {
+            nextVacations.push(vacation);
+            continue;
+          }
+          changed = true;
+          if (vacation.startISO === dateISO && vacation.endISO === dateISO) {
+            continue;
+          }
+          if (vacation.startISO === dateISO) {
+            nextVacations.push({
+              ...vacation,
+              startISO: shiftDateISO(dateISO, 1),
+            });
+            continue;
+          }
+          if (vacation.endISO === dateISO) {
+            nextVacations.push({
+              ...vacation,
+              endISO: shiftDateISO(dateISO, -1),
+            });
+            continue;
+          }
+          nextVacations.push(
+            {
+              id: `vac-${clinicianId}-${Date.now().toString(36)}a`,
+              startISO: vacation.startISO,
+              endISO: shiftDateISO(dateISO, -1),
+            },
+            {
+              id: `vac-${clinicianId}-${Date.now().toString(36)}b`,
+              startISO: shiftDateISO(dateISO, 1),
+              endISO: vacation.endISO,
+            },
+          );
+        }
+        if (!changed) return clinician;
+        nextVacations.sort((a, b) => a.startISO.localeCompare(b.startISO));
+        return { ...clinician, vacations: nextVacations };
+      }),
+    );
+  };
+
   const getBaseSlotsForDate = (rowId: string, dateISO: string) => {
     const minSlots = minSlotsByRowId[rowId] ?? { weekday: 0, weekend: 0 };
     const date = new Date(`${dateISO}T00:00:00`);
@@ -211,16 +310,10 @@ export default function WeeklySchedulePage() {
   );
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("activeUserId", activeUserId);
-    }
-  }, [activeUserId]);
-
-  useEffect(() => {
     let alive = true;
     setHasLoaded(false);
     setLoadedUserId("");
-    getState(activeUserId)
+    getState()
       .then((state) => {
         if (!alive) return;
         if (state.rows?.length) {
@@ -278,17 +371,17 @@ export default function WeeklySchedulePage() {
       })
       .finally(() => {
         if (alive) {
-          setLoadedUserId(activeUserId);
+          setLoadedUserId(currentUser.username);
           setHasLoaded(true);
         }
       });
     return () => {
       alive = false;
     };
-  }, [activeUserId]);
+  }, [currentUser.username]);
 
   useEffect(() => {
-    if (!hasLoaded || loadedUserId !== activeUserId) return;
+    if (!hasLoaded || loadedUserId !== currentUser.username) return;
     const toAssignments = () => {
       const out: Assignment[] = [];
       for (const list of assignmentMap.values()) {
@@ -304,7 +397,7 @@ export default function WeeklySchedulePage() {
       slotOverridesByKey,
     };
     const handle = window.setTimeout(() => {
-      saveState(payload, activeUserId).catch(() => {
+      saveState(payload).catch(() => {
         /* Backend optional during local-only dev */
       });
     }, 500);
@@ -316,7 +409,7 @@ export default function WeeklySchedulePage() {
     minSlotsByRowId,
     slotOverridesByKey,
     hasLoaded,
-    activeUserId,
+    currentUser.username,
   ]);
 
   const handleToggleQualification = (clinicianId: string, classId: string) => {
@@ -408,16 +501,17 @@ export default function WeeklySchedulePage() {
   };
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <TopBar
         openSlotsCount={openSlotsCount}
         viewMode={viewMode}
         onToggleView={() =>
           setViewMode((prev) => (prev === "calendar" ? "settings" : "calendar"))
         }
-        activeUserId={activeUserId}
-        users={USERS}
-        onSelectUser={(userId) => setActiveUserId(userId)}
+        username={currentUser.username}
+        onLogout={onLogout}
+        theme={theme}
+        onToggleTheme={onToggleTheme}
       />
 
       {viewMode === "calendar" ? (
@@ -455,7 +549,6 @@ export default function WeeklySchedulePage() {
             onAutoAllocateDay={(dateISO, options) => {
               solveDay(dateISO, {
                 onlyFillRequired: options?.onlyFillRequired,
-                userId: activeUserId,
               })
                 .then((result) => {
                   if (result.notes.length > 0) {
@@ -503,7 +596,6 @@ export default function WeeklySchedulePage() {
                 const dateISO = toISODate(day);
                 solveDay(dateISO, {
                   onlyFillRequired: options?.onlyFillRequired,
-                  userId: activeUserId,
                 })
                   .then((result) => {
                     if (result.notes.length > 0) {
@@ -574,6 +666,35 @@ export default function WeeklySchedulePage() {
                   if (nextList.length === 0) next.delete(key);
                   else next.set(key, nextList);
                 };
+                const removeAssignmentsForDate = (
+                  targetClinicianId: string,
+                  targetDateISO: string,
+                ) => {
+                  for (const [key, list] of next.entries()) {
+                    const [, keyDate] = key.split("__");
+                    if (keyDate !== targetDateISO) continue;
+                    const filtered = list.filter(
+                      (assignment) => assignment.clinicianId !== targetClinicianId,
+                    );
+                    if (filtered.length === 0) next.delete(key);
+                    else next.set(key, filtered);
+                  }
+                };
+                const isToVacation = toRow.id === VACATION_POOL_ID;
+                const isFromVacation = fromRow.id === VACATION_POOL_ID;
+
+                if (isToVacation) {
+                  addVacationDay(clinicianId, dateISO);
+                  removeAssignmentsForDate(clinicianId, dateISO);
+                  return next;
+                }
+
+                if (isFromVacation) {
+                  removeVacationDay(clinicianId, dateISO);
+                  if (toRow.id === FREE_POOL_ID) {
+                    return next;
+                  }
+                }
                 if (toRow.kind === "pool") {
                   const isManualPool = toRow.id === MANUAL_POOL_ID;
                   if (isManualPool) {
@@ -645,129 +766,136 @@ export default function WeeklySchedulePage() {
           />
         </>
       ) : (
-        <SettingsView
-          classRows={classRows}
-          poolRows={poolRows}
-          minSlotsByRowId={minSlotsByRowId}
-          clinicians={clinicians}
-          onChangeMinSlots={(rowId, kind, nextValue) => {
-            setMinSlotsByRowId((prev) => ({
-              ...prev,
-              [rowId]: {
-                ...(prev[rowId] ?? { weekday: 0, weekend: 0 }),
-                [kind]: Math.max(0, Math.floor(nextValue)),
-              },
-            }));
-          }}
-          onRenameClass={(rowId, nextName) => {
-            setRows((prev) =>
-              prev.map((row) =>
-                row.id === rowId ? { ...row, name: nextName } : row,
-              ),
-            );
-          }}
-          onRemoveClass={(rowId) => {
-            setRows((prev) => prev.filter((row) => row.id !== rowId));
-            setMinSlotsByRowId((prev) => {
-              const next = { ...prev };
-              delete next[rowId];
-              return next;
-            });
-            setSlotOverridesByKey((prev) => {
-              const next: Record<string, number> = {};
-              for (const [key, value] of Object.entries(prev)) {
-                if (!key.startsWith(`${rowId}__`)) next[key] = value;
-              }
-              return next;
-            });
-            setClinicians((prev) =>
-              prev.map((clinician) => ({
-                ...clinician,
-                qualifiedClassIds: clinician.qualifiedClassIds.filter((id) => id !== rowId),
-                preferredClassIds: clinician.preferredClassIds.filter((id) => id !== rowId),
-              })),
-            );
-            setAssignmentMap((prev) => {
-              const next = new Map(prev);
-              for (const key of next.keys()) {
-                if (key.startsWith(`${rowId}__`)) next.delete(key);
-              }
-              return next;
-            });
-          }}
-          onAddClass={() => {
-            const id = `class-${Date.now().toString(36)}`;
-            setRows((prev) => {
-              const classRows = prev.filter((row) => row.kind === "class");
-              const poolRows = prev.filter((row) => row.kind === "pool");
-              const classCount = classRows.length;
-              const color = CLASS_COLORS[classCount % CLASS_COLORS.length];
-              return [
-                ...classRows,
-                { id, name: "New Class", kind: "class", dotColorClass: color },
-                ...poolRows,
-              ];
-            });
-            setMinSlotsByRowId((prev) => ({
-              ...prev,
-              [id]: { weekday: 1, weekend: 1 },
-            }));
-          }}
-          onReorderClass={(fromId, toId) => {
-            setRows((prev) => {
-              const classRows = prev.filter((row) => row.kind === "class");
-              const poolRows = prev.filter((row) => row.kind === "pool");
-              const fromIndex = classRows.findIndex((row) => row.id === fromId);
-              const toIndex = classRows.findIndex((row) => row.id === toId);
-              if (fromIndex === -1 || toIndex === -1) return prev;
-              const nextClasses = [...classRows];
-              const [moved] = nextClasses.splice(fromIndex, 1);
-              nextClasses.splice(toIndex, 0, moved);
-              return [...nextClasses, ...poolRows];
-            });
-          }}
-          onRenamePool={(rowId, nextName) => {
-            setRows((prev) =>
-              prev.map((row) =>
-                row.id === rowId ? { ...row, name: nextName } : row,
-              ),
-            );
-          }}
-          onAddClinician={(name) => {
-            const slug = name
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, "-")
-              .replace(/(^-|-$)/g, "");
-            const id = `clin-${slug || "user"}-${Date.now().toString(36)}`;
-            setClinicians((prev) => [
-              ...prev,
-              {
-                id,
-                name,
-                qualifiedClassIds: [],
-                preferredClassIds: [],
-                vacations: [],
-              },
-            ]);
-          }}
-          onEditClinician={(clinicianId) => setEditingClinicianId(clinicianId)}
-          onRemoveClinician={(clinicianId) => {
-            setClinicians((prev) => prev.filter((clinician) => clinician.id !== clinicianId));
-            setAssignmentMap((prev) => {
-              const next = new Map<string, Assignment[]>();
-              for (const [key, list] of prev.entries()) {
-                const filtered = list.filter(
-                  (assignment) => assignment.clinicianId !== clinicianId,
-                );
-                if (filtered.length > 0) next.set(key, filtered);
-              }
-              return next;
-            });
-            setEditingClinicianId((current) =>
-              current === clinicianId ? "" : current,
-            );
-          }}
-        />
+        <>
+          <SettingsView
+            classRows={classRows}
+            poolRows={poolRows}
+            minSlotsByRowId={minSlotsByRowId}
+            clinicians={clinicians}
+            onChangeMinSlots={(rowId, kind, nextValue) => {
+              setMinSlotsByRowId((prev) => ({
+                ...prev,
+                [rowId]: {
+                  ...(prev[rowId] ?? { weekday: 0, weekend: 0 }),
+                  [kind]: Math.max(0, Math.floor(nextValue)),
+                },
+              }));
+            }}
+            onRenameClass={(rowId, nextName) => {
+              setRows((prev) =>
+                prev.map((row) =>
+                  row.id === rowId ? { ...row, name: nextName } : row,
+                ),
+              );
+            }}
+            onRemoveClass={(rowId) => {
+              setRows((prev) => prev.filter((row) => row.id !== rowId));
+              setMinSlotsByRowId((prev) => {
+                const next = { ...prev };
+                delete next[rowId];
+                return next;
+              });
+              setSlotOverridesByKey((prev) => {
+                const next: Record<string, number> = {};
+                for (const [key, value] of Object.entries(prev)) {
+                  if (!key.startsWith(`${rowId}__`)) next[key] = value;
+                }
+                return next;
+              });
+              setClinicians((prev) =>
+                prev.map((clinician) => ({
+                  ...clinician,
+                  qualifiedClassIds: clinician.qualifiedClassIds.filter((id) => id !== rowId),
+                  preferredClassIds: clinician.preferredClassIds.filter((id) => id !== rowId),
+                })),
+              );
+              setAssignmentMap((prev) => {
+                const next = new Map(prev);
+                for (const key of next.keys()) {
+                  if (key.startsWith(`${rowId}__`)) next.delete(key);
+                }
+                return next;
+              });
+            }}
+            onAddClass={() => {
+              const id = `class-${Date.now().toString(36)}`;
+              setRows((prev) => {
+                const classRows = prev.filter((row) => row.kind === "class");
+                const poolRows = prev.filter((row) => row.kind === "pool");
+                const classCount = classRows.length;
+                const color = CLASS_COLORS[classCount % CLASS_COLORS.length];
+                return [
+                  ...classRows,
+                  { id, name: "New Class", kind: "class", dotColorClass: color },
+                  ...poolRows,
+                ];
+              });
+              setMinSlotsByRowId((prev) => ({
+                ...prev,
+                [id]: { weekday: 1, weekend: 1 },
+              }));
+            }}
+            onReorderClass={(fromId, toId) => {
+              setRows((prev) => {
+                const classRows = prev.filter((row) => row.kind === "class");
+                const poolRows = prev.filter((row) => row.kind === "pool");
+                const fromIndex = classRows.findIndex((row) => row.id === fromId);
+                const toIndex = classRows.findIndex((row) => row.id === toId);
+                if (fromIndex === -1 || toIndex === -1) return prev;
+                const nextClasses = [...classRows];
+                const [moved] = nextClasses.splice(fromIndex, 1);
+                nextClasses.splice(toIndex, 0, moved);
+                return [...nextClasses, ...poolRows];
+              });
+            }}
+            onRenamePool={(rowId, nextName) => {
+              setRows((prev) =>
+                prev.map((row) =>
+                  row.id === rowId ? { ...row, name: nextName } : row,
+                ),
+              );
+            }}
+            onAddClinician={(name) => {
+              const slug = name
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, "-")
+                .replace(/(^-|-$)/g, "");
+              const id = `clin-${slug || "user"}-${Date.now().toString(36)}`;
+              setClinicians((prev) => [
+                ...prev,
+                {
+                  id,
+                  name,
+                  qualifiedClassIds: [],
+                  preferredClassIds: [],
+                  vacations: [],
+                },
+              ]);
+            }}
+            onEditClinician={(clinicianId) => setEditingClinicianId(clinicianId)}
+            onRemoveClinician={(clinicianId) => {
+              setClinicians((prev) =>
+                prev.filter((clinician) => clinician.id !== clinicianId),
+              );
+              setAssignmentMap((prev) => {
+                const next = new Map<string, Assignment[]>();
+                for (const [key, list] of prev.entries()) {
+                  const filtered = list.filter(
+                    (assignment) => assignment.clinicianId !== clinicianId,
+                  );
+                  if (filtered.length > 0) next.set(key, filtered);
+                }
+                return next;
+              });
+              setEditingClinicianId((current) =>
+                current === clinicianId ? "" : current,
+              );
+            }}
+          />
+          <AdminUsersPanel
+            isAdmin={currentUser.role === "admin"}
+          />
+        </>
       )}
 
       <ClinicianEditModal
@@ -783,7 +911,7 @@ export default function WeeklySchedulePage() {
       />
 
       {solverNotice ? (
-        <div className="fixed bottom-6 right-6 z-50 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 shadow-lg">
+        <div className="fixed bottom-6 right-6 z-50 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 shadow-lg dark:border-amber-500/40 dark:bg-amber-900/40 dark:text-amber-200">
           {solverNotice}
         </div>
       ) : null}

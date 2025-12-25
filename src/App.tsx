@@ -1,6 +1,73 @@
+import { useEffect, useState } from "react";
+import {
+  clearAuthToken,
+  getCurrentUser,
+  login,
+  setAuthToken,
+  type AuthUser,
+} from "./api/client";
+import LoginPage from "./pages/LoginPage";
 import WeeklySchedulePage from "./pages/WeeklySchedulePage";
 
 export default function App() {
-  return <WeeklySchedulePage />;
-}
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "light";
+    const stored = window.localStorage.getItem("theme");
+    if (stored === "light" || stored === "dark") return stored;
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
 
+  useEffect(() => {
+    getCurrentUser()
+      .then((user) => setCurrentUser(user))
+      .catch(() => {
+        clearAuthToken();
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    window.localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () =>
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+
+  const handleLogin = async (username: string, password: string) => {
+    const result = await login(username, password);
+    setAuthToken(result.access_token);
+    setCurrentUser(result.user);
+  };
+
+  const handleLogout = () => {
+    clearAuthToken();
+    setCurrentUser(null);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+        <div className="mx-auto flex min-h-screen max-w-xl items-center px-6 text-slate-600 dark:text-slate-300">
+          Loading...
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <LoginPage onLogin={handleLogin} theme={theme} onToggleTheme={toggleTheme} />;
+  }
+
+  return (
+    <WeeklySchedulePage
+      currentUser={currentUser}
+      onLogout={handleLogout}
+      theme={theme}
+      onToggleTheme={toggleTheme}
+    />
+  );
+}

@@ -24,7 +24,7 @@ export default function WeekNavigator({
       className={cx(
         "flex items-center justify-between",
         variant === "page" &&
-          "rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm",
+          "rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-700 dark:bg-slate-900",
       )}
     >
       <div className="flex items-center gap-2">
@@ -34,6 +34,7 @@ export default function WeekNavigator({
           className={cx(
             "grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700",
             "hover:bg-slate-50 active:bg-slate-100",
+            "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
           )}
           aria-label="Previous week"
         >
@@ -45,6 +46,7 @@ export default function WeekNavigator({
           className={cx(
             "h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900",
             "hover:bg-slate-50 active:bg-slate-100",
+            "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
           )}
         >
           Today
@@ -55,6 +57,7 @@ export default function WeekNavigator({
           className={cx(
             "grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700",
             "hover:bg-slate-50 active:bg-slate-100",
+            "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
           )}
           aria-label="Next week"
         >
@@ -62,7 +65,7 @@ export default function WeekNavigator({
         </button>
       </div>
 
-      <div className="text-base font-semibold tracking-tight text-slate-900">
+      <div className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">
         {formatRangeLabel(rangeStart, rangeEndInclusive)}
       </div>
     </div>

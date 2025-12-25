@@ -1,15 +1,48 @@
 import json
 import os
 import sqlite3
-from typing import Dict, List, Literal
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Literal, Optional
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 from pydantic import BaseModel, Field
 from ortools.sat.python import cp_model
 
 
 RowKind = Literal["class", "pool"]
+Role = Literal["admin", "user"]
+
+
+class UserPublic(BaseModel):
+    username: str
+    role: Role
+    active: bool
+
+
+class UserCreateRequest(BaseModel):
+    username: str
+    password: str
+    role: Role = "user"
+
+
+class UserUpdateRequest(BaseModel):
+    active: Optional[bool] = None
+    role: Optional[Role] = None
+    password: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserPublic
 
 
 class WorkplaceRow(BaseModel):
@@ -170,20 +203,38 @@ def _default_state() -> AppState:
 
 
 DB_PATH = os.environ.get("SCHEDULE_DB_PATH", "schedule.db")
+JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "720"))
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
 def _get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     conn.execute(
         "CREATE TABLE IF NOT EXISTS app_state (id TEXT PRIMARY KEY, data TEXT NOT NULL)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            active INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
     )
     return conn
 
 
 def _load_state(user_id: str) -> AppState:
     conn = _get_connection()
-    cur = conn.execute("SELECT data FROM app_state WHERE id = ?", (user_id,))
-    row = cur.fetchone()
+    row = conn.execute(
+        "SELECT data FROM app_state WHERE id = ?", (user_id,)
+    ).fetchone()
     if not row and user_id == "jk":
         legacy = conn.execute(
             "SELECT data FROM app_state WHERE id = ?", ("state",)
@@ -214,6 +265,153 @@ def _save_state(state: AppState, user_id: str) -> None:
     conn.close()
 
 
+def _hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def _verify_password(password: str, hashed: str) -> bool:
+    return pwd_context.verify(password, hashed)
+
+
+def _user_row_to_public(row: sqlite3.Row) -> UserPublic:
+    return UserPublic(
+        username=row["username"],
+        role=row["role"],
+        active=bool(row["active"]),
+    )
+
+
+def _get_user_by_username(username: str) -> Optional[sqlite3.Row]:
+    conn = _get_connection()
+    row = conn.execute(
+        "SELECT id, username, password_hash, role, active FROM users WHERE username = ?",
+        (username,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def _list_users() -> List[UserPublic]:
+    conn = _get_connection()
+    rows = conn.execute(
+        "SELECT username, role, active FROM users ORDER BY username"
+    ).fetchall()
+    conn.close()
+    return [_user_row_to_public(row) for row in rows]
+
+
+def _create_user(username: str, password: str, role: Role, active: bool = True) -> UserPublic:
+    conn = _get_connection()
+    conn.execute(
+        """
+        INSERT INTO users (username, password_hash, role, active, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            username,
+            _hash_password(password),
+            role,
+            1 if active else 0,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT username, role, active FROM users WHERE username = ?",
+        (username,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        raise RuntimeError("User creation failed.")
+    return _user_row_to_public(row)
+
+
+def _update_user(username: str, updates: UserUpdateRequest) -> UserPublic:
+    conn = _get_connection()
+    fields = []
+    values: List[object] = []
+    if updates.active is not None:
+        fields.append("active = ?")
+        values.append(1 if updates.active else 0)
+    if updates.role is not None:
+        fields.append("role = ?")
+        values.append(updates.role)
+    if updates.password is not None:
+        fields.append("password_hash = ?")
+        values.append(_hash_password(updates.password))
+    if not fields:
+        raise HTTPException(status_code=400, detail="No updates provided.")
+    values.append(username)
+    conn.execute(f"UPDATE users SET {', '.join(fields)} WHERE username = ?", values)
+    conn.commit()
+    row = conn.execute(
+        "SELECT username, role, active FROM users WHERE username = ?",
+        (username,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return _user_row_to_public(row)
+
+
+def _delete_user(username: str) -> None:
+    conn = _get_connection()
+    conn.execute("DELETE FROM users WHERE username = ?", (username,))
+    conn.execute("DELETE FROM app_state WHERE id = ?", (username,))
+    conn.commit()
+    conn.close()
+
+
+def _create_access_token(user: UserPublic) -> str:
+    expires = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES)
+    payload = {"sub": user.username, "role": user.role, "exp": expires}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def _get_current_user(authorization: Optional[str] = Header(default=None)) -> UserPublic:
+    if not authorization:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token.")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token.")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token.",
+        ) from exc
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token.")
+    row = _get_user_by_username(username)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
+    if not row["active"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User disabled.")
+    return _user_row_to_public(row)
+
+
+def _require_admin(current_user: UserPublic = Depends(_get_current_user)) -> UserPublic:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required.")
+    return current_user
+
+
+def _ensure_admin_user() -> None:
+    username = os.environ.get("ADMIN_USERNAME")
+    password = os.environ.get("ADMIN_PASSWORD")
+    if not username or not password:
+        return
+    normalized = username.strip().lower()
+    if not normalized:
+        return
+    existing = _get_user_by_username(normalized)
+    if existing:
+        return
+    _create_user(normalized, password, "admin", active=True)
+
+
 app = FastAPI(title="Weekly Schedule API", version="0.1.0")
 
 CORS_ALLOW_ORIGINS = os.environ.get("CORS_ALLOW_ORIGINS", "")
@@ -231,34 +429,99 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+def _startup() -> None:
+    _ensure_admin_user()
+
+
+@app.post("/auth/login", response_model=TokenResponse)
+def login(payload: LoginRequest):
+    username = payload.username.strip().lower()
+    if not username or not payload.password:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials.")
+    row = _get_user_by_username(username)
+    if not row or not row["active"]:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials.")
+    if not _verify_password(payload.password, row["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials.")
+    user_public = _user_row_to_public(row)
+    token = _create_access_token(user_public)
+    return TokenResponse(access_token=token, user=user_public)
+
+
+@app.get("/auth/me", response_model=UserPublic)
+def get_me(current_user: UserPublic = Depends(_get_current_user)):
+    return current_user
+
+
+@app.get("/auth/users", response_model=List[UserPublic])
+def list_users(_: UserPublic = Depends(_require_admin)):
+    return _list_users()
+
+
+@app.post("/auth/users", response_model=UserPublic)
+def create_user(
+    payload: UserCreateRequest, current_user: UserPublic = Depends(_require_admin)
+):
+    username = payload.username.strip().lower()
+    if not username:
+        raise HTTPException(status_code=400, detail="Username required.")
+    if not payload.password:
+        raise HTTPException(status_code=400, detail="Password required.")
+    if _get_user_by_username(username):
+        raise HTTPException(status_code=409, detail="User already exists.")
+    created = _create_user(username, payload.password, payload.role, active=True)
+    template_state = _load_state(current_user.username)
+    _save_state(template_state, username)
+    return created
+
+
+@app.patch("/auth/users/{username}", response_model=UserPublic)
+def update_user(
+    username: str,
+    payload: UserUpdateRequest,
+    _: UserPublic = Depends(_require_admin),
+):
+    normalized = username.strip().lower()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Username required.")
+    if payload.password is not None and not payload.password:
+        raise HTTPException(status_code=400, detail="Password required.")
+    return _update_user(normalized, payload)
+
+
+@app.delete("/auth/users/{username}", status_code=204)
+def delete_user(
+    username: str,
+    current_user: UserPublic = Depends(_require_admin),
+):
+    normalized = username.strip().lower()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Username required.")
+    if normalized == current_user.username:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself.")
+    if not _get_user_by_username(normalized):
+        raise HTTPException(status_code=404, detail="User not found.")
+    _delete_user(normalized)
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-def _resolve_user_id(request: Request) -> str:
-    raw = (
-        request.headers.get("x-user-id")
-        or request.query_params.get("user_id")
-        or "jk"
-    )
-    return raw.strip().lower() or "jk"
-
-
 @app.get("/v1/state", response_model=AppState)
-def get_state(request: Request):
-    return _load_state(_resolve_user_id(request))
+def get_state(current_user: UserPublic = Depends(_get_current_user)):
+    return _load_state(current_user.username)
 
 
 @app.post("/v1/state", response_model=AppState)
-def set_state(payload: AppState, request: Request):
-    user_id = _resolve_user_id(request)
-    _save_state(payload, user_id)
+def set_state(payload: AppState, current_user: UserPublic = Depends(_get_current_user)):
+    _save_state(payload, current_user.username)
     return payload
 
 
 @app.post("/v1/solve", response_model=SolveDayResponse)
-def solve_day(payload: SolveDayRequest, request: Request):
-    STATE = _load_state(_resolve_user_id(request))
+def solve_day(payload: SolveDayRequest, current_user: UserPublic = Depends(_get_current_user)):
+    STATE = _load_state(current_user.username)
     dateISO = payload.dateISO
 
     rows_by_id = {row.id: row for row in STATE.rows}

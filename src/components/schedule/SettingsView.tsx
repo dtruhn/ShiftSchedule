@@ -44,16 +44,18 @@ export default function SettingsView({
     "pool-not-allocated": "Pool from which clinicians are distributed to workplaces.",
     "pool-manual": "Pool of clinicians that will not be automatically distributed.",
     "pool-vacation":
-      "Clinicians on vacations. Vacations must be changed in the clinician and clinicians cannot be dragged from here.",
+      "Clinicians on vacations. Drag in or out of this row to update vacations.",
   };
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10">
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="flex items-start justify-between gap-6">
           <div>
-            <h2 className="text-xl font-semibold text-slate-900">Settings</h2>
-            <p className="mt-1 text-sm text-slate-600">
+            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+              Settings
+            </h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
               Define minimum required slots per class (weekday vs weekend/holiday).
             </p>
           </div>
@@ -63,14 +65,15 @@ export default function SettingsView({
             className={cx(
               "inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm",
               "hover:bg-slate-50 active:bg-slate-100",
+              "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
             )}
           >
             Add Class
           </button>
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
-          <div className="grid grid-cols-[auto_2fr_1fr_1fr_auto] bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
+        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
+          <div className="grid grid-cols-[auto_2fr_1fr_1fr_auto] bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             <div>Priority</div>
             <div>Class</div>
             <div>Min Slots (Weekday)</div>
@@ -136,7 +139,7 @@ export default function SettingsView({
                     onChange={(e) => onRenameClass(row.id, e.target.value)}
                     className={cx(
                       "w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                      "focus:border-sky-300",
+                      "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
                     )}
                   />
                 </div>
@@ -155,7 +158,7 @@ export default function SettingsView({
                     }}
                     className={cx(
                       "w-28 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                      "focus:border-sky-300",
+                      "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
                     )}
                   />
                 </div>
@@ -174,7 +177,7 @@ export default function SettingsView({
                     }}
                     className={cx(
                       "w-28 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                      "focus:border-sky-300",
+                      "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
                     )}
                   />
                 </div>
@@ -185,6 +188,7 @@ export default function SettingsView({
                     className={cx(
                       "rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600",
                       "hover:bg-slate-50 hover:text-slate-900",
+                      "dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
                     )}
                   >
                     Remove
@@ -195,9 +199,9 @@ export default function SettingsView({
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
-          <div className="text-base font-semibold text-slate-900">Pools</div>
-          <div className="mt-1 text-sm text-slate-600">
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+          <div className="text-base font-semibold text-slate-900 dark:text-slate-100">Pools</div>
+          <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
             Rename pool rows (cannot be deleted).
           </div>
           <div className="mt-4 space-y-3">

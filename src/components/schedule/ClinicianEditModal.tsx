@@ -44,18 +44,18 @@ export default function ClinicianEditModal({
     <div className="fixed inset-0 z-50">
       <button
         type="button"
-        className="absolute inset-0 cursor-default bg-slate-900/30 backdrop-blur-[1px]"
+        className="absolute inset-0 cursor-default bg-slate-900/30 backdrop-blur-[1px] dark:bg-slate-950/50"
         onClick={onClose}
         aria-label="Close"
       />
       <div className="relative mx-auto mt-24 w-full max-w-2xl px-6">
-        <div className="flex max-h-[80vh] flex-col rounded-2xl border border-slate-200 bg-white shadow-xl">
-          <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+        <div className="flex max-h-[80vh] flex-col rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5 dark:border-slate-800">
             <div>
-              <div className="text-lg font-semibold tracking-tight text-slate-900">
+              <div className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">
                 Edit {clinician.name}
               </div>
-              <div className="mt-1 text-sm text-slate-600">
+              <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
                 Update eligible classes and vacations.
               </div>
             </div>
@@ -65,6 +65,7 @@ export default function ClinicianEditModal({
               className={cx(
                 "rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900",
                 "hover:bg-slate-50 active:bg-slate-100",
+                "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
               )}
             >
               Close
