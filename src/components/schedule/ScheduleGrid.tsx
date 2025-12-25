@@ -65,6 +65,10 @@ export default function ScheduleGrid({
     } | null;
     dragOverKey: string | null;
   }>({ dragging: null, dragOverKey: null });
+  const [hoveredClassCell, setHoveredClassCell] = useState<{
+    rowId: string;
+    dateISO: string;
+  } | null>(null);
   const [todayBadgePos, setTodayBadgePos] = useState<{
     left: number;
     top: number;
@@ -210,6 +214,8 @@ export default function ScheduleGrid({
                     onMoveWithinDay={onMoveWithinDay}
                     dragState={dragState}
                     setDragState={setDragState}
+                    hoveredClassCell={hoveredClassCell}
+                    setHoveredClassCell={setHoveredClassCell}
                     showSeparator={separatorBeforeRowIds.includes(row.id)}
                     minSlots={minSlotsByRowId[row.id] ?? { weekday: 0, weekend: 0 }}
                     slotOverridesByKey={slotOverridesByKey}
@@ -241,6 +247,8 @@ function RowSection({
   onMoveWithinDay,
   dragState,
   setDragState,
+  hoveredClassCell,
+  setHoveredClassCell,
   showSeparator,
   minSlots,
   slotOverridesByKey,
@@ -284,6 +292,10 @@ function RowSection({
       } | null;
       dragOverKey: string | null;
     }>
+  >;
+  hoveredClassCell: { rowId: string; dateISO: string } | null;
+  setHoveredClassCell: Dispatch<
+    SetStateAction<{ rowId: string; dateISO: string } | null>
   >;
   showSeparator: boolean;
   minSlots: { weekday: number; weekend: number };
@@ -344,6 +356,7 @@ function RowSection({
               })
             : assignments;
         const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+        const isHoverDate = hoveredClassCell?.dateISO === dateISO;
         const minSlotsForDate = isWeekend ? minSlots.weekend : minSlots.weekday;
         const slotOverride = slotOverridesByKey[key] ?? 0;
         const targetSlots = Math.max(0, minSlotsForDate + slotOverride);
@@ -367,6 +380,15 @@ function RowSection({
             key={key}
             type="button"
             onClick={() => onCellClick({ row, date })}
+            onMouseEnter={() => {
+              if (row.kind !== "class") return;
+              setHoveredClassCell({ rowId: row.id, dateISO });
+            }}
+            onMouseLeave={() => {
+              setHoveredClassCell((prev) =>
+                prev?.rowId === row.id && prev.dateISO === dateISO ? null : prev,
+              );
+            }}
             onDragOver={(e) => {
               if (!dragState.dragging) return;
               if (dragState.dragging.dateISO !== dateISO) return;
@@ -460,6 +482,11 @@ function RowSection({
                       showIneligibleWarning={
                         row.kind === "class" &&
                         !getIsQualified(assignment.clinicianId, row.id)
+                      }
+                      isHighlighted={
+                        !!isHoverDate &&
+                        !!hoveredClassCell &&
+                        getIsQualified(assignment.clinicianId, hoveredClassCell.rowId)
                       }
                     />
                   </div>
