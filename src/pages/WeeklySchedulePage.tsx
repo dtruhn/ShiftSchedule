@@ -5,6 +5,7 @@ import SettingsView from "../components/schedule/SettingsView";
 import TopBar from "../components/schedule/TopBar";
 import WeekNavigator from "../components/schedule/WeekNavigator";
 import AdminUsersPanel from "../components/auth/AdminUsersPanel";
+import { ChevronLeftIcon, ChevronRightIcon } from "../components/schedule/icons";
 import { getState, saveState, solveDay, type AuthUser } from "../api/client";
 import {
   Assignment,
@@ -32,6 +33,80 @@ const CLASS_COLORS = [
 const FREE_POOL_ID = "pool-not-allocated";
 const MANUAL_POOL_ID = "pool-manual";
 const VACATION_POOL_ID = "pool-vacation";
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia?.(query).matches ?? false;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    if (media.addEventListener) {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, [query]);
+
+  return matches;
+}
+
+function MobileDayNavigator({
+  date,
+  onPrevDay,
+  onNextDay,
+  onToday,
+}: {
+  date: Date;
+  onPrevDay: () => void;
+  onNextDay: () => void;
+  onToday: () => void;
+}) {
+  const label = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onPrevDay}
+          className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+          aria-label="Previous day"
+        >
+          <ChevronLeftIcon className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={onToday}
+          className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 hover:bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+        >
+          Today
+        </button>
+        <button
+          type="button"
+          onClick={onNextDay}
+          className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+          aria-label="Next day"
+        >
+          <ChevronRightIcon className="h-5 w-5" />
+        </button>
+      </div>
+      <div className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+        {label}
+      </div>
+    </div>
+  );
+}
+
 type WeeklySchedulePageProps = {
   currentUser: AuthUser;
   onLogout: () => void;
@@ -67,10 +142,15 @@ export default function WeeklySchedulePage({
   const [loadedUserId, setLoadedUserId] = useState<string>("");
   const [solverNotice, setSolverNotice] = useState<string | null>(null);
 
+  const isMobile = useMediaQuery("(max-width: 640px)");
   const weekStart = useMemo(() => startOfWeek(anchorDate, 1), [anchorDate]);
-  const weekDays = useMemo(
+  const fullWeekDays = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart],
+  );
+  const displayDays = useMemo(
+    () => (isMobile ? [anchorDate] : fullWeekDays),
+    [anchorDate, fullWeekDays, isMobile],
   );
   const weekEndInclusive = useMemo(() => addDays(weekStart, 6), [weekStart]);
 
@@ -137,7 +217,7 @@ export default function WeeklySchedulePage({
       for (const item of filtered) set.add(item.clinicianId);
     }
 
-    for (const date of weekDays) {
+    for (const date of displayDays) {
       const dateISO = toISODate(date);
       const assigned = assignedByDate.get(dateISO) ?? new Set<string>();
       const vacationSet = vacationByDate.get(dateISO) ?? new Set<string>();
@@ -159,7 +239,7 @@ export default function WeeklySchedulePage({
     }
 
     return next;
-  }, [assignmentMap, weekDays, clinicians]);
+  }, [assignmentMap, displayDays, clinicians]);
 
   const isOnVacation = (clinicianId: string, dateISO: string) => {
     const clinician = clinicians.find((item) => item.id === clinicianId);
@@ -287,7 +367,7 @@ export default function WeeklySchedulePage({
   };
 
   const openSlotsCount = useMemo(() => {
-    const dateISOs = weekDays.map(toISODate);
+    const dateISOs = fullWeekDays.map(toISODate);
     let openSlots = 0;
     for (const rowId of classRowIds) {
       const minSlots = minSlotsByRowId[rowId] ?? { weekday: 0, weekend: 0 };
@@ -302,7 +382,7 @@ export default function WeeklySchedulePage({
       }
     }
     return openSlots;
-  }, [weekDays, assignmentMap, classRowIds, minSlotsByRowId, slotOverridesByKey]);
+  }, [fullWeekDays, assignmentMap, classRowIds, minSlotsByRowId, slotOverridesByKey]);
 
   const editingClinician = useMemo(
     () => clinicians.find((clinician) => clinician.id === editingClinicianId),
@@ -518,18 +598,27 @@ export default function WeeklySchedulePage({
         <>
           <ScheduleGrid
             leftHeaderTitle=""
-            weekDays={weekDays}
+            weekDays={displayDays}
             rows={allRows}
             assignmentMap={renderAssignmentMap}
             header={
-              <WeekNavigator
-                variant="card"
-                rangeStart={weekStart}
-                rangeEndInclusive={weekEndInclusive}
-                onPrevWeek={() => setAnchorDate((d) => addWeeks(d, -1))}
-                onNextWeek={() => setAnchorDate((d) => addWeeks(d, 1))}
-                onToday={() => setAnchorDate(new Date())}
-              />
+              isMobile ? (
+                <MobileDayNavigator
+                  date={anchorDate}
+                  onPrevDay={() => setAnchorDate((d) => addDays(d, -1))}
+                  onNextDay={() => setAnchorDate((d) => addDays(d, 1))}
+                  onToday={() => setAnchorDate(new Date())}
+                />
+              ) : (
+                <WeekNavigator
+                  variant="card"
+                  rangeStart={weekStart}
+                  rangeEndInclusive={weekEndInclusive}
+                  onPrevWeek={() => setAnchorDate((d) => addWeeks(d, -1))}
+                  onNextWeek={() => setAnchorDate((d) => addWeeks(d, 1))}
+                  onToday={() => setAnchorDate(new Date())}
+                />
+              )
             }
             separatorBeforeRowIds={poolsSeparatorId ? [poolsSeparatorId] : []}
             minSlotsByRowId={minSlotsByRowId}
@@ -592,7 +681,7 @@ export default function WeeklySchedulePage({
               });
             }}
             onAutoAllocateWeek={(options) => {
-              weekDays.forEach((day) => {
+              fullWeekDays.forEach((day) => {
                 const dateISO = toISODate(day);
                 solveDay(dateISO, {
                   onlyFillRequired: options?.onlyFillRequired,

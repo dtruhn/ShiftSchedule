@@ -40,15 +40,15 @@ export default function TopBar({
     .join("");
   return (
     <div className="relative border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
-        <div className="flex items-center gap-4">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
+        <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
             Weekly Schedule
           </h1>
           {viewMode === "calendar" ? (
             <span
               className={cx(
-                "inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset",
+                "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset sm:px-3 sm:text-sm",
                 openSlotsCount === 0
                   ? "bg-emerald-50 text-emerald-600 ring-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:ring-emerald-500/40"
                   : "bg-rose-50 text-rose-600 ring-rose-200 dark:bg-rose-900/40 dark:text-rose-200 dark:ring-rose-500/40",
@@ -59,7 +59,7 @@ export default function TopBar({
           ) : null}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             type="button"
             onClick={onToggleTheme}
@@ -76,7 +76,7 @@ export default function TopBar({
             type="button"
             onClick={onToggleView}
             className={cx(
-              "inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm",
+              "inline-flex items-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm sm:px-4 sm:text-sm",
               "hover:bg-slate-50 active:bg-slate-100",
               "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
             )}
@@ -85,7 +85,10 @@ export default function TopBar({
           </button>
         </div>
       </div>
-      <div className="absolute right-6 top-5" ref={menuRef}>
+      <div
+        ref={menuRef}
+        className="relative mt-3 flex justify-end px-4 sm:absolute sm:right-6 sm:top-5 sm:mt-0 sm:px-0"
+      >
         <button
           type="button"
           aria-label="Account"

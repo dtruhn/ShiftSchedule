@@ -114,37 +114,43 @@ export default function ScheduleGrid({
   }, [weekDays]);
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 pb-10">
+    <div className="mx-auto w-full max-w-7xl px-4 pb-8 sm:px-6 sm:pb-10">
       <div
         ref={cardRef}
-        className="relative mt-6 rounded-3xl border-2 border-slate-900/80 bg-white p-[2px] shadow-sm dark:border-slate-700 dark:bg-slate-900"
+        className="relative mt-4 rounded-2xl border-2 border-slate-900/80 bg-white p-[2px] shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:mt-6 sm:rounded-3xl"
       >
         <div
           ref={innerRef}
           className="relative overflow-hidden rounded-[calc(1.5rem-2px)] bg-white dark:bg-slate-900"
         >
           {header ? (
-            <div className="relative z-0 border-b border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-900">
+            <div className="relative z-0 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900 sm:px-6 sm:py-4">
               {header}
             </div>
           ) : null}
-        {todayBadgePos ? (
-          <span
-            className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-full rounded-full border border-sky-200 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-600 shadow-sm dark:border-sky-500/40 dark:bg-slate-900 dark:text-sky-200"
-            style={{ left: todayBadgePos.left, top: todayBadgePos.top + 4 }}
+          {todayBadgePos ? (
+            <span
+              className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-full rounded-full border border-sky-200 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-600 shadow-sm dark:border-sky-500/40 dark:bg-slate-900 dark:text-sky-200"
+              style={{ left: todayBadgePos.left, top: todayBadgePos.top + 4 }}
+            >
+              Today
+            </span>
+          ) : null}
+          <div
+            ref={scrollRef}
+            className="relative z-10 overflow-x-auto overflow-y-auto touch-pan-x touch-pan-y [-webkit-overflow-scrolling:touch] sm:overflow-visible"
           >
-            Today
-          </span>
-        ) : null}
-          <div ref={scrollRef} className="relative z-10 overflow-visible">
             <div className="min-w-full w-full">
               <div
                 className="grid"
                 style={{
-                  gridTemplateColumns: "max-content repeat(7, minmax(120px, 1fr))",
+                  gridTemplateColumns: `max-content repeat(${Math.max(
+                    weekDays.length,
+                    1,
+                  )}, minmax(120px, 1fr))`,
                 }}
               >
-                <div className="flex items-center border-b border-r border-slate-200 bg-white px-4 py-2 dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex items-center border-b border-r border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900 sm:px-4">
                   <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
                     {leftHeaderTitle}
                   </div>
@@ -152,7 +158,7 @@ export default function ScheduleGrid({
 
                 {weekDays.map((d, index) => {
                   const { weekday, dayOfMonth } = formatDayHeader(d);
-                  const isLastCol = toISODate(d) === toISODate(weekDays[6]);
+                  const isLastCol = index === weekDays.length - 1;
                   const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                   const isOtherDay =
                     !!dragState.dragging && dragState.dragging.dateISO !== toISODate(d);
@@ -165,7 +171,7 @@ export default function ScheduleGrid({
                         headerRefs.current[index] = node;
                       }}
                       className={cx(
-                      "relative border-b border-r border-slate-200 px-4 py-2 text-center overflow-visible dark:border-slate-800",
+                        "relative border-b border-r border-slate-200 px-3 py-2 text-center overflow-visible dark:border-slate-800 sm:px-4",
                         isWeekend
                           ? "bg-slate-100 dark:bg-slate-800"
                           : "bg-slate-50 dark:bg-slate-900",
@@ -174,14 +180,14 @@ export default function ScheduleGrid({
                         { "border-r-0": isLastCol },
                       )}
                     >
-                    <div className="flex flex-col items-center gap-1">
-                      <div className="text-[12px] font-semibold tracking-wide text-slate-500 dark:text-slate-300">
-                        {weekday}
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="text-[12px] font-semibold tracking-wide text-slate-500 dark:text-slate-300">
+                          {weekday}
+                        </div>
+                        <div className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+                          {dayOfMonth}
+                        </div>
                       </div>
-                      <div className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-                        {dayOfMonth}
-                      </div>
-                    </div>
                     </div>
                   );
                 })}
@@ -321,9 +327,9 @@ function RowSection({
       >
         <RowLabel row={row} />
       </div>
-      {weekDays.map((date) => {
+      {weekDays.map((date, index) => {
         const dateISO = toISODate(date);
-        const isLastCol = dateISO === toISODate(weekDays[6]);
+        const isLastCol = index === weekDays.length - 1;
         const key = `${row.id}__${dateISO}`;
         const assignments = assignmentMap.get(key) ?? [];
         const sortedAssignments =
@@ -396,7 +402,7 @@ function RowSection({
               }
             }}
             className={cx(
-              "group relative border-r border-slate-200 p-3 text-left dark:border-slate-800",
+              "group relative border-r border-slate-200 p-2 text-left dark:border-slate-800 sm:p-3",
               borderBottomClass,
               rowBg,
               "hover:bg-slate-50/70 active:bg-slate-50",
@@ -539,9 +545,9 @@ function ControlRow({
           </ControlButton>
         </div>
       </div>
-      {weekDays.map((day) => {
+      {weekDays.map((day, index) => {
         const dateISO = toISODate(day);
-        const isLastCol = dateISO === toISODate(weekDays[6]);
+        const isLastCol = index === weekDays.length - 1;
         const isWeekend = day.getDay() === 0 || day.getDay() === 6;
         return (
           <div

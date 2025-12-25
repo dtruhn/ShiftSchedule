@@ -22,12 +22,12 @@ export default function WeekNavigator({
   const panel = (
     <div
       className={cx(
-        "flex items-center justify-between",
+        "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
         variant === "page" &&
           "rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-700 dark:bg-slate-900",
       )}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={onPrevWeek}
@@ -65,7 +65,7 @@ export default function WeekNavigator({
         </button>
       </div>
 
-      <div className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+      <div className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-base">
         {formatRangeLabel(rangeStart, rangeEndInclusive)}
       </div>
     </div>
