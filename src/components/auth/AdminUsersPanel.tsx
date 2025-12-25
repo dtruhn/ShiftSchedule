@@ -95,7 +95,7 @@ export default function AdminUsersPanel({
 
   return (
     <div className="mx-auto max-w-4xl px-6 pb-12">
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-start justify-between gap-6">
           <div>
             <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
@@ -121,7 +121,7 @@ export default function AdminUsersPanel({
             onChange={(event) => setUsername(event.target.value)}
             className={cx(
               "rounded-xl border border-slate-200 px-3 py-2 text-sm",
-              "focus:border-sky-300 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
+              "focus:border-sky-300 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
             )}
             required
           />
@@ -132,7 +132,7 @@ export default function AdminUsersPanel({
             onChange={(event) => setPassword(event.target.value)}
             className={cx(
               "rounded-xl border border-slate-200 px-3 py-2 text-sm",
-              "focus:border-sky-300 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
+              "focus:border-sky-300 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
             )}
             required
           />
@@ -154,7 +154,7 @@ export default function AdminUsersPanel({
             onChange={(event) => setResetTarget(event.target.value)}
             className={cx(
               "rounded-xl border border-slate-200 px-3 py-2 text-sm",
-              "focus:border-sky-300 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
+              "focus:border-sky-300 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
             )}
             required
           >
@@ -174,7 +174,7 @@ export default function AdminUsersPanel({
             onChange={(event) => setResetPassword(event.target.value)}
             className={cx(
               "rounded-xl border border-slate-200 px-3 py-2 text-sm",
-              "focus:border-sky-300 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
+              "focus:border-sky-300 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
             )}
             required
           />
@@ -190,13 +190,13 @@ export default function AdminUsersPanel({
           </button>
         </form>
 
-        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
+        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
           <div className="grid grid-cols-[2fr_1fr_1fr] bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             <div>Username</div>
             <div className="text-right">Status</div>
             <div className="text-right">Actions</div>
           </div>
-          <div className="divide-y divide-slate-200">
+          <div className="divide-y divide-slate-200 dark:divide-slate-800">
             {loading ? (
               <div className="px-4 py-4 text-sm text-slate-500 dark:text-slate-300">
                 Loading users...
@@ -205,7 +205,7 @@ export default function AdminUsersPanel({
               sortedUsers.map((user) => (
                 <div
                   key={user.username}
-                  className="grid grid-cols-[2fr_1fr_1fr] items-center px-4 py-3 text-sm dark:text-slate-200"
+                  className="grid grid-cols-[2fr_1fr_1fr] items-center px-4 py-3 text-sm dark:text-slate-200 dark:bg-slate-900/70"
                 >
                   <div className="font-semibold text-slate-900 dark:text-slate-100">
                     {user.username}

@@ -72,7 +72,7 @@ export default function SettingsView({
           </button>
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
+        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
           <div className="grid grid-cols-[auto_2fr_1fr_1fr_auto] bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             <div>Priority</div>
             <div>Class</div>
@@ -80,12 +80,12 @@ export default function SettingsView({
             <div>Min Slots (Weekend)</div>
             <div className="text-right">Actions</div>
           </div>
-          <div className="divide-y divide-slate-200">
+          <div className="divide-y divide-slate-200 dark:divide-slate-800">
             {classRows.map((row, index) => (
               <div
                 key={row.id}
                 className={cx(
-                  "grid grid-cols-[auto_2fr_1fr_1fr_auto] items-center gap-3 px-4 py-3 dark:bg-slate-900/60",
+                  "grid grid-cols-[auto_2fr_1fr_1fr_auto] items-center gap-3 px-4 py-3 dark:bg-slate-900/70",
                   dragOverId === row.id && "bg-sky-50",
                 )}
                 onDragOver={(event) => {
@@ -126,7 +126,7 @@ export default function SettingsView({
                       setDraggingId(null);
                       setDragOverId(null);
                     }}
-                    className="cursor-grab rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                    className="cursor-grab rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                     aria-label={`Reorder ${row.name}`}
                   >
                     ≡
@@ -139,7 +139,7 @@ export default function SettingsView({
                     onChange={(e) => onRenameClass(row.id, e.target.value)}
                     className={cx(
                       "w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                      "focus:border-sky-300 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100",
+                      "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
                     )}
                   />
                 </div>
@@ -158,7 +158,7 @@ export default function SettingsView({
                     }}
                     className={cx(
                       "w-28 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                      "focus:border-sky-300 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
+                      "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
                     )}
                   />
                 </div>
@@ -177,7 +177,7 @@ export default function SettingsView({
                     }}
                     className={cx(
                       "w-28 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                      "focus:border-sky-300 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
+                      "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
                     )}
                   />
                 </div>
@@ -188,7 +188,7 @@ export default function SettingsView({
                     className={cx(
                       "rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600",
                       "hover:bg-slate-50 hover:text-slate-900",
-                      "dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+                      "dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100",
                     )}
                   >
                     Remove
@@ -199,7 +199,7 @@ export default function SettingsView({
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900/60">
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900/60">
           <div className="text-base font-semibold text-slate-900 dark:text-slate-100">Pools</div>
           <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
             Rename pool rows (cannot be deleted).
@@ -213,7 +213,7 @@ export default function SettingsView({
                   onChange={(e) => onRenamePool(row.id, e.target.value)}
                   className={cx(
                     "w-full max-w-sm rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                    "focus:border-sky-300 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100",
+                    "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
                   )}
                 />
                 <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">
@@ -224,7 +224,7 @@ export default function SettingsView({
           </div>
         </div>
 
-        <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900/60">
+        <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900/60">
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
@@ -243,7 +243,7 @@ export default function SettingsView({
               placeholder="New clinician name"
               className={cx(
                 "w-full max-w-xs rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
-                "focus:border-sky-300 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100",
+                "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
               )}
             />
             <button
@@ -257,17 +257,17 @@ export default function SettingsView({
               className={cx(
                 "rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm",
                 "hover:bg-slate-50 active:bg-slate-100",
-                "dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+                "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
               )}
             >
               Add Clinician
             </button>
           </div>
-          <div className="mt-5 divide-y divide-slate-200 rounded-xl border border-slate-200 dark:border-slate-700 dark:divide-slate-800">
+          <div className="mt-5 divide-y divide-slate-200 rounded-xl border border-slate-200 dark:border-slate-800 dark:divide-slate-800">
             {clinicians.map((clinician) => (
               <div
                 key={clinician.id}
-                className="flex items-center justify-between gap-4 px-4 py-3 dark:bg-slate-900/60"
+                className="flex items-center justify-between gap-4 px-4 py-3 dark:bg-slate-900/70"
               >
                 <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   {clinician.name}
@@ -279,7 +279,7 @@ export default function SettingsView({
                     className={cx(
                       "rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600",
                       "hover:bg-slate-50 hover:text-slate-900",
-                      "dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+                      "dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100",
                     )}
                   >
                     Edit

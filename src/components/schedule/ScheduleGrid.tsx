@@ -297,10 +297,10 @@ function RowSection({
     row.id === "pool-vacation"
       ? "border-b-0"
       : isDistributionPoolRow
-        ? "border-b-2 border-dashed border-slate-200"
+        ? "border-b-2 border-slate-200 dark:border-slate-800"
         : isManualPoolRow
-          ? "border-b-2 border-slate-300"
-          : "border-b border-slate-200";
+          ? "border-b-2 border-slate-200 dark:border-slate-800"
+          : "border-b border-slate-200 dark:border-slate-800";
   return (
     <>
       {shouldInsertControlRow ? (
@@ -314,7 +314,7 @@ function RowSection({
       ) : null}
       <div
         className={cx(
-          "border-r border-slate-200 py-5",
+          "border-r border-slate-200 py-5 dark:border-slate-800",
           borderBottomClass,
           rowBg,
         )}
@@ -396,7 +396,7 @@ function RowSection({
               }
             }}
             className={cx(
-              "group relative border-r border-slate-200 p-3 text-left",
+              "group relative border-r border-slate-200 p-3 text-left dark:border-slate-800",
               borderBottomClass,
               rowBg,
               "hover:bg-slate-50/70 active:bg-slate-50",
@@ -526,16 +526,16 @@ function ControlRow({
             label="Only necessary (week)"
             onClick={() => onAutoAllocateWeek?.({ onlyFillRequired: true })}
           >
-            <ArrowUpIcon className="h-4 w-4" />
+            <ArrowUpIcon className="h-7 w-7" />
           </ControlButton>
           <ControlButton
             label="Distribute all (week)"
             onClick={() => onAutoAllocateWeek?.({ onlyFillRequired: false })}
           >
-            <ArrowUpDoubleIcon className="h-4 w-4" />
+            <ArrowUpDoubleIcon className="h-7 w-7" />
           </ControlButton>
           <ControlButton label="Reset to free (week)" onClick={() => onResetWeek?.()}>
-            <ArrowDownDoubleIcon className="h-4 w-4" />
+            <ArrowDownDoubleIcon className="h-7 w-7" />
           </ControlButton>
         </div>
       </div>
@@ -557,16 +557,16 @@ function ControlRow({
                 label="Only necessary (day)"
                 onClick={() => onAutoAllocateDay?.(dateISO, { onlyFillRequired: true })}
               >
-                <ArrowUpIcon className="h-3.5 w-3.5" />
+                <ArrowUpIcon className="h-7 w-7" />
               </ControlButton>
               <ControlButton
                 label="Distribute all (day)"
                 onClick={() => onAutoAllocateDay?.(dateISO, { onlyFillRequired: false })}
               >
-                <ArrowUpDoubleIcon className="h-3.5 w-3.5" />
+                <ArrowUpDoubleIcon className="h-7 w-7" />
               </ControlButton>
               <ControlButton label="Reset to free (day)" onClick={() => onResetDay?.(dateISO)}>
-                <ArrowDownDoubleIcon className="h-3.5 w-3.5" />
+                <ArrowDownDoubleIcon className="h-7 w-7" />
               </ControlButton>
             </div>
           </div>
