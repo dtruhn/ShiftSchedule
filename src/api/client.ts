@@ -46,6 +46,13 @@ export type AppState = {
   holidays?: Holiday[];
 };
 
+export type UserStateExport = {
+  version: number;
+  exportedAt: string;
+  sourceUser: string;
+  state: AppState;
+};
+
 export type UserRole = "admin" | "user";
 
 export type AuthUser = {
@@ -121,6 +128,7 @@ export async function createUser(payload: {
   username: string;
   password: string;
   role?: UserRole;
+  importState?: AppState | UserStateExport;
 }): Promise<AuthUser> {
   const res = await fetch(`${API_BASE}/auth/users`, {
     method: "POST",
@@ -129,6 +137,19 @@ export async function createUser(payload: {
   });
   if (!res.ok) {
     throw new Error(`Failed to create user: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function exportUserState(username: string): Promise<UserStateExport> {
+  const res = await fetch(
+    `${API_BASE}/auth/users/${encodeURIComponent(username)}/export`,
+    {
+      headers: buildHeaders(),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to export user: ${res.status}`);
   }
   return res.json();
 }

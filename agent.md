@@ -85,6 +85,10 @@ Holidays
 - Add holidays manually; list shows DD.MM.YYYY dates (input accepts DD.MM.YYYY or ISO).
 - Holidays behave like weekends in solver + min slot logic and show in the calendar header.
 
+Admin user management
+- User export: admin can download a user state JSON (export includes metadata + AppState).
+- User import: create user form accepts an export JSON to seed the new user's state.
+
 ---
 
 ## 4) Data Model (Shared Concept)
@@ -127,7 +131,7 @@ type Holiday = { dateISO: string; name: string };
 - Distribution Pool: any clinician not assigned to a class and not on vacation appears here.
 - Assignments stored in a map (rowId + dateISO -> list of assignments).
 - Drag and drop only within the same day.
-- Clicking a class cell increments the per-day slot override (adds a "Needs filling" slot); remove via the minus badge.
+- Clicking a class cell increments the per-day slot override (adds an "Open Slot"); remove via the minus badge.
 
 ---
 
@@ -172,6 +176,7 @@ Endpoints
 - `POST /auth/login`
 - `GET /auth/me`
 - `GET /auth/users` (admin only)
+- `GET /auth/users/{username}/export` (admin only)
 - `POST /auth/users` (admin only, also seeds new user's state from creator)
 - `PATCH /auth/users/{username}` (admin only, supports password reset)
 - `DELETE /auth/users/{username}` (admin only)

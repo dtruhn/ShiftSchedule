@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   createUser,
   deleteUser,
+  exportUserState,
   listUsers,
   updateUser,
   type AuthUser,
+  type AppState,
+  type UserStateExport,
 } from "../../api/client";
 import { cx } from "../../lib/classNames";
 
@@ -21,10 +24,16 @@ export default function AdminUsersPanel({
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
+  const [importPayload, setImportPayload] = useState<
+    UserStateExport | AppState | null
+  >(null);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
   const [resetTarget, setResetTarget] = useState("");
   const [resetPassword, setResetPassword] = useState("");
   const [resetSaving, setResetSaving] = useState(false);
   const [deletingUser, setDeletingUser] = useState<string | null>(null);
+  const [exportingUser, setExportingUser] = useState<string | null>(null);
 
   const sortedUsers = useMemo(
     () => [...users].sort((a, b) => a.username.localeCompare(b.username)),
@@ -50,15 +59,41 @@ export default function AdminUsersPanel({
       const created = await createUser({
         username: username.trim().toLowerCase(),
         password,
+        importState: importPayload ?? undefined,
       });
       setUsers((prev) => [...prev, created]);
       setUsername("");
       setPassword("");
+      setImportPayload(null);
+      setImportFileName(null);
     } catch {
       setError("Could not create user.");
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as UserStateExport | AppState;
+      setImportPayload(parsed);
+      setImportFileName(file.name);
+    } catch {
+      setError("Could not read import file.");
+      setImportPayload(null);
+      setImportFileName(null);
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleClearImport = () => {
+    setImportPayload(null);
+    setImportFileName(null);
   };
 
   const handleReset = async (event: FormEvent<HTMLFormElement>) => {
@@ -93,6 +128,47 @@ export default function AdminUsersPanel({
     }
   };
 
+  const handleExport = async (user: AuthUser) => {
+    setError(null);
+    setExportingUser(user.username);
+    try {
+      const payload = await exportUserState(user.username);
+      const exportedDate = payload.exportedAt?.slice(0, 10) ?? "export";
+      const fileName = `schedule-export-${user.username}-${exportedDate}.json`;
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: "application/json",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setError("Could not export user.");
+    } finally {
+      setExportingUser(null);
+    }
+  };
+
+  const importSummary = useMemo(() => {
+    if (!importPayload || !importFileName) {
+      return "No import file selected. New users start from your current configuration.";
+    }
+    if ("state" in importPayload) {
+      const source = importPayload.sourceUser
+        ? `from ${importPayload.sourceUser}`
+        : "from export";
+      const exportedAt = importPayload.exportedAt
+        ? ` (${importPayload.exportedAt})`
+        : "";
+      return `Loaded ${importFileName} ${source}${exportedAt}.`;
+    }
+    return `Loaded ${importFileName}.`;
+  }, [importPayload, importFileName]);
+
   return (
     <div className="mx-auto max-w-4xl px-6 pb-12">
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -125,17 +201,30 @@ export default function AdminUsersPanel({
             )}
             required
           />
-          <input
-            type="password"
-            placeholder="Temporary password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className={cx(
-              "rounded-xl border border-slate-200 px-3 py-2 text-sm",
-              "focus:border-sky-300 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
-            )}
-            required
-          />
+          <div className="relative">
+            <input
+              type={showCreatePassword ? "text" : "password"}
+              placeholder="Temporary password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className={cx(
+                "w-full rounded-xl border border-slate-200 px-3 py-2 pr-12 text-sm",
+                "focus:border-sky-300 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
+              )}
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowCreatePassword((prev) => !prev)}
+              aria-pressed={showCreatePassword}
+              className={cx(
+                "absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-500",
+                "hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100",
+              )}
+            >
+              {showCreatePassword ? "Hide" : "Show"}
+            </button>
+          </div>
           <button
             type="submit"
             disabled={saving}
@@ -147,6 +236,39 @@ export default function AdminUsersPanel({
             {saving ? "Creating..." : "Create User"}
           </button>
         </form>
+
+        <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-950">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Import state (optional)
+          </div>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <input
+              type="file"
+              accept="application/json"
+              onChange={handleImportFile}
+              className={cx(
+                "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600",
+                "file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white",
+                "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:file:bg-slate-100 dark:file:text-slate-900",
+              )}
+            />
+            {importPayload ? (
+              <button
+                type="button"
+                onClick={handleClearImport}
+                className={cx(
+                  "rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600",
+                  "hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
+                )}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+          <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            {importSummary}
+          </div>
+        </div>
 
         <form onSubmit={handleReset} className="mt-6 grid gap-4 md:grid-cols-3">
           <select
@@ -191,7 +313,7 @@ export default function AdminUsersPanel({
         </form>
 
         <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
-          <div className="grid grid-cols-[2fr_1fr_1fr] bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <div className="grid grid-cols-[2fr_1fr_1.5fr] bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             <div>Username</div>
             <div className="text-right">Status</div>
             <div className="text-right">Actions</div>
@@ -205,7 +327,7 @@ export default function AdminUsersPanel({
               sortedUsers.map((user) => (
                 <div
                   key={user.username}
-                  className="grid grid-cols-[2fr_1fr_1fr] items-center px-4 py-3 text-sm dark:text-slate-200 dark:bg-slate-900/70"
+                  className="grid grid-cols-[2fr_1fr_1.5fr] items-center px-4 py-3 text-sm dark:text-slate-200 dark:bg-slate-900/70"
                 >
                   <div className="font-semibold text-slate-900 dark:text-slate-100">
                     {user.username}
@@ -213,7 +335,19 @@ export default function AdminUsersPanel({
                   <div className="text-right text-xs font-semibold text-slate-500 dark:text-slate-400">
                     {user.active ? "Active" : "Disabled"}
                   </div>
-                  <div className="text-right">
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleExport(user)}
+                      disabled={exportingUser === user.username}
+                      className={cx(
+                        "rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600",
+                        "hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60",
+                        "dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800",
+                      )}
+                    >
+                      {exportingUser === user.username ? "Exporting..." : "Export"}
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleDelete(user)}

@@ -2,13 +2,13 @@ import json
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from ortools.sat.python import cp_model
 
 
@@ -26,6 +26,7 @@ class UserCreateRequest(BaseModel):
     username: str
     password: str
     role: Role = "user"
+    importState: Optional[Dict[str, Any]] = None
 
 
 class UserUpdateRequest(BaseModel):
@@ -92,6 +93,13 @@ class AppState(BaseModel):
     holidayCountry: Optional[str] = None
     holidayYear: Optional[int] = None
     holidays: List[Holiday] = Field(default_factory=list)
+
+
+class UserStateExport(BaseModel):
+    version: int = 1
+    exportedAt: str
+    sourceUser: str
+    state: AppState
 
 
 class SolveDayRequest(BaseModel):
@@ -275,6 +283,15 @@ def _save_state(state: AppState, user_id: str) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def _parse_import_state(payload: Optional[Dict[str, Any]]) -> Optional[AppState]:
+    if payload is None:
+        return None
+    if isinstance(payload, dict) and "state" in payload:
+        export = UserStateExport.model_validate(payload)
+        return export.state
+    return AppState.model_validate(payload)
 
 
 def _hash_password(password: str) -> str:
@@ -471,6 +488,21 @@ def list_users(_: UserPublic = Depends(_require_admin)):
     return _list_users()
 
 
+@app.get("/auth/users/{username}/export", response_model=UserStateExport)
+def export_user_state(username: str, _: UserPublic = Depends(_require_admin)):
+    normalized = username.strip().lower()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Username required.")
+    if not _get_user_by_username(normalized):
+        raise HTTPException(status_code=404, detail="User not found.")
+    state = _load_state(normalized)
+    return UserStateExport(
+        exportedAt=datetime.now(timezone.utc).isoformat(),
+        sourceUser=normalized,
+        state=state,
+    )
+
+
 @app.post("/auth/users", response_model=UserPublic)
 def create_user(
     payload: UserCreateRequest, current_user: UserPublic = Depends(_require_admin)
@@ -482,9 +514,16 @@ def create_user(
         raise HTTPException(status_code=400, detail="Password required.")
     if _get_user_by_username(username):
         raise HTTPException(status_code=409, detail="User already exists.")
+    try:
+        import_state = _parse_import_state(payload.importState)
+    except ValidationError:
+        raise HTTPException(status_code=400, detail="Invalid import state.")
     created = _create_user(username, payload.password, payload.role, active=True)
-    template_state = _load_state(current_user.username)
-    _save_state(template_state, username)
+    if import_state is None:
+        template_state = _load_state(current_user.username)
+        _save_state(template_state, username)
+    else:
+        _save_state(import_state, username)
     return created
 
 

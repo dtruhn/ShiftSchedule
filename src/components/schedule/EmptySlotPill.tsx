@@ -9,7 +9,7 @@ type EmptySlotPillProps = {
 };
 
 export default function EmptySlotPill({
-  label = "Needs filling",
+  label = "Open Slot",
   onRemove,
   variant = "default",
   showAddIcon = false,
@@ -36,7 +36,7 @@ export default function EmptySlotPill({
       {onRemove ? (
         <span
           role="button"
-          aria-label="Remove needs filling"
+          aria-label="Remove open slot"
           onClick={(event) => {
             event.stopPropagation();
             onRemove();
