@@ -6,7 +6,7 @@ import TopBar from "../components/schedule/TopBar";
 import WeekNavigator from "../components/schedule/WeekNavigator";
 import AdminUsersPanel from "../components/auth/AdminUsersPanel";
 import { ChevronLeftIcon, ChevronRightIcon } from "../components/schedule/icons";
-import { getState, saveState, solveDay, type AuthUser } from "../api/client";
+import { getState, saveState, solveDay, type AuthUser, type Holiday } from "../api/client";
 import {
   Assignment,
   assignments,
@@ -119,6 +119,7 @@ export default function WeeklySchedulePage({
   theme,
   onToggleTheme,
 }: WeeklySchedulePageProps) {
+  const currentYear = new Date().getFullYear();
   const [viewMode, setViewMode] = useState<"calendar" | "settings">("calendar");
   const [anchorDate, setAnchorDate] = useState<Date>(new Date());
   const [assignmentMap, setAssignmentMap] = useState<Map<string, Assignment[]>>(() =>
@@ -140,6 +141,9 @@ export default function WeeklySchedulePage({
   const [hasLoaded, setHasLoaded] = useState(false);
   const [loadedUserId, setLoadedUserId] = useState<string>("");
   const [solverNotice, setSolverNotice] = useState<string | null>(null);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [holidayCountry, setHolidayCountry] = useState("DE");
+  const [holidayYear, setHolidayYear] = useState(currentYear);
 
   const isMobile = useMediaQuery("(max-width: 640px)");
   const weekStart = useMemo(() => startOfWeek(anchorDate, 1), [anchorDate]);
@@ -167,6 +171,28 @@ export default function WeeklySchedulePage({
     () => new Map(allRows.map((row) => [row.id, row])),
     [allRows],
   );
+  const holidayDates = useMemo(
+    () => new Set(holidays.map((holiday) => holiday.dateISO)),
+    [holidays],
+  );
+  const holidayNameByDate = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const holiday of holidays) {
+      const list = map.get(holiday.dateISO) ?? [];
+      list.push(holiday.name);
+      map.set(holiday.dateISO, list);
+    }
+    const record: Record<string, string> = {};
+    for (const [dateISO, names] of map.entries()) {
+      record[dateISO] = names.join(" · ");
+    }
+    return record;
+  }, [holidays]);
+  const isWeekendOrHoliday = (dateISO: string) => {
+    const date = new Date(`${dateISO}T00:00:00`);
+    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+    return isWeekend || holidayDates.has(dateISO);
+  };
 
   const renderAssignmentMap = useMemo(() => {
     const freePoolId = FREE_POOL_ID;
@@ -343,9 +369,7 @@ export default function WeeklySchedulePage({
 
   const getBaseSlotsForDate = (rowId: string, dateISO: string) => {
     const minSlots = minSlotsByRowId[rowId] ?? { weekday: 0, weekend: 0 };
-    const date = new Date(`${dateISO}T00:00:00`);
-    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-    return isWeekend ? minSlots.weekend : minSlots.weekday;
+    return isWeekendOrHoliday(dateISO) ? minSlots.weekend : minSlots.weekday;
   };
 
   const adjustSlotOverride = (rowId: string, dateISO: string, delta: number) => {
@@ -372,16 +396,23 @@ export default function WeeklySchedulePage({
       const minSlots = minSlotsByRowId[rowId] ?? { weekday: 0, weekend: 0 };
       for (const d of dateISOs) {
         const cell = assignmentMap.get(`${rowId}__${d}`) ?? [];
-        const date = new Date(`${d}T00:00:00`);
-        const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-        const baseRequired = isWeekend ? minSlots.weekend : minSlots.weekday;
+        const baseRequired = isWeekendOrHoliday(d)
+          ? minSlots.weekend
+          : minSlots.weekday;
         const override = slotOverridesByKey[`${rowId}__${d}`] ?? 0;
         const required = Math.max(0, baseRequired + override);
         if (required > cell.length) openSlots += required - cell.length;
       }
     }
     return openSlots;
-  }, [fullWeekDays, assignmentMap, classRowIds, minSlotsByRowId, slotOverridesByKey]);
+  }, [
+    fullWeekDays,
+    assignmentMap,
+    classRowIds,
+    minSlotsByRowId,
+    slotOverridesByKey,
+    holidayDates,
+  ]);
 
   const editingClinician = useMemo(
     () => clinicians.find((clinician) => clinician.id === editingClinicianId),
@@ -444,6 +475,9 @@ export default function WeeklySchedulePage({
         if (state.slotOverridesByKey) {
           setSlotOverridesByKey(state.slotOverridesByKey);
         }
+        if (state.holidays) setHolidays(state.holidays);
+        if (state.holidayCountry) setHolidayCountry(state.holidayCountry);
+        if (state.holidayYear) setHolidayYear(state.holidayYear);
       })
       .catch(() => {
         /* Backend optional during local-only dev */
@@ -474,6 +508,9 @@ export default function WeeklySchedulePage({
       assignments: toAssignments(),
       minSlotsByRowId,
       slotOverridesByKey,
+      holidays,
+      holidayCountry,
+      holidayYear,
     };
     const handle = window.setTimeout(() => {
       saveState(payload).catch(() => {
@@ -487,6 +524,9 @@ export default function WeeklySchedulePage({
     assignmentMap,
     minSlotsByRowId,
     slotOverridesByKey,
+    holidays,
+    holidayCountry,
+    holidayYear,
     hasLoaded,
     currentUser.username,
   ]);
@@ -578,6 +618,53 @@ export default function WeeklySchedulePage({
       }),
     );
   };
+  const handleAddHoliday = (holiday: Holiday) => {
+    const trimmedName = holiday.name.trim();
+    if (!holiday.dateISO || !trimmedName) return;
+    setHolidays((prev) => {
+      const exists = prev.some(
+        (item) => item.dateISO === holiday.dateISO && item.name === trimmedName,
+      );
+      if (exists) return prev;
+      return [...prev, { dateISO: holiday.dateISO, name: trimmedName }];
+    });
+  };
+  const handleRemoveHoliday = (holiday: Holiday) => {
+    setHolidays((prev) =>
+      prev.filter(
+        (item) => !(item.dateISO === holiday.dateISO && item.name === holiday.name),
+      ),
+    );
+  };
+  const handleFetchHolidays = async (countryCode: string, year: number) => {
+    const normalizedCountry = countryCode.trim().toUpperCase();
+    const response = await fetch(
+      `https://date.nager.at/api/v3/PublicHolidays/${year}/${normalizedCountry}`,
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to fetch holidays (${response.status}).`);
+    }
+    const data = (await response.json()) as Array<{
+      date: string;
+      localName?: string;
+      name?: string;
+    }>;
+    const fetched = data.map((item) => ({
+      dateISO: item.date,
+      name: item.localName ?? item.name ?? "Holiday",
+    }));
+    const unique = new Map<string, Holiday>();
+    for (const item of fetched) {
+      unique.set(`${item.dateISO}__${item.name}`, item);
+    }
+    setHolidays((prev) => {
+      const yearPrefix = `${year}-`;
+      const keep = prev.filter((holiday) => !holiday.dateISO.startsWith(yearPrefix));
+      return [...keep, ...Array.from(unique.values())];
+    });
+    setHolidayCountry(normalizedCountry);
+    setHolidayYear(year);
+  };
   const openSlotsBadge = (
     <span
       className={cx(
@@ -611,6 +698,8 @@ export default function WeeklySchedulePage({
             weekDays={displayDays}
             rows={allRows}
             assignmentMap={renderAssignmentMap}
+            holidayDates={holidayDates}
+            holidayNameByDate={holidayNameByDate}
             header={
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
@@ -876,6 +965,9 @@ export default function WeeklySchedulePage({
             poolRows={poolRows}
             minSlotsByRowId={minSlotsByRowId}
             clinicians={clinicians}
+            holidays={holidays}
+            holidayCountry={holidayCountry}
+            holidayYear={holidayYear}
             onChangeMinSlots={(rowId, kind, nextValue) => {
               setMinSlotsByRowId((prev) => ({
                 ...prev,
@@ -995,6 +1087,11 @@ export default function WeeklySchedulePage({
                 current === clinicianId ? "" : current,
               );
             }}
+            onChangeHolidayCountry={setHolidayCountry}
+            onChangeHolidayYear={setHolidayYear}
+            onFetchHolidays={handleFetchHolidays}
+            onAddHoliday={handleAddHoliday}
+            onRemoveHoliday={handleRemoveHoliday}
           />
           <AdminUsersPanel
             isAdmin={currentUser.role === "admin"}

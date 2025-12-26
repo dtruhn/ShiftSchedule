@@ -35,19 +35,21 @@ export function formatDayHeader(date: Date) {
 }
 
 export function formatRangeLabel(start: Date, endInclusive: Date) {
-  const sameYear = start.getFullYear() === endInclusive.getFullYear();
+  const formatEuropeanDate = (date: Date) => {
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+    return `${day}.${month}.${year}`;
+  };
 
-  const startFmt = new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: sameYear ? undefined : "numeric",
-  }).format(start);
+  const sameDay =
+    start.getFullYear() === endInclusive.getFullYear() &&
+    start.getMonth() === endInclusive.getMonth() &&
+    start.getDate() === endInclusive.getDate();
 
-  const endFmt = new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(endInclusive);
+  if (sameDay) {
+    return formatEuropeanDate(start);
+  }
 
-  return `${startFmt} \u2013 ${endFmt}`;
+  return `${formatEuropeanDate(start)} \u2013 ${formatEuropeanDate(endInclusive)}`;
 }

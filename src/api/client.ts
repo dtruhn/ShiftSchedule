@@ -13,6 +13,11 @@ export type VacationRange = {
   endISO: string;
 };
 
+export type Holiday = {
+  dateISO: string;
+  name: string;
+};
+
 export type Clinician = {
   id: string;
   name: string;
@@ -36,6 +41,9 @@ export type AppState = {
   assignments: Assignment[];
   minSlotsByRowId: Record<string, MinSlots>;
   slotOverridesByKey?: Record<string, number>;
+  holidayCountry?: string;
+  holidayYear?: number;
+  holidays?: Holiday[];
 };
 
 export type UserRole = "admin" | "user";

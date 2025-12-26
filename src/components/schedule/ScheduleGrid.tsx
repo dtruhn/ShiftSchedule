@@ -13,6 +13,8 @@ type ScheduleGridProps = {
   rows: WorkplaceRow[];
   assignmentMap: Map<string, Assignment[]>;
   header?: React.ReactNode;
+  holidayDates?: Set<string>;
+  holidayNameByDate?: Record<string, string>;
   getClinicianName: (clinicianId: string) => string;
   getIsQualified: (clinicianId: string, rowId: string) => boolean;
   getHasEligibleClasses: (clinicianId: string) => boolean;
@@ -41,6 +43,8 @@ export default function ScheduleGrid({
   rows,
   assignmentMap,
   header,
+  holidayDates,
+  holidayNameByDate,
   getClinicianName,
   getIsQualified,
   getHasEligibleClasses,
@@ -147,40 +151,53 @@ export default function ScheduleGrid({
                 </div>
 
                 {weekDays.map((d, index) => {
+                  const dateISO = toISODate(d);
                   const { weekday, dayOfMonth } = formatDayHeader(d);
                   const isLastCol = index === weekDays.length - 1;
+                  const holidayName = holidayNameByDate?.[dateISO];
+                  const isHoliday =
+                    Boolean(holidayName) || (holidayDates?.has(dateISO) ?? false);
                   const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                  const isToday = toISODate(d) === todayISO;
+                  const isToday = dateISO === todayISO;
                   const isOtherDay =
-                    !!dragState.dragging && dragState.dragging.dateISO !== toISODate(d);
+                    !!dragState.dragging && dragState.dragging.dateISO !== dateISO;
                   const isActiveDay =
-                    !!dragState.dragging && dragState.dragging.dateISO === toISODate(d);
+                    !!dragState.dragging && dragState.dragging.dateISO === dateISO;
                   return (
                     <div
-                      key={toISODate(d)}
+                      key={dateISO}
                       className={cx(
                         "relative border-b border-r border-slate-200 px-3 py-2 text-center overflow-visible dark:border-slate-800 sm:px-4",
-                        isWeekend
-                          ? "bg-slate-100 dark:bg-slate-800"
-                          : "bg-slate-50 dark:bg-slate-900",
+                        isHoliday
+                          ? "bg-[#F3E8FF] dark:bg-slate-800"
+                          : isWeekend
+                            ? "bg-[#F3F4F6] dark:bg-slate-800"
+                            : "bg-slate-50 dark:bg-slate-900",
                         isActiveDay && "bg-sky-50",
                         isOtherDay && "bg-slate-200/70 text-slate-400 opacity-60",
                         { "border-r-0": isLastCol },
                       )}
                     >
-                      <div className="flex items-center justify-center gap-2">
-                        <div className="text-[12px] font-semibold tracking-wide text-slate-500 dark:text-slate-300">
-                          {weekday}
+                      <div className="flex flex-col items-center justify-center gap-1">
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="text-[12px] font-semibold tracking-wide text-slate-500 dark:text-slate-300">
+                            {weekday}
+                          </div>
+                          <div className="text-[12px] font-normal tracking-wide text-slate-900 dark:text-slate-100">
+                            {isToday ? (
+                              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100">
+                                {dayOfMonth}
+                              </span>
+                            ) : (
+                              dayOfMonth
+                            )}
+                          </div>
                         </div>
-                        <div className="text-[12px] font-normal tracking-wide text-slate-900 dark:text-slate-100">
-                          {isToday ? (
-                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100">
-                              {dayOfMonth}
-                            </span>
-                          ) : (
-                            dayOfMonth
-                          )}
-                        </div>
+                        {holidayName ? (
+                          <div className="max-w-[12ch] truncate text-[9px] font-normal text-purple-700 dark:text-purple-200">
+                            {holidayName}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -210,6 +227,8 @@ export default function ScheduleGrid({
                     minSlots={minSlotsByRowId[row.id] ?? { weekday: 0, weekend: 0 }}
                     slotOverridesByKey={slotOverridesByKey}
                     onRemoveEmptySlot={onRemoveEmptySlot}
+                    holidayDates={holidayDates}
+                    holidayNameByDate={holidayNameByDate}
                   />
                 ))}
               </div>
@@ -243,6 +262,8 @@ function RowSection({
   minSlots,
   slotOverridesByKey,
   onRemoveEmptySlot,
+  holidayDates,
+  holidayNameByDate,
 }: {
   row: WorkplaceRow;
   weekDays: Date[];
@@ -289,6 +310,8 @@ function RowSection({
   minSlots: { weekday: number; weekend: number };
   slotOverridesByKey: Record<string, number>;
   onRemoveEmptySlot?: (args: { rowId: string; dateISO: string }) => void;
+  holidayDates?: Set<string>;
+  holidayNameByDate?: Record<string, string>;
 }) {
   const rowBg =
     row.id === "pool-vacation"
@@ -316,6 +339,7 @@ function RowSection({
           onAutoAllocateWeek={onAutoAllocateWeek}
           onResetDay={onResetDay}
           onResetWeek={onResetWeek}
+          holidayDates={holidayDates}
         />
       ) : null}
       <div
@@ -343,7 +367,8 @@ function RowSection({
                 return bySurname !== 0 ? bySurname : nameA.localeCompare(nameB);
               })
             : assignments;
-        const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+        const isHoliday = holidayDates?.has(dateISO) ?? false;
+        const isWeekend = isHoliday || date.getDay() === 0 || date.getDay() === 6;
         const isHoverDate = hoveredClassCell?.dateISO === dateISO;
         const minSlotsForDate = isWeekend ? minSlots.weekend : minSlots.weekday;
         const slotOverride = slotOverridesByKey[key] ?? 0;
@@ -371,9 +396,12 @@ function RowSection({
             }}
             onDragOver={(e) => {
               if (!dragState.dragging) return;
-              if (dragState.dragging.dateISO !== dateISO) return;
               e.preventDefault();
               e.dataTransfer.dropEffect = "move";
+              if (dragState.dragging.dateISO !== dateISO) {
+                setDragState((s) => (s.dragOverKey ? { ...s, dragOverKey: null } : s));
+                return;
+              }
               setDragState((s) => (s.dragOverKey === key ? s : { ...s, dragOverKey: key }));
             }}
             onDragLeave={() => {
@@ -413,11 +441,10 @@ function RowSection({
               rowBg,
               "hover:bg-slate-50/70 active:bg-slate-50",
               { "border-r-0": isLastCol },
-              isWeekend ? "bg-slate-100/70 dark:bg-slate-800/70" : "",
+              row.kind === "class" && isWeekend ? "bg-white dark:bg-slate-900" : "",
               showQualified && "border-emerald-400 ring-2 ring-emerald-300 ring-inset",
               {
-                "bg-slate-200/70 text-slate-400 opacity-60 pointer-events-none":
-                  isOtherDay,
+                "bg-slate-200/70 text-slate-400 opacity-60": isOtherDay,
               },
             )}
           >
@@ -551,12 +578,14 @@ function ControlRow({
   onAutoAllocateWeek,
   onResetDay,
   onResetWeek,
+  holidayDates,
 }: {
   weekDays: Date[];
   onAutoAllocateDay?: (dateISO: string, options?: { onlyFillRequired?: boolean }) => void;
   onAutoAllocateWeek?: (options?: { onlyFillRequired?: boolean }) => void;
   onResetDay?: (dateISO: string) => void;
   onResetWeek?: () => void;
+  holidayDates?: Set<string>;
 }) {
   return (
     <>
@@ -582,13 +611,12 @@ function ControlRow({
       {weekDays.map((day, index) => {
         const dateISO = toISODate(day);
         const isLastCol = index === weekDays.length - 1;
-        const isWeekend = day.getDay() === 0 || day.getDay() === 6;
         return (
           <div
             key={`control-${dateISO}`}
             className={cx(
-              "border-b border-r border-slate-200 bg-white px-4 py-3 text-center overflow-visible dark:border-slate-800",
-              "dark:bg-slate-900",
+              "border-b border-r border-slate-200 px-4 py-3 text-center overflow-visible dark:border-slate-800",
+              "bg-white dark:bg-slate-900",
               { "border-r-0": isLastCol },
             )}
           >

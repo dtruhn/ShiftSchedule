@@ -10,6 +10,7 @@ type LoginPageProps = {
 export default function LoginPage({ onLogin, theme, onToggleTheme }: LoginPageProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,17 +67,30 @@ export default function LoginPage({ onLogin, theme, onToggleTheme }: LoginPagePr
               <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 Password
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className={cx(
-                  "mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm",
-                  "focus:border-sky-300 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
-                )}
-                autoComplete="current-password"
-                required
-              />
+              <div className="relative mt-2">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className={cx(
+                    "w-full rounded-xl border border-slate-200 px-4 py-3 pr-14 text-sm",
+                    "focus:border-sky-300 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
+                  )}
+                  autoComplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-pressed={showPassword}
+                  className={cx(
+                    "absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-500",
+                    "hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100",
+                  )}
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </div>
             </div>
 
             {error ? (

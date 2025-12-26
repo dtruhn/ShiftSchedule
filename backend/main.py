@@ -58,6 +58,11 @@ class VacationRange(BaseModel):
     endISO: str
 
 
+class Holiday(BaseModel):
+    dateISO: str
+    name: str
+
+
 class Clinician(BaseModel):
     id: str
     name: str
@@ -84,6 +89,9 @@ class AppState(BaseModel):
     assignments: List[Assignment]
     minSlotsByRowId: Dict[str, MinSlots]
     slotOverridesByKey: Dict[str, int] = Field(default_factory=dict)
+    holidayCountry: Optional[str] = None
+    holidayYear: Optional[int] = None
+    holidays: List[Holiday] = Field(default_factory=list)
 
 
 class SolveDayRequest(BaseModel):
@@ -98,6 +106,7 @@ class SolveDayResponse(BaseModel):
 
 
 def _default_state() -> AppState:
+    current_year = datetime.now(timezone.utc).year
     rows = [
         WorkplaceRow(
             id="pool-not-allocated",
@@ -199,6 +208,9 @@ def _default_state() -> AppState:
         assignments=[],
         minSlotsByRowId=min_slots,
         slotOverridesByKey={},
+        holidayCountry="DE",
+        holidayYear=current_year,
+        holidays=[],
     )
 
 
@@ -585,7 +597,7 @@ def solve_day(payload: SolveDayRequest, current_user: UserPublic = Depends(_get_
     total_classes = len(class_rows)
     for index, row in enumerate(class_rows):
         required = STATE.minSlotsByRowId.get(row.id, MinSlots(weekday=0, weekend=0))
-        is_weekend = _is_weekend(dateISO)
+        is_weekend = _is_weekend_or_holiday(dateISO, STATE.holidays)
         base_target = required.weekend if is_weekend else required.weekday
         override = STATE.slotOverridesByKey.get(f"{row.id}__{dateISO}", 0)
         target = max(0, base_target + override)
@@ -669,8 +681,11 @@ def solve_day(payload: SolveDayRequest, current_user: UserPublic = Depends(_get_
     return SolveDayResponse(dateISO=dateISO, assignments=new_assignments, notes=notes)
 
 
-def _is_weekend(dateISO: str) -> bool:
+def _is_weekend_or_holiday(dateISO: str, holidays: List[Holiday]) -> bool:
     y, m, d = dateISO.split("-")
     import datetime
 
-    return datetime.date(int(y), int(m), int(d)).weekday() >= 5
+    is_weekend = datetime.date(int(y), int(m), int(d)).weekday() >= 5
+    if is_weekend:
+        return True
+    return any(holiday.dateISO == dateISO for holiday in holidays)

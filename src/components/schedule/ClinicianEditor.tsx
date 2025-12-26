@@ -35,6 +35,9 @@ export default function ClinicianEditor({
 }: ClinicianEditorProps) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [vacationDrafts, setVacationDrafts] = useState<Record<string, string>>(
+    {},
+  );
   const eligibleIds = clinician.qualifiedClassIds;
   const eligibleRows = eligibleIds
     .map((id) => classRows.find((row) => row.id === id))
@@ -54,6 +57,62 @@ export default function ClinicianEditor({
   );
   const pastVacations = sortedVacations.filter((v) => v.endISO < todayISO);
   const upcomingVacations = sortedVacations.filter((v) => v.endISO >= todayISO);
+
+  const formatEuropeanDate = (dateISO: string) => {
+    const [year, month, day] = dateISO.split("-");
+    if (!year || !month || !day) return dateISO;
+    return `${day}.${month}.${year}`;
+  };
+
+  const parseEuropeanDateInput = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const [, year, month, day] = isoMatch;
+      const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+      if (
+        date.getUTCFullYear() === Number(year) &&
+        date.getUTCMonth() + 1 === Number(month) &&
+        date.getUTCDate() === Number(day)
+      ) {
+        return `${year}-${month}-${day}`;
+      }
+      return null;
+    }
+    const match = trimmed.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (!match) return null;
+    const [, day, month, year] = match;
+    const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+    if (
+      date.getUTCFullYear() !== Number(year) ||
+      date.getUTCMonth() + 1 !== Number(month) ||
+      date.getUTCDate() !== Number(day)
+    ) {
+      return null;
+    }
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  };
+
+  const getDraftKey = (vacationId: string, field: "startISO" | "endISO") =>
+    `${vacationId}-${field}`;
+
+  const getVacationInputValue = (
+    vacationId: string,
+    field: "startISO" | "endISO",
+    dateISO: string,
+  ) => {
+    const key = getDraftKey(vacationId, field);
+    return vacationDrafts[key] ?? formatEuropeanDate(dateISO);
+  };
+
+  const clearVacationDraft = (key: string) => {
+    setVacationDrafts((prev) => {
+      if (!(key in prev)) return prev;
+      const { [key]: _unused, ...rest } = prev;
+      return rest;
+    });
+  };
 
   useEffect(() => {
     if (availableRows.length === 0) {
@@ -213,12 +272,30 @@ export default function ClinicianEditor({
                 className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
               >
                 <input
-                  type="date"
-                  value={vacation.startISO}
-                  onChange={(e) =>
-                    onUpdateVacation(clinician.id, vacation.id, {
-                      startISO: e.target.value,
-                    })
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="DD.MM.YYYY"
+                  value={getVacationInputValue(
+                    vacation.id,
+                    "startISO",
+                    vacation.startISO,
+                  )}
+                  onChange={(e) => {
+                    const nextValue = e.target.value;
+                    const key = getDraftKey(vacation.id, "startISO");
+                    setVacationDrafts((prev) => ({
+                      ...prev,
+                      [key]: nextValue,
+                    }));
+                    const parsed = parseEuropeanDateInput(nextValue);
+                    if (parsed) {
+                      onUpdateVacation(clinician.id, vacation.id, {
+                        startISO: parsed,
+                      });
+                    }
+                  }}
+                  onBlur={() =>
+                    clearVacationDraft(getDraftKey(vacation.id, "startISO"))
                   }
                   className={cx(
                     "rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-900",
@@ -227,12 +304,30 @@ export default function ClinicianEditor({
                 />
                 <span className="text-xs font-semibold text-slate-400">–</span>
                 <input
-                  type="date"
-                  value={vacation.endISO}
-                  onChange={(e) =>
-                    onUpdateVacation(clinician.id, vacation.id, {
-                      endISO: e.target.value,
-                    })
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="DD.MM.YYYY"
+                  value={getVacationInputValue(
+                    vacation.id,
+                    "endISO",
+                    vacation.endISO,
+                  )}
+                  onChange={(e) => {
+                    const nextValue = e.target.value;
+                    const key = getDraftKey(vacation.id, "endISO");
+                    setVacationDrafts((prev) => ({
+                      ...prev,
+                      [key]: nextValue,
+                    }));
+                    const parsed = parseEuropeanDateInput(nextValue);
+                    if (parsed) {
+                      onUpdateVacation(clinician.id, vacation.id, {
+                        endISO: parsed,
+                      });
+                    }
+                  }}
+                  onBlur={() =>
+                    clearVacationDraft(getDraftKey(vacation.id, "endISO"))
                   }
                   className={cx(
                     "rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-900",
@@ -269,12 +364,30 @@ export default function ClinicianEditor({
                   className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
                 >
                   <input
-                    type="date"
-                    value={vacation.startISO}
-                    onChange={(e) =>
-                      onUpdateVacation(clinician.id, vacation.id, {
-                        startISO: e.target.value,
-                      })
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="DD.MM.YYYY"
+                    value={getVacationInputValue(
+                      vacation.id,
+                      "startISO",
+                      vacation.startISO,
+                    )}
+                    onChange={(e) => {
+                      const nextValue = e.target.value;
+                      const key = getDraftKey(vacation.id, "startISO");
+                      setVacationDrafts((prev) => ({
+                        ...prev,
+                        [key]: nextValue,
+                      }));
+                      const parsed = parseEuropeanDateInput(nextValue);
+                      if (parsed) {
+                        onUpdateVacation(clinician.id, vacation.id, {
+                          startISO: parsed,
+                        });
+                      }
+                    }}
+                    onBlur={() =>
+                      clearVacationDraft(getDraftKey(vacation.id, "startISO"))
                     }
                     className={cx(
                       "rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-900",
@@ -283,12 +396,30 @@ export default function ClinicianEditor({
                   />
                   <span className="text-xs font-semibold text-slate-400">–</span>
                   <input
-                    type="date"
-                    value={vacation.endISO}
-                    onChange={(e) =>
-                      onUpdateVacation(clinician.id, vacation.id, {
-                        endISO: e.target.value,
-                      })
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="DD.MM.YYYY"
+                    value={getVacationInputValue(
+                      vacation.id,
+                      "endISO",
+                      vacation.endISO,
+                    )}
+                    onChange={(e) => {
+                      const nextValue = e.target.value;
+                      const key = getDraftKey(vacation.id, "endISO");
+                      setVacationDrafts((prev) => ({
+                        ...prev,
+                        [key]: nextValue,
+                      }));
+                      const parsed = parseEuropeanDateInput(nextValue);
+                      if (parsed) {
+                        onUpdateVacation(clinician.id, vacation.id, {
+                          endISO: parsed,
+                        });
+                      }
+                    }}
+                    onBlur={() =>
+                      clearVacationDraft(getDraftKey(vacation.id, "endISO"))
                     }
                     className={cx(
                       "rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-900",
