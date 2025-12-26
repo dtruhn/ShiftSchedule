@@ -6,9 +6,9 @@ type RowLabelProps = {
 export default function RowLabel({ row }: RowLabelProps) {
   const showVacationNote = row.id === "pool-vacation";
   return (
-    <div className="group relative flex h-full items-center px-4">
+    <div className="group relative flex h-full items-center px-3 sm:px-4">
       <span
-        className="max-w-[20ch] truncate text-xs font-normal uppercase tracking-wide text-slate-600 dark:text-slate-300"
+        className="max-w-[16ch] truncate text-[11px] font-normal uppercase tracking-wide text-slate-600 dark:text-slate-300 sm:max-w-[20ch] sm:text-xs"
         title={row.name}
         style={{ fontFamily: '"Inter", ui-sans-serif, system-ui, sans-serif' }}
       >

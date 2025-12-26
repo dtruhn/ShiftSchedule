@@ -20,13 +20,15 @@ Backend
 
 ## 2) Core UI
 Top bar
-- Title, open slots badge (turns green when all slots filled), Settings button, theme toggle, avatar (top-right).
-- Width aligned to the schedule card.
+- Title, open slots badge (green when all slots filled), Settings button, theme toggle, avatar.
+- Responsive: stacks on small screens; avatar row moves below the main controls.
 
 Schedule card
-- Week navigator (prev/next, Today, date range) lives inside the card header.
+- Week navigator lives inside the card header; current range label sits between the arrows and the Today button sits next to them.
+- On mobile, the schedule renders a single day with a day navigator (label between arrows, Today next to them).
 - Today badge floats above the current day column header.
 - Week starts Monday, weekend columns shaded.
+- Mobile: grid uses touch scrolling and slightly tighter paddings.
 - Control row between class rows and pool rows with icon buttons:
   - Only necessary, Distribute all, Reset to free (week and per day), with tooltips.
 
@@ -34,20 +36,21 @@ Rows
 - Class rows (editable, reorderable priority): MRI, CT, Sonography, Conventional, On Call, etc.
 - Pool rows (editable names, not deletable): Distribution Pool (id: pool-not-allocated), Manual Pool (id: pool-manual), Vacation (id: pool-vacation).
 - Pool rows appear below a separator line.
-- Row labels are uppercase, no colored dots, truncate around 20 characters.
+- Row labels are uppercase, no colored dots, truncate around 20 characters (tighter on mobile).
 
 Cells
 - Multiple clinician pills per cell, sorted by surname.
-- Empty slots shown as red dashed pills based on min slots.
+- Empty slots shown as gray dashed pills based on min slots; plus/minus badges are gray; label is not bold.
 - Drag and drop is same-day only; other days grey out while dragging.
 - Dragging into or out of Vacation updates the clinician vacation ranges.
 - Eligible target cells for a dragged clinician show a green border.
 - Ineligible manual assignment is allowed, with a yellow warning icon.
 - No eligible classes shows a red warning icon.
 - Warning tooltips show only when hovering the icon itself.
+- Hovering a class cell highlights eligible clinicians for that class on the same date (desktop only).
 
 Pills
-- Compact blue pill, normal font weight.
+- Compact blue pill, normal font weight; eligible hover highlight uses green background + green border (no extra thickness).
 - Warning icons are small circular badges at top-right of the pill.
 
 ---
@@ -112,7 +115,7 @@ type MinSlotsByRowId = Record<string, { weekday: number; weekend: number }>;
 - Distribution Pool: any clinician not assigned to a class and not on vacation appears here.
 - Assignments stored in a map (rowId + dateISO -> list of assignments).
 - Drag and drop only within the same day.
-- Cell click does nothing (no cell modal).
+- Clicking a class cell increments the per-day slot override (adds a "Needs filling" slot); remove via the minus badge.
 
 ---
 
@@ -216,10 +219,14 @@ VITE_API_URL=http://localhost:8001 npm run dev -- --host localhost --port 5173
 If the UI says "Solver service is not responding"
 - Check backend health: `curl http://localhost:8000/health`
 - Ensure `VITE_API_URL` matches the backend host/port.
+- If backend logs show 401 on `/v1/solve`, the auth token is invalid (often after a JWT secret change). Log out/in.
 - If using a non-localhost host (LAN or remote), set CORS explicitly:
 ```bash
 CORS_ALLOW_ORIGINS=http://my-host:5173 python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
+
+Env note
+- `export ...` in a terminal is session-only (not permanent).
 
 Stopping servers
 - Press Ctrl+C in each terminal.
@@ -252,6 +259,10 @@ Backend
 - The calendar is the source of truth for edits; Settings manages class priority + min slots + pool names + clinician list.
 - Pool ids: Distribution Pool = `pool-not-allocated`, Manual Pool = `pool-manual`, Vacation = `pool-vacation`.
 - Keep drag restricted to same day.
+- Mobile single-day view uses `useMediaQuery("(max-width: 640px)")` with `displayDays`; week-level calculations still use `fullWeekDays`.
+- `ScheduleGrid` supports variable day counts (dynamic `gridTemplateColumns`, last column determined by index).
+- Hover highlighting is desktop-only (no hover on mobile) and uses `AssignmentPill` `isHighlighted`.
+- HTML5 drag-and-drop does not work on mobile; touch DnD would require a new library or alternate UX.
 - If you change the solver API, update `src/api/client.ts` and `WeeklySchedulePage.tsx`.
 - Legacy row id `pool-not-working` is filtered out on load.
 
@@ -263,3 +274,5 @@ Backend
 - Stack: `docker compose -f docker-compose.ip.yml up -d --build`
 - Frontend: `http://46.224.114.183`
 - Backend: `http://46.224.114.183:8000`
+- Data lives in the `backend_data` volume; you can update only the frontend without touching the DB.
+- Typical frontend update: rsync repo to `/opt/shiftschedule`, then `docker compose -f docker-compose.ip.yml build frontend` and `up -d frontend`.

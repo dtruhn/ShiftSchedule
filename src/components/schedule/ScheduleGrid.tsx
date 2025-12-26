@@ -77,6 +77,9 @@ export default function ScheduleGrid({
   const innerRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const headerRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const isSingleDay = weekDays.length === 1;
+  const dayColumnMin = isSingleDay ? 140 : 120;
+  const leftColumn = isSingleDay ? "minmax(96px, 140px)" : "max-content";
 
   useLayoutEffect(() => {
     const todayISO = toISODate(new Date());
@@ -128,7 +131,7 @@ export default function ScheduleGrid({
           className="relative overflow-hidden rounded-[calc(1.5rem-2px)] bg-white dark:bg-slate-900"
         >
           {header ? (
-            <div className="relative z-0 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900 sm:px-6 sm:py-4">
+            <div className="relative z-0 bg-white px-4 py-3 dark:bg-slate-900 sm:px-6 sm:py-4">
               {header}
             </div>
           ) : null}
@@ -148,10 +151,10 @@ export default function ScheduleGrid({
               <div
                 className="grid"
                 style={{
-                  gridTemplateColumns: `max-content repeat(${Math.max(
+                  gridTemplateColumns: `${leftColumn} repeat(${Math.max(
                     weekDays.length,
                     1,
-                  )}, minmax(120px, 1fr))`,
+                  )}, minmax(${dayColumnMin}px, 1fr))`,
                 }}
               >
                 <div className="flex items-center border-b border-r border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900 sm:px-4">
@@ -184,11 +187,11 @@ export default function ScheduleGrid({
                         { "border-r-0": isLastCol },
                       )}
                     >
-                      <div className="flex flex-col items-center gap-1">
+                      <div className="flex items-center justify-center gap-2">
                         <div className="text-[12px] font-semibold tracking-wide text-slate-500 dark:text-slate-300">
                           {weekday}
                         </div>
-                        <div className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+                        <div className="text-[12px] font-normal tracking-wide text-slate-900 dark:text-slate-100">
                           {dayOfMonth}
                         </div>
                       </div>

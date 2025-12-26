@@ -40,17 +40,9 @@ export default function WeekNavigator({
         >
           <ChevronLeftIcon className="h-5 w-5" />
         </button>
-        <button
-          type="button"
-          onClick={onToday}
-          className={cx(
-            "h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900",
-            "hover:bg-slate-50 active:bg-slate-100",
-            "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
-          )}
-        >
-          Today
-        </button>
+        <div className="min-w-[148px] text-center text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-base">
+          {formatRangeLabel(rangeStart, rangeEndInclusive)}
+        </div>
         <button
           type="button"
           onClick={onNextWeek}
@@ -63,10 +55,17 @@ export default function WeekNavigator({
         >
           <ChevronRightIcon className="h-5 w-5" />
         </button>
-      </div>
-
-      <div className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-base">
-        {formatRangeLabel(rangeStart, rangeEndInclusive)}
+        <button
+          type="button"
+          onClick={onToday}
+          className={cx(
+            "h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900",
+            "hover:bg-slate-50 active:bg-slate-100",
+            "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+          )}
+        >
+          Today
+        </button>
       </div>
     </div>
   );

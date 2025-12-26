@@ -74,35 +74,33 @@ function MobileDayNavigator({
   }).format(date);
 
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={onPrevDay}
-          className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-          aria-label="Previous day"
-        >
-          <ChevronLeftIcon className="h-5 w-5" />
-        </button>
-        <button
-          type="button"
-          onClick={onToday}
-          className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 hover:bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-        >
-          Today
-        </button>
-        <button
-          type="button"
-          onClick={onNextDay}
-          className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-          aria-label="Next day"
-        >
-          <ChevronRightIcon className="h-5 w-5" />
-        </button>
-      </div>
-      <div className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+    <div className="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={onPrevDay}
+        className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+        aria-label="Previous day"
+      >
+        <ChevronLeftIcon className="h-5 w-5" />
+      </button>
+      <div className="min-w-[96px] text-center text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
         {label}
       </div>
+      <button
+        type="button"
+        onClick={onNextDay}
+        className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+        aria-label="Next day"
+      >
+        <ChevronRightIcon className="h-5 w-5" />
+      </button>
+      <button
+        type="button"
+        onClick={onToday}
+        className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 hover:bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+      >
+        Today
+      </button>
     </div>
   );
 }

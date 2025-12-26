@@ -23,7 +23,7 @@ export default function AssignmentPill({
         "hover:border-sky-600 hover:bg-sky-100 hover:z-10",
         "dark:border-sky-400 dark:bg-sky-900/40 dark:text-sky-100 dark:hover:border-sky-300 dark:hover:bg-sky-900/60",
         isHighlighted &&
-          "border-emerald-500 bg-emerald-100 text-emerald-950 font-semibold ring-4 ring-emerald-300/80 ring-inset dark:border-emerald-300 dark:bg-emerald-900/70 dark:text-emerald-50 dark:ring-emerald-300/70",
+          "border-emerald-500 bg-emerald-100 text-emerald-950 dark:border-emerald-300 dark:bg-emerald-900/70 dark:text-emerald-50",
         className,
       )}
     >
