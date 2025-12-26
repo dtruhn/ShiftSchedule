@@ -426,15 +426,16 @@ function RowSection({
             onMouseEnter={() => {
               if (dragState.dragging) return;
               if (row.kind !== "class") {
-                clearHoveredCell();
+                setHoveredCell(null);
                 return;
               }
               setHoveredCell({ rowId: row.id, dateISO });
             }}
             onMouseLeave={() => {
-              if (hoveredClassCellRef.current?.rowId !== row.id) return;
-              if (hoveredClassCellRef.current?.dateISO !== dateISO) return;
-              clearHoveredCell();
+              if (!hoveredClassCell) return;
+              if (hoveredClassCell.rowId !== row.id) return;
+              if (hoveredClassCell.dateISO !== dateISO) return;
+              setHoveredCell(null);
             }}
             onDragOver={(e) => {
               if (!dragState.dragging) return;
