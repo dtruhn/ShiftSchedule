@@ -89,6 +89,11 @@ Admin user management
 - User export: admin can download a user state JSON (export includes metadata + AppState).
 - User import: create user form accepts an export JSON to seed the new user's state.
 
+Hover highlight issue (remote)
+- Root cause: pills had both blue and emerald classes at once; Tailwind CSS order kept the blue background even when `isHighlighted` was true.
+- Fix: use mutually exclusive class sets in `AssignmentPill` so emerald styles fully replace blue.
+- Symptom: cell hover worked but pills did not turn green; fixed after frontend rebuild.
+
 ---
 
 ## 4) Data Model (Shared Concept)
