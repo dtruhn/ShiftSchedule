@@ -41,7 +41,7 @@ export default function TopBar({
       <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-            Weekly Schedule
+            🩺 Shift Planner
           </h1>
         </div>
 

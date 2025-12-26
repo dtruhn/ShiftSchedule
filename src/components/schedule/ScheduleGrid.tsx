@@ -412,6 +412,19 @@ function RowSection({
           row.kind === "class" &&
           getIsQualified(dragState.dragging.clinicianId, row.id);
 
+        const isHoveredCell =
+          hoveredClassCell?.rowId === row.id &&
+          hoveredClassCell?.dateISO === dateISO;
+        const cellBgClass = isOtherDay
+          ? "bg-slate-200/70 text-slate-400 opacity-60"
+          : showQualified
+            ? "bg-emerald-50/70 dark:bg-emerald-900/30"
+            : isHoveredCell
+              ? "bg-slate-50/70 dark:bg-slate-800/50"
+              : row.kind === "class" && isWeekend
+                ? "bg-white dark:bg-slate-900"
+                : rowBg;
+
         return (
           <button
             key={key}
@@ -461,16 +474,8 @@ function RowSection({
             className={cx(
               "group relative border-r border-slate-200 p-2 text-left dark:border-slate-800 sm:p-3",
               borderBottomClass,
-              rowBg,
-              hoveredClassCell?.rowId === row.id &&
-                hoveredClassCell?.dateISO === dateISO &&
-                "bg-slate-50/70 dark:bg-slate-800/50",
+              cellBgClass,
               { "border-r-0": isLastCol },
-              row.kind === "class" && isWeekend ? "bg-white dark:bg-slate-900" : "",
-              showQualified && "bg-emerald-50/70 dark:bg-emerald-900/30",
-              {
-                "bg-slate-200/70 text-slate-400 opacity-60": isOtherDay,
-              },
             )}
           >
             <div className="flex flex-col gap-1">
