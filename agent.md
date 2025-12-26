@@ -35,7 +35,7 @@ Schedule card
 
 Rows
 - Class rows (editable, reorderable priority): MRI, CT, Sonography, Conventional, On Call, etc.
-- Pool rows (editable names, not deletable): Distribution Pool (id: pool-not-allocated), Manual Pool (id: pool-manual), Vacation (id: pool-vacation).
+- Pool rows (editable names, not deletable): Distribution Pool (id: pool-not-allocated), Reserve Pool (id: pool-manual), Vacation (id: pool-vacation).
 - Pool rows appear below a separator line.
 - Row labels are uppercase, no colored dots, truncate around 20 characters (tighter on mobile).
 - Vacation row background stays the same gray even on weekends/holidays.
@@ -45,7 +45,7 @@ Cells
 - Empty slots shown as gray dashed pills based on min slots; plus/minus badges are gray; label is not bold.
 - Drag and drop is same-day only; invalid drops (wrong day or outside the grid) snap back instantly.
 - Dragging into or out of Vacation updates the clinician vacation ranges.
-- Eligible target cells for a dragged clinician show a green border.
+- Eligible target cells for a dragged clinician use a pale green background (consistent with the green "Open Slots" badge when count is 0).
 - Ineligible manual assignment is allowed, with a yellow warning icon.
 - No eligible classes shows a red warning icon.
 - Warning tooltips show only when hovering the icon itself.
@@ -88,6 +88,19 @@ Holidays
 Admin user management
 - User export: admin can download a user state JSON (export includes metadata + AppState).
 - User import: create user form accepts an export JSON to seed the new user's state.
+
+iCal export (frontend-only)
+- A new `iCal` button exists in the top bar. It opens a modal to download `.ics` files.
+- Export supports:
+  - "All clinicians" (one `.ics` file containing many events across many dates)
+  - Individual clinician `.ics` files
+  - A date range filter (Start/End) shown/entered as `DD.MM.YYYY`; empty means "all dates".
+- Implementation details:
+  - ICS generation is done purely in the frontend (no backend endpoint).
+  - Only class assignments are exported (pool rows are ignored).
+  - Events are all-day (`DTSTART;VALUE=DATE` / `DTEND;VALUE=DATE` with end = +1 day).
+  - Range parsing accepts `DD.MM.YYYY` (and also `YYYY-MM-DD`), swaps Start/End if reversed, and disables download on invalid input.
+- Files: `src/lib/ical.ts`, `src/components/schedule/IcalExportModal.tsx`, wiring in `src/pages/WeeklySchedulePage.tsx` + `src/components/schedule/TopBar.tsx`.
 
 Hover highlight issue (remote)
 - Root cause: pills had both blue and emerald classes at once; Tailwind CSS order kept the blue background even when `isHighlighted` was true.
