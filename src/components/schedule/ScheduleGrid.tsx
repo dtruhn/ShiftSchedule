@@ -4,8 +4,8 @@ import { formatDayHeader, toISODate } from "../../lib/date";
 import AssignmentPill from "./AssignmentPill";
 import EmptySlotPill from "./EmptySlotPill";
 import RowLabel from "./RowLabel";
-import { useLayoutEffect, useRef, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
+import { useRef, useState } from "react";
+import type { Dispatch, PointerEvent, SetStateAction } from "react";
 
 type ScheduleGridProps = {
   leftHeaderTitle: string;
@@ -69,65 +69,54 @@ export default function ScheduleGrid({
     rowId: string;
     dateISO: string;
   } | null>(null);
-  const [todayBadgePos, setTodayBadgePos] = useState<{
-    left: number;
-    top: number;
-  } | null>(null);
-  const cardRef = useRef<HTMLDivElement | null>(null);
-  const innerRef = useRef<HTMLDivElement | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const headerRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const hoveredClassCellRef = useRef<{ rowId: string; dateISO: string } | null>(
+    null,
+  );
+  const todayISO = toISODate(new Date());
   const isSingleDay = weekDays.length === 1;
   const dayColumnMin = isSingleDay ? 140 : 120;
   const leftColumn = isSingleDay ? "minmax(96px, 140px)" : "max-content";
 
-  useLayoutEffect(() => {
-    const todayISO = toISODate(new Date());
-    const todayIndex = weekDays.findIndex((d) => toISODate(d) === todayISO);
-    if (todayIndex === -1) {
-      setTodayBadgePos(null);
+  const setHoveredCell = (next: { rowId: string; dateISO: string } | null) => {
+    hoveredClassCellRef.current = next;
+    setHoveredClassCell(next);
+  };
+
+  const clearHoveredCell = () => {
+    if (!hoveredClassCellRef.current) return;
+    hoveredClassCellRef.current = null;
+    setHoveredClassCell(null);
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType && event.pointerType !== "mouse") return;
+    const target = event.target as HTMLElement | null;
+    const cell = target?.closest<HTMLElement>('[data-schedule-cell="true"]');
+    if (!cell) {
+      clearHoveredCell();
       return;
     }
-
-    const update = () => {
-      const cell = headerRefs.current[todayIndex];
-      const card = innerRef.current ?? cardRef.current;
-      const scroll = scrollRef.current;
-      if (!cell || !card || !scroll) {
-        setTodayBadgePos(null);
-        return;
-      }
-      const cellRect = cell.getBoundingClientRect();
-      const cardRect = card.getBoundingClientRect();
-      const scrollRect = scroll.getBoundingClientRect();
-      setTodayBadgePos({
-        left: cellRect.left - cardRect.left + cellRect.width / 2,
-        top: scrollRect.top - cardRect.top,
-      });
-    };
-
-    update();
-    window.addEventListener("resize", update);
-    const scrollEl = scrollRef.current;
-    if (scrollEl) {
-      scrollEl.addEventListener("scroll", update, { passive: true });
+    if (cell.dataset.rowKind !== "class") {
+      clearHoveredCell();
+      return;
     }
-    return () => {
-      window.removeEventListener("resize", update);
-      if (scrollEl) {
-        scrollEl.removeEventListener("scroll", update);
-      }
-    };
-  }, [weekDays]);
+    const rowId = cell.dataset.rowId;
+    const dateISO = cell.dataset.dateIso;
+    if (!rowId || !dateISO) {
+      clearHoveredCell();
+      return;
+    }
+    const prev = hoveredClassCellRef.current;
+    if (prev && prev.rowId === rowId && prev.dateISO === dateISO) return;
+    setHoveredCell({ rowId, dateISO });
+  };
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 pb-8 sm:px-6 sm:pb-10">
       <div
-        ref={cardRef}
         className="relative mt-4 rounded-2xl border-2 border-slate-900/80 bg-white p-[2px] shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:mt-6 sm:rounded-3xl"
       >
         <div
-          ref={innerRef}
           className="relative overflow-hidden rounded-[calc(1.5rem-2px)] bg-white dark:bg-slate-900"
         >
           {header ? (
@@ -135,21 +124,15 @@ export default function ScheduleGrid({
               {header}
             </div>
           ) : null}
-          {todayBadgePos ? (
-            <span
-              className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-full rounded-full border border-sky-200 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-600 shadow-sm dark:border-sky-500/40 dark:bg-slate-900 dark:text-sky-200"
-              style={{ left: todayBadgePos.left, top: todayBadgePos.top + 4 }}
-            >
-              Today
-            </span>
-          ) : null}
           <div
-            ref={scrollRef}
             className="relative z-10 overflow-x-auto overflow-y-auto touch-pan-x touch-pan-y [-webkit-overflow-scrolling:touch] sm:overflow-visible"
           >
             <div className="min-w-full w-full">
               <div
                 className="grid"
+                onPointerMove={handlePointerMove}
+                onPointerLeave={clearHoveredCell}
+                onMouseLeave={clearHoveredCell}
                 style={{
                   gridTemplateColumns: `${leftColumn} repeat(${Math.max(
                     weekDays.length,
@@ -167,6 +150,7 @@ export default function ScheduleGrid({
                   const { weekday, dayOfMonth } = formatDayHeader(d);
                   const isLastCol = index === weekDays.length - 1;
                   const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                  const isToday = toISODate(d) === todayISO;
                   const isOtherDay =
                     !!dragState.dragging && dragState.dragging.dateISO !== toISODate(d);
                   const isActiveDay =
@@ -174,9 +158,6 @@ export default function ScheduleGrid({
                   return (
                     <div
                       key={toISODate(d)}
-                      ref={(node) => {
-                        headerRefs.current[index] = node;
-                      }}
                       className={cx(
                         "relative border-b border-r border-slate-200 px-3 py-2 text-center overflow-visible dark:border-slate-800 sm:px-4",
                         isWeekend
@@ -192,7 +173,13 @@ export default function ScheduleGrid({
                           {weekday}
                         </div>
                         <div className="text-[12px] font-normal tracking-wide text-slate-900 dark:text-slate-100">
-                          {dayOfMonth}
+                          {isToday ? (
+                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100">
+                              {dayOfMonth}
+                            </span>
+                          ) : (
+                            dayOfMonth
+                          )}
                         </div>
                       </div>
                     </div>
@@ -218,7 +205,7 @@ export default function ScheduleGrid({
                     dragState={dragState}
                     setDragState={setDragState}
                     hoveredClassCell={hoveredClassCell}
-                    setHoveredClassCell={setHoveredClassCell}
+                    setHoveredCell={setHoveredCell}
                     showSeparator={separatorBeforeRowIds.includes(row.id)}
                     minSlots={minSlotsByRowId[row.id] ?? { weekday: 0, weekend: 0 }}
                     slotOverridesByKey={slotOverridesByKey}
@@ -251,7 +238,7 @@ function RowSection({
   dragState,
   setDragState,
   hoveredClassCell,
-  setHoveredClassCell,
+  setHoveredCell,
   showSeparator,
   minSlots,
   slotOverridesByKey,
@@ -297,9 +284,7 @@ function RowSection({
     }>
   >;
   hoveredClassCell: { rowId: string; dateISO: string } | null;
-  setHoveredClassCell: Dispatch<
-    SetStateAction<{ rowId: string; dateISO: string } | null>
-  >;
+  setHoveredCell: (next: { rowId: string; dateISO: string } | null) => void;
   showSeparator: boolean;
   minSlots: { weekday: number; weekend: number };
   slotOverridesByKey: Record<string, number>;
@@ -367,9 +352,6 @@ function RowSection({
           row.kind === "class"
             ? Math.max(0, targetSlots - assignments.length)
             : 0;
-        const draggingDateISO = dragState.dragging?.dateISO ?? null;
-        const isDragTarget =
-          dragState.dragOverKey === key && draggingDateISO === dateISO;
         const isOtherDay = !!dragState.dragging && dragState.dragging.dateISO !== dateISO;
         const isActiveDay = !!dragState.dragging && dragState.dragging.dateISO === dateISO;
         const showQualified =
@@ -385,12 +367,7 @@ function RowSection({
             onClick={() => onCellClick({ row, date })}
             onMouseEnter={() => {
               if (row.kind !== "class") return;
-              setHoveredClassCell({ rowId: row.id, dateISO });
-            }}
-            onMouseLeave={() => {
-              setHoveredClassCell((prev) =>
-                prev?.rowId === row.id && prev.dateISO === dateISO ? null : prev,
-              );
+              setHoveredCell({ rowId: row.id, dateISO });
             }}
             onDragOver={(e) => {
               if (!dragState.dragging) return;
@@ -426,6 +403,10 @@ function RowSection({
                 setDragState({ dragging: null, dragOverKey: null });
               }
             }}
+            data-schedule-cell="true"
+            data-row-id={row.id}
+            data-row-kind={row.kind}
+            data-date-iso={dateISO}
             className={cx(
               "group relative border-r border-slate-200 p-2 text-left dark:border-slate-800 sm:p-3",
               borderBottomClass,
@@ -435,7 +416,6 @@ function RowSection({
               isWeekend ? "bg-slate-100/70 dark:bg-slate-800/70" : "",
               showQualified && "border-emerald-400 ring-2 ring-emerald-300 ring-inset",
               {
-                "ring-2 ring-sky-200 ring-inset bg-sky-50/40": isDragTarget,
                 "bg-slate-200/70 text-slate-400 opacity-60 pointer-events-none":
                   isOtherDay,
               },
@@ -443,57 +423,81 @@ function RowSection({
           >
             <div className="flex flex-col gap-1">
               {sortedAssignments.length > 0 ? (
-                sortedAssignments.map((assignment) => (
-                  <div
-                    key={assignment.id}
-                    draggable
-                    onDragStart={(e) => {
-                      e.stopPropagation();
-                      e.dataTransfer.effectAllowed = "move";
-                      e.dataTransfer.setData(
-                        "application/x-schedule-cell",
-                        JSON.stringify({
-                          rowId: row.id,
-                          dateISO,
-                          assignmentId: assignment.id,
-                          clinicianId: assignment.clinicianId,
-                        }),
-                      );
-                      setDragState({
-                        dragging: {
-                          rowId: row.id,
-                          dateISO,
-                          assignmentId: assignment.id,
-                          clinicianId: assignment.clinicianId,
-                        },
-                        dragOverKey: null,
-                      });
-                    }}
-                    onClick={(e) => {
-                      if (!onClinicianClick) return;
-                      e.stopPropagation();
-                      onClinicianClick(assignment.clinicianId);
-                    }}
-                    onDragEnd={() => setDragState({ dragging: null, dragOverKey: null })}
-                    className="w-full cursor-grab active:cursor-grabbing"
-                  >
-                    <AssignmentPill
-                      name={getClinicianName(assignment.clinicianId)}
-                      showNoEligibilityWarning={
-                        !getHasEligibleClasses(assignment.clinicianId)
-                      }
-                      showIneligibleWarning={
-                        row.kind === "class" &&
-                        !getIsQualified(assignment.clinicianId, row.id)
-                      }
-                      isHighlighted={
-                        !!isHoverDate &&
-                        !!hoveredClassCell &&
-                        getIsQualified(assignment.clinicianId, hoveredClassCell.rowId)
-                      }
-                    />
-                  </div>
-                ))
+                sortedAssignments.map((assignment) => {
+                  const isDraggingAssignment =
+                    dragState.dragging?.assignmentId === assignment.id &&
+                    dragState.dragging?.rowId === row.id &&
+                    dragState.dragging?.dateISO === dateISO;
+                  return (
+                    <div
+                      key={assignment.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.stopPropagation();
+                        e.dataTransfer.effectAllowed = "move";
+                        const source = e.currentTarget;
+                        const clone = source.cloneNode(true) as HTMLElement;
+                        clone.style.position = "absolute";
+                        clone.style.top = "-9999px";
+                        clone.style.left = "-9999px";
+                        clone.style.pointerEvents = "none";
+                        clone.style.width = `${source.offsetWidth}px`;
+                        clone.style.height = `${source.offsetHeight}px`;
+                        document.body.appendChild(clone);
+                        e.dataTransfer.setDragImage(
+                          clone,
+                          source.offsetWidth / 2,
+                          source.offsetHeight / 2,
+                        );
+                        window.setTimeout(() => clone.remove(), 0);
+                        e.dataTransfer.setData(
+                          "application/x-schedule-cell",
+                          JSON.stringify({
+                            rowId: row.id,
+                            dateISO,
+                            assignmentId: assignment.id,
+                            clinicianId: assignment.clinicianId,
+                          }),
+                        );
+                        setDragState({
+                          dragging: {
+                            rowId: row.id,
+                            dateISO,
+                            assignmentId: assignment.id,
+                            clinicianId: assignment.clinicianId,
+                          },
+                          dragOverKey: null,
+                        });
+                      }}
+                      onClick={(e) => {
+                        if (!onClinicianClick) return;
+                        e.stopPropagation();
+                        onClinicianClick(assignment.clinicianId);
+                      }}
+                      onDragEnd={() => setDragState({ dragging: null, dragOverKey: null })}
+                      className={cx(
+                        "w-full cursor-grab active:cursor-grabbing",
+                        isDraggingAssignment && "opacity-0",
+                      )}
+                    >
+                      <AssignmentPill
+                        name={getClinicianName(assignment.clinicianId)}
+                        showNoEligibilityWarning={
+                          !getHasEligibleClasses(assignment.clinicianId)
+                        }
+                        showIneligibleWarning={
+                          row.kind === "class" &&
+                          !getIsQualified(assignment.clinicianId, row.id)
+                        }
+                        isHighlighted={
+                          !!isHoverDate &&
+                          !!hoveredClassCell &&
+                          getIsQualified(assignment.clinicianId, hoveredClassCell.rowId)
+                        }
+                      />
+                    </div>
+                  );
+                })
               ) : null}
               {emptySlots > 0
                 ? Array.from({ length: emptySlots }).map((_, idx) => (

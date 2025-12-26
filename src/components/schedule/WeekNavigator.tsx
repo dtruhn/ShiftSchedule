@@ -32,36 +32,36 @@ export default function WeekNavigator({
           type="button"
           onClick={onPrevWeek}
           className={cx(
-            "grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700",
+            "grid h-8 w-8 place-items-center rounded-full border border-slate-200/70 bg-white text-slate-600",
             "hover:bg-slate-50 active:bg-slate-100",
-            "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
+            "dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:bg-slate-800",
           )}
           aria-label="Previous week"
         >
-          <ChevronLeftIcon className="h-5 w-5" />
+          <ChevronLeftIcon className="h-4 w-4" />
         </button>
-        <div className="min-w-[148px] text-center text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-base">
+        <div className="min-w-[148px] text-center text-sm font-normal tracking-tight text-slate-700 dark:text-slate-200 sm:text-base">
           {formatRangeLabel(rangeStart, rangeEndInclusive)}
         </div>
         <button
           type="button"
           onClick={onNextWeek}
           className={cx(
-            "grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700",
+            "grid h-8 w-8 place-items-center rounded-full border border-slate-200/70 bg-white text-slate-600",
             "hover:bg-slate-50 active:bg-slate-100",
-            "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
+            "dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:bg-slate-800",
           )}
           aria-label="Next week"
         >
-          <ChevronRightIcon className="h-5 w-5" />
+          <ChevronRightIcon className="h-4 w-4" />
         </button>
         <button
           type="button"
           onClick={onToday}
           className={cx(
-            "h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900",
+            "h-8 rounded-full border border-slate-200/70 bg-white px-3.5 text-sm font-normal text-slate-700",
             "hover:bg-slate-50 active:bg-slate-100",
-            "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+            "dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-800",
           )}
         >
           Today
