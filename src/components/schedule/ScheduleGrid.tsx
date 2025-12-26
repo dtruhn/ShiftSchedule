@@ -462,7 +462,9 @@ function RowSection({
               "group relative border-r border-slate-200 p-2 text-left dark:border-slate-800 sm:p-3",
               borderBottomClass,
               rowBg,
-              "hover:bg-slate-50/70 active:bg-slate-50",
+              hoveredClassCell?.rowId === row.id &&
+                hoveredClassCell?.dateISO === dateISO &&
+                "bg-slate-50/70 dark:bg-slate-800/50",
               { "border-r-0": isLastCol },
               row.kind === "class" && isWeekend ? "bg-white dark:bg-slate-900" : "",
               showQualified && "border-emerald-400 ring-2 ring-emerald-300 ring-inset",
@@ -584,7 +586,13 @@ function RowSection({
                         key={`${key}-empty-ghost`}
                         variant="ghost"
                         showAddIcon
-                        className="opacity-0 transition-opacity group-hover:opacity-100"
+                        className={cx(
+                          "opacity-0 transition-opacity",
+                          hoveredClassCell?.rowId === row.id &&
+                            hoveredClassCell?.dateISO === dateISO &&
+                            "opacity-100",
+                          dragState.dragging && "opacity-0 pointer-events-none",
+                        )}
                       />
                     )
                   : null}

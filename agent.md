@@ -94,6 +94,10 @@ Hover highlight issue (remote)
 - Fix: use mutually exclusive class sets in `AssignmentPill` so emerald styles fully replace blue.
 - Symptom: cell hover worked but pills did not turn green; fixed after frontend rebuild.
 
+Hover stuck after drag (local/remote)
+- Root cause: CSS `:hover` (group-hover) sometimes stays active after a drag cancel, leaving ghost slots or cell backgrounds stuck.
+- Fix: drive ghost slot visibility and cell hover background from `hoveredClassCell` state instead of CSS hover.
+
 ---
 
 ## 4) Data Model (Shared Concept)
