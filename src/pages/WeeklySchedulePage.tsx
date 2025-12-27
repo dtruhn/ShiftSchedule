@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import ClinicianEditModal from "../components/schedule/ClinicianEditModal";
+import AutomatedPlanningPanel from "../components/schedule/AutomatedPlanningPanel";
 import HelpView from "../components/schedule/HelpView";
 import IcalExportModal from "../components/schedule/IcalExportModal";
 import ScheduleGrid from "../components/schedule/ScheduleGrid";
@@ -183,6 +184,12 @@ export default function WeeklySchedulePage({
   const [hasLoaded, setHasLoaded] = useState(false);
   const [loadedUserId, setLoadedUserId] = useState<string>("");
   const [solverNotice, setSolverNotice] = useState<string | null>(null);
+  const [autoPlanProgress, setAutoPlanProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
+  const [autoPlanError, setAutoPlanError] = useState<string | null>(null);
+  const [autoPlanRunning, setAutoPlanRunning] = useState(false);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [holidayCountry, setHolidayCountry] = useState("DE");
   const [holidayYear, setHolidayYear] = useState(currentYear);
@@ -528,6 +535,96 @@ export default function WeeklySchedulePage({
 
   const shiftDateISO = (dateISO: string, delta: number) =>
     toISODate(addDays(new Date(`${dateISO}T00:00:00`), delta));
+  const formatEuropeanDate = (dateISO: string) => {
+    const [year, month, day] = dateISO.split("-");
+    if (!year || !month || !day) return dateISO;
+    return `${day}.${month}.${year}`;
+  };
+
+  const applySolverAssignments = (assignments: Assignment[]) => {
+    if (!assignments.length) return;
+    setAssignmentMap((prev) => {
+      const next = new Map(prev);
+      for (const assignment of assignments) {
+        const key = `${assignment.rowId}__${assignment.dateISO}`;
+        const existing = next.get(key) ?? [];
+        const already = existing.some(
+          (item) =>
+            item.clinicianId === assignment.clinicianId &&
+            item.rowId === assignment.rowId &&
+            item.dateISO === assignment.dateISO,
+        );
+        if (!already) next.set(key, [...existing, assignment]);
+      }
+      return next;
+    });
+  };
+
+  const buildDateRange = (startISO: string, endISO: string) => {
+    const dates: string[] = [];
+    let current = new Date(`${startISO}T00:00:00`);
+    const end = new Date(`${endISO}T00:00:00`);
+    while (current <= end) {
+      dates.push(toISODate(current));
+      current = addDays(current, 1);
+    }
+    return dates;
+  };
+
+  const handleRunAutomatedPlanning = async (args: {
+    startISO: string;
+    endISO: string;
+    onlyFillRequired: boolean;
+  }) => {
+    if (autoPlanRunning) return;
+    setAutoPlanError(null);
+    const dateISOs = buildDateRange(args.startISO, args.endISO);
+    if (dateISOs.length === 0) {
+      setAutoPlanError("Select a valid timeframe to run the solver.");
+      return;
+    }
+    setAutoPlanRunning(true);
+    setAutoPlanProgress({ current: 0, total: dateISOs.length });
+    for (let index = 0; index < dateISOs.length; index += 1) {
+      const dateISO = dateISOs[index];
+      try {
+        const result = await solveDay(dateISO, {
+          onlyFillRequired: args.onlyFillRequired,
+        });
+        if (result.notes.length > 0) {
+          setSolverNotice(result.notes[0]);
+          window.setTimeout(() => setSolverNotice(null), 4000);
+        }
+        applySolverAssignments(result.assignments);
+      } catch {
+        setAutoPlanError(`Solver failed on ${formatEuropeanDate(dateISO)}.`);
+        setSolverNotice("Solver service is not responding.");
+        window.setTimeout(() => setSolverNotice(null), 4000);
+        break;
+      } finally {
+        setAutoPlanProgress({ current: index + 1, total: dateISOs.length });
+      }
+    }
+    setAutoPlanRunning(false);
+    setAutoPlanProgress(null);
+  };
+
+  const handleResetAutomatedRange = (args: { startISO: string; endISO: string }) => {
+    setAutoPlanError(null);
+    setAssignmentMap((prev) => {
+      const next = new Map(prev);
+      for (const [key, list] of next.entries()) {
+        const [rowId, keyDate] = key.split("__");
+        if (!rowId || !keyDate) continue;
+        if (rowId.startsWith("pool-")) continue;
+        if (keyDate < args.startISO || keyDate > args.endISO) continue;
+        const filtered = list.filter((item) => isOnVacation(item.clinicianId, keyDate));
+        if (filtered.length === 0) next.delete(key);
+        else next.set(key, filtered);
+      }
+      return next;
+    });
+  };
 
   const addVacationDay = (clinicianId: string, dateISO: string) => {
     setClinicians((prev) =>
@@ -1035,99 +1132,6 @@ export default function WeeklySchedulePage({
             onRemoveEmptySlot={({ rowId, dateISO }) => {
               adjustSlotOverride(rowId, dateISO, -1);
             }}
-            onAutoAllocateDay={(dateISO, options) => {
-              solveDay(dateISO, {
-                onlyFillRequired: options?.onlyFillRequired,
-              })
-                .then((result) => {
-                  if (result.notes.length > 0) {
-                    setSolverNotice(result.notes[0]);
-                    window.setTimeout(() => setSolverNotice(null), 4000);
-                  }
-                  if (!result.assignments.length) return;
-                  setAssignmentMap((prev) => {
-                    const next = new Map(prev);
-                    for (const assignment of result.assignments) {
-                      const key = `${assignment.rowId}__${assignment.dateISO}`;
-                      const existing = next.get(key) ?? [];
-                      const already = existing.some(
-                        (item) =>
-                          item.clinicianId === assignment.clinicianId &&
-                          item.rowId === assignment.rowId &&
-                          item.dateISO === assignment.dateISO,
-                      );
-                      if (!already) next.set(key, [...existing, assignment]);
-                    }
-                    return next;
-                  });
-                })
-                .catch(() => {
-                  setSolverNotice("Solver service is not responding.");
-                  window.setTimeout(() => setSolverNotice(null), 4000);
-                });
-            }}
-            onResetDay={(dateISO) => {
-              setAssignmentMap((prev) => {
-                const next = new Map(prev);
-                for (const [key, list] of next.entries()) {
-                  const [rowId, keyDate] = key.split("__");
-                  if (keyDate !== dateISO) continue;
-                  if (rowId.startsWith("pool-")) continue;
-                  const filtered = list.filter((item) => isOnVacation(item.clinicianId, dateISO));
-                  if (filtered.length === 0) next.delete(key);
-                  else next.set(key, filtered);
-                }
-                return next;
-              });
-            }}
-            onAutoAllocateWeek={(options) => {
-              fullWeekDays.forEach((day) => {
-                const dateISO = toISODate(day);
-                solveDay(dateISO, {
-                  onlyFillRequired: options?.onlyFillRequired,
-                })
-                  .then((result) => {
-                    if (result.notes.length > 0) {
-                      setSolverNotice(result.notes[0]);
-                      window.setTimeout(() => setSolverNotice(null), 4000);
-                    }
-                    if (!result.assignments.length) return;
-                    setAssignmentMap((prev) => {
-                      const next = new Map(prev);
-                      for (const assignment of result.assignments) {
-                        const key = `${assignment.rowId}__${assignment.dateISO}`;
-                        const existing = next.get(key) ?? [];
-                        const already = existing.some(
-                          (item) =>
-                            item.clinicianId === assignment.clinicianId &&
-                            item.rowId === assignment.rowId &&
-                            item.dateISO === assignment.dateISO,
-                        );
-                        if (!already) next.set(key, [...existing, assignment]);
-                      }
-                      return next;
-                    });
-                  })
-                  .catch(() => {
-                    setSolverNotice("Solver service is not responding.");
-                    window.setTimeout(() => setSolverNotice(null), 4000);
-                  });
-              });
-            }}
-            onResetWeek={() => {
-              setAssignmentMap((prev) => {
-                const next = new Map(prev);
-                for (const [key, list] of next.entries()) {
-                  const [rowId, keyDate] = key.split("__");
-                  if (!rowId || !keyDate) continue;
-                  if (rowId.startsWith("pool-")) continue;
-                  const filtered = list.filter((item) => isOnVacation(item.clinicianId, keyDate));
-                  if (filtered.length === 0) next.delete(key);
-                  else next.set(key, filtered);
-                }
-                return next;
-              });
-            }}
             onClinicianClick={(clinicianId) => setEditingClinicianId(clinicianId)}
             onCellClick={({ row, date }) => {
               if (row.kind !== "class") return;
@@ -1253,6 +1257,17 @@ export default function WeeklySchedulePage({
               });
             }}
           />
+          <div className="mx-auto w-full max-w-7xl px-4 pb-8 sm:px-6 sm:pb-10">
+            <AutomatedPlanningPanel
+              weekStartISO={toISODate(weekStart)}
+              weekEndISO={toISODate(weekEndInclusive)}
+              isRunning={autoPlanRunning}
+              progress={autoPlanProgress}
+              error={autoPlanError}
+              onRun={handleRunAutomatedPlanning}
+              onReset={handleResetAutomatedRange}
+            />
+          </div>
         </>
       ) : viewMode === "settings" ? (
         <>

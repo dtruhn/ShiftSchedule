@@ -4,7 +4,7 @@ import { formatDayHeader, toISODate } from "../../lib/date";
 import AssignmentPill from "./AssignmentPill";
 import EmptySlotPill from "./EmptySlotPill";
 import RowLabel from "./RowLabel";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { Dispatch, MouseEvent as ReactMouseEvent, SetStateAction } from "react";
 
 type ScheduleGridProps = {
@@ -21,10 +21,6 @@ type ScheduleGridProps = {
   getHasEligibleClasses: (clinicianId: string) => boolean;
   onCellClick: (args: { row: WorkplaceRow; date: Date }) => void;
   onClinicianClick?: (clinicianId: string) => void;
-  onAutoAllocateDay?: (dateISO: string, options?: { onlyFillRequired?: boolean }) => void;
-  onResetDay?: (dateISO: string) => void;
-  onAutoAllocateWeek?: (options?: { onlyFillRequired?: boolean }) => void;
-  onResetWeek?: () => void;
   onMoveWithinDay: (args: {
     dateISO: string;
     fromRowId: string;
@@ -52,10 +48,6 @@ export default function ScheduleGrid({
   getHasEligibleClasses,
   onCellClick,
   onClinicianClick,
-  onAutoAllocateDay,
-  onResetDay,
-  onAutoAllocateWeek,
-  onResetWeek,
   onMoveWithinDay,
   separatorBeforeRowIds = [],
   minSlotsByRowId = {},
@@ -234,35 +226,39 @@ export default function ScheduleGrid({
                   );
                 })}
 
-                {rows.map((row) => (
-                  <RowSection
-                    key={row.id}
-                    row={row}
-                    weekDays={weekDays}
-                    assignmentMap={assignmentMap}
-                    getClinicianName={getClinicianName}
-                    getIsQualified={getIsQualified}
-                    getHasEligibleClasses={getHasEligibleClasses}
-                    onCellClick={onCellClick}
-                    onClinicianClick={onClinicianClick}
-                    onAutoAllocateDay={onAutoAllocateDay}
-                    onAutoAllocateWeek={onAutoAllocateWeek}
-                    onResetDay={onResetDay}
-                    onResetWeek={onResetWeek}
-                    onMoveWithinDay={onMoveWithinDay}
-                    dragState={dragState}
-                    setDragState={setDragState}
-                    hoveredClassCell={hoveredClassCell}
-                    setHoveredCell={setHoveredCell}
-                    showSeparator={separatorBeforeRowIds.includes(row.id)}
-                    minSlots={minSlotsByRowId[row.id] ?? { weekday: 0, weekend: 0 }}
-                    slotOverridesByKey={slotOverridesByKey}
-                    onRemoveEmptySlot={onRemoveEmptySlot}
-                    holidayDates={holidayDates}
-                    holidayNameByDate={holidayNameByDate}
-                    readOnly={readOnly}
-                  />
-                ))}
+                {rows.map((row, index) => {
+                  const showSeparator = separatorBeforeRowIds.includes(row.id);
+                  const nextRowId = rows[index + 1]?.id;
+                  const suppressBottomBorder =
+                    !!nextRowId && separatorBeforeRowIds.includes(nextRowId);
+                  return (
+                    <Fragment key={row.id}>
+                      {showSeparator ? <SeparatorRow /> : null}
+                      <RowSection
+                        row={row}
+                        weekDays={weekDays}
+                        assignmentMap={assignmentMap}
+                        getClinicianName={getClinicianName}
+                        getIsQualified={getIsQualified}
+                        getHasEligibleClasses={getHasEligibleClasses}
+                        onCellClick={onCellClick}
+                        onClinicianClick={onClinicianClick}
+                        onMoveWithinDay={onMoveWithinDay}
+                        dragState={dragState}
+                        setDragState={setDragState}
+                        hoveredClassCell={hoveredClassCell}
+                        setHoveredCell={setHoveredCell}
+                        suppressBottomBorder={suppressBottomBorder}
+                        minSlots={minSlotsByRowId[row.id] ?? { weekday: 0, weekend: 0 }}
+                        slotOverridesByKey={slotOverridesByKey}
+                        onRemoveEmptySlot={onRemoveEmptySlot}
+                        holidayDates={holidayDates}
+                        holidayNameByDate={holidayNameByDate}
+                        readOnly={readOnly}
+                      />
+                    </Fragment>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -281,16 +277,12 @@ function RowSection({
   getHasEligibleClasses,
   onCellClick,
   onClinicianClick,
-  onAutoAllocateDay,
-  onAutoAllocateWeek,
-  onResetDay,
-  onResetWeek,
   onMoveWithinDay,
   dragState,
   setDragState,
   hoveredClassCell,
   setHoveredCell,
-  showSeparator,
+  suppressBottomBorder,
   minSlots,
   slotOverridesByKey,
   onRemoveEmptySlot,
@@ -306,10 +298,6 @@ function RowSection({
   getHasEligibleClasses: (clinicianId: string) => boolean;
   onCellClick: (args: { row: WorkplaceRow; date: Date }) => void;
   onClinicianClick?: (clinicianId: string) => void;
-  onAutoAllocateDay?: (dateISO: string, options?: { onlyFillRequired?: boolean }) => void;
-  onAutoAllocateWeek?: (options?: { onlyFillRequired?: boolean }) => void;
-  onResetDay?: (dateISO: string) => void;
-  onResetWeek?: () => void;
   onMoveWithinDay: (args: {
     dateISO: string;
     fromRowId: string;
@@ -339,7 +327,7 @@ function RowSection({
   >;
   hoveredClassCell: { rowId: string; dateISO: string } | null;
   setHoveredCell: (next: { rowId: string; dateISO: string } | null) => void;
-  showSeparator: boolean;
+  suppressBottomBorder: boolean;
   minSlots: { weekday: number; weekend: number };
   slotOverridesByKey: Record<string, number>;
   onRemoveEmptySlot?: (args: { rowId: string; dateISO: string }) => void;
@@ -353,11 +341,11 @@ function RowSection({
       : row.id === "pool-manual"
         ? "bg-slate-50/70 dark:bg-slate-900/70"
         : "bg-white dark:bg-slate-900";
-  const shouldInsertControlRow = showSeparator && !readOnly;
   const isDistributionPoolRow = row.id === "pool-not-allocated";
   const isManualPoolRow = row.id === "pool-manual";
-  const borderBottomClass =
-    row.id === "pool-vacation"
+  const borderBottomClass = suppressBottomBorder
+    ? "border-b-0"
+    : row.id === "pool-vacation"
       ? "border-b-0"
       : isDistributionPoolRow
         ? "border-b-2 border-slate-200 dark:border-slate-800"
@@ -366,16 +354,6 @@ function RowSection({
           : "border-b border-slate-200 dark:border-slate-800";
   return (
     <>
-      {shouldInsertControlRow ? (
-        <ControlRow
-          weekDays={weekDays}
-          onAutoAllocateDay={onAutoAllocateDay}
-          onAutoAllocateWeek={onAutoAllocateWeek}
-          onResetDay={onResetDay}
-          onResetWeek={onResetWeek}
-          holidayDates={holidayDates}
-        />
-      ) : null}
       <div
         className={cx(
           "row border-r border-slate-200 py-1 dark:border-slate-800 sm:py-1",
@@ -662,183 +640,11 @@ function RowSection({
   );
 }
 
-function Tooltip({ children }: { children: string }) {
+function SeparatorRow() {
   return (
-    <span
-      className={cx(
-        "pointer-events-none absolute top-9 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 shadow-sm",
-        "opacity-0 transition-opacity duration-75 group-hover:opacity-100",
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
-function ControlRow({
-  weekDays,
-  onAutoAllocateDay,
-  onAutoAllocateWeek,
-  onResetDay,
-  onResetWeek,
-  holidayDates,
-}: {
-  weekDays: Date[];
-  onAutoAllocateDay?: (dateISO: string, options?: { onlyFillRequired?: boolean }) => void;
-  onAutoAllocateWeek?: (options?: { onlyFillRequired?: boolean }) => void;
-  onResetDay?: (dateISO: string) => void;
-  onResetWeek?: () => void;
-  holidayDates?: Set<string>;
-}) {
-  return (
-    <>
-      <div className="no-print border-b border-r border-slate-200 bg-white px-5 py-3 overflow-visible dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-center gap-2">
-          <ControlButton
-            label="Only necessary (week)"
-            onClick={() => onAutoAllocateWeek?.({ onlyFillRequired: true })}
-          >
-            <ArrowUpIcon className="h-7 w-7" />
-          </ControlButton>
-          <ControlButton
-            label="Distribute all (week)"
-            onClick={() => onAutoAllocateWeek?.({ onlyFillRequired: false })}
-          >
-            <ArrowUpDoubleIcon className="h-7 w-7" />
-          </ControlButton>
-          <ControlButton label="Reset to free (week)" onClick={() => onResetWeek?.()}>
-            <ArrowDownDoubleIcon className="h-7 w-7" />
-          </ControlButton>
-        </div>
-      </div>
-      {weekDays.map((day, index) => {
-        const dateISO = toISODate(day);
-        const isLastCol = index === weekDays.length - 1;
-        return (
-          <div
-            key={`control-${dateISO}`}
-            className={cx(
-              "no-print border-b border-r border-slate-200 px-4 py-3 text-center overflow-visible dark:border-slate-800",
-              "bg-white dark:bg-slate-900",
-              { "border-r-0": isLastCol },
-            )}
-          >
-            <div className="flex items-center justify-center gap-2">
-              <ControlButton
-                label="Only necessary (day)"
-                onClick={() => onAutoAllocateDay?.(dateISO, { onlyFillRequired: true })}
-              >
-                <ArrowUpIcon className="h-7 w-7" />
-              </ControlButton>
-              <ControlButton
-                label="Distribute all (day)"
-                onClick={() => onAutoAllocateDay?.(dateISO, { onlyFillRequired: false })}
-              >
-                <ArrowUpDoubleIcon className="h-7 w-7" />
-              </ControlButton>
-              <ControlButton label="Reset to free (day)" onClick={() => onResetDay?.(dateISO)}>
-                <ArrowDownDoubleIcon className="h-7 w-7" />
-              </ControlButton>
-            </div>
-          </div>
-        );
-      })}
-    </>
-  );
-}
-
-function ControlButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cx(
-        "group relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500",
-        "hover:bg-slate-50 hover:text-slate-700",
-        "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
-      )}
-      aria-label={label}
-    >
-      {children}
-      <Tooltip>{label}</Tooltip>
-    </button>
-  );
-}
-
-function ArrowUpDoubleIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <path
-        d="M8 16 12 12l4 4"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M8 11 12 7l4 4"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ArrowUpIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <path
-        d="M8 14 12 10l4 4"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ArrowDownIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <path
-        d="M8 10 12 14l4-4"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ArrowDownDoubleIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <path
-        d="M8 8l4 4 4-4"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M8 13l4 4 4-4"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <div
+      className="row h-2 border-y border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+      style={{ gridColumn: "1 / -1" }}
+    />
   );
 }

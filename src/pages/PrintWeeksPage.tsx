@@ -179,10 +179,6 @@ export default function PrintWeeksPage({ theme }: PrintWeeksPageProps) {
                 }}
                 slotOverridesByKey={slotOverridesByKey}
                 onRemoveEmptySlot={() => {}}
-                onAutoAllocateDay={() => {}}
-                onAutoAllocateWeek={() => {}}
-                onResetDay={() => {}}
-                onResetWeek={() => {}}
                 onMoveWithinDay={() => {}}
                 onCellClick={() => {}}
               />

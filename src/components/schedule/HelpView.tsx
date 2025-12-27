@@ -75,24 +75,24 @@ export default function HelpView() {
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
               <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                Solver actions (arrows)
+                Automated planning panel
               </div>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-slate-200">
                 <li>
-                  <span className="font-medium">Single ↑</span>: Fill Open Slots
-                  only.
+                  <span className="font-medium">Fill open slots only</span>:
+                  runs the solver without forcing full distribution.
                 </li>
                 <li>
-                  <span className="font-medium">Double ↑↑</span>: Distribute all
-                  clinicians from the Distribution Pool.
+                  <span className="font-medium">Distribute all clinicians</span>:
+                  uses the Distribution Pool to spread assignments.
                 </li>
                 <li>
-                  <span className="font-medium">Double ↓↓</span>: Clear a day
-                  (move all assigned clinicians back to the Distribution Pool).
+                  <span className="font-medium">Reset to Distribution Pool</span>:
+                  clears assignments for the selected timeframe.
                 </li>
               </ul>
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                Available per day and per week.
+                Choose a date range, or use the visible week shortcut.
               </p>
             </div>
 
