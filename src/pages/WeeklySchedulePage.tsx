@@ -12,15 +12,20 @@ import {
   exportWeekPdf,
   exportWeeksPdf,
   getIcalPublishStatus,
+  getWebPublishStatus,
   getState,
   publishIcal,
+  publishWeb,
   rotateIcalToken,
   saveState,
   solveDay,
+  rotateWeb,
   unpublishIcal,
+  unpublishWeb,
   type AuthUser,
   type Holiday,
   type IcalPublishStatus,
+  type WebPublishStatus,
 } from "../api/client";
 import {
   Assignment,
@@ -148,6 +153,11 @@ export default function WeeklySchedulePage({
   );
   const [icalPublishLoading, setIcalPublishLoading] = useState(false);
   const [icalPublishError, setIcalPublishError] = useState<string | null>(null);
+  const [webPublishStatus, setWebPublishStatus] = useState<WebPublishStatus | null>(
+    null,
+  );
+  const [webPublishLoading, setWebPublishLoading] = useState(false);
+  const [webPublishError, setWebPublishError] = useState<string | null>(null);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [pdfProgress, setPdfProgress] = useState<{ current: number; total: number } | null>(
     null,
@@ -354,6 +364,8 @@ export default function WeeklySchedulePage({
     setExportOpen(true);
     setIcalPublishError(null);
     setIcalPublishLoading(true);
+    setWebPublishError(null);
+    setWebPublishLoading(true);
     getIcalPublishStatus()
       .then(async (status) => {
         if (status.published) {
@@ -372,12 +384,23 @@ export default function WeeklySchedulePage({
         setIcalPublishStatus(null);
       })
       .finally(() => setIcalPublishLoading(false));
+    getWebPublishStatus()
+      .then((status) => {
+        setWebPublishStatus(status);
+      })
+      .catch(() => {
+        setWebPublishError("Could not load web link status.");
+        setWebPublishStatus(null);
+      })
+      .finally(() => setWebPublishLoading(false));
   };
 
   const closeExportModal = () => {
     setExportOpen(false);
     setIcalPublishError(null);
     setIcalPublishLoading(false);
+    setWebPublishError(null);
+    setWebPublishLoading(false);
   };
 
   const handlePublishSubscription = async () => {
@@ -416,6 +439,45 @@ export default function WeeklySchedulePage({
       setIcalPublishError("Unpublishing failed.");
     } finally {
       setIcalPublishLoading(false);
+    }
+  };
+
+  const handleWebPublish = async () => {
+    setWebPublishError(null);
+    setWebPublishLoading(true);
+    try {
+      const status = await publishWeb();
+      setWebPublishStatus(status);
+    } catch {
+      setWebPublishError("Publishing failed.");
+    } finally {
+      setWebPublishLoading(false);
+    }
+  };
+
+  const handleWebRotate = async () => {
+    setWebPublishError(null);
+    setWebPublishLoading(true);
+    try {
+      const status = await rotateWeb();
+      setWebPublishStatus(status);
+    } catch {
+      setWebPublishError("Refreshing the link failed.");
+    } finally {
+      setWebPublishLoading(false);
+    }
+  };
+
+  const handleWebUnpublish = async () => {
+    setWebPublishError(null);
+    setWebPublishLoading(true);
+    try {
+      await unpublishWeb();
+      setWebPublishStatus({ published: false });
+    } catch {
+      setWebPublishError("Unpublishing failed.");
+    } finally {
+      setWebPublishLoading(false);
     }
   };
 
@@ -1366,6 +1428,12 @@ export default function WeeklySchedulePage({
         pdfExporting={pdfExporting}
         pdfProgress={pdfProgress}
         pdfError={pdfError}
+        webStatus={webPublishStatus}
+        webLoading={webPublishLoading}
+        webError={webPublishError}
+        onWebPublish={handleWebPublish}
+        onWebRotate={handleWebRotate}
+        onWebUnpublish={handleWebUnpublish}
       />
 
       {solverNotice ? (

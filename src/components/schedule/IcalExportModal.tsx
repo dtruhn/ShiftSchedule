@@ -29,6 +29,12 @@ type IcalExportModalProps = {
   pdfExporting: boolean;
   pdfProgress?: { current: number; total: number } | null;
   pdfError?: string | null;
+  webStatus: { published: boolean; token?: string } | null;
+  webLoading: boolean;
+  webError: string | null;
+  onWebPublish: () => void;
+  onWebRotate: () => void;
+  onWebUnpublish: () => void;
 };
 
 export default function IcalExportModal({
@@ -50,10 +56,16 @@ export default function IcalExportModal({
   pdfExporting,
   pdfProgress,
   pdfError,
+  webStatus,
+  webLoading,
+  webError,
+  onWebPublish,
+  onWebRotate,
+  onWebUnpublish,
 }: IcalExportModalProps) {
   const [startText, setStartText] = useState<string>("");
   const [endText, setEndText] = useState<string>("");
-  const [tab, setTab] = useState<"pdf" | "ical">("pdf");
+  const [tab, setTab] = useState<"pdf" | "ical" | "web">("pdf");
   const [icalTab, setIcalTab] = useState<"download" | "subscribe">("subscribe");
   const [pdfStartText, setPdfStartText] = useState<string>("");
   const [pdfWeeksText, setPdfWeeksText] = useState<string>("1");
@@ -147,6 +159,11 @@ export default function IcalExportModal({
   const clinicianLinks = publishStatus?.clinicians ?? [];
   const canPublish = !publishLoading;
   const isPublished = publishStatus?.published === true;
+  const isWebPublished = webStatus?.published === true;
+  const webLink =
+    webStatus?.token && typeof window !== "undefined"
+      ? `${window.location.origin}/public/${webStatus.token}`
+      : "";
 
   const copyToClipboard = async (value: string, key: string) => {
     if (!value) return;
@@ -223,7 +240,7 @@ export default function IcalExportModal({
           <div className="min-h-0 overflow-y-auto px-6 py-5">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
               PDF creates printable week exports. iCal can be downloaded as files or shared as
-              subscription links.
+              subscription links. Web creates a read-only public view link.
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -250,6 +267,18 @@ export default function IcalExportModal({
                 )}
               >
                 iCal
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("web")}
+                className={cx(
+                  "rounded-full border px-3 py-1.5 text-xs font-semibold",
+                  tab === "web"
+                    ? "border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800",
+                )}
+              >
+                Web
               </button>
             </div>
 
@@ -495,6 +524,106 @@ export default function IcalExportModal({
                       : "Files download one by one."}
                   </span>
                 </div>
+              </div>
+            ) : tab === "web" ? (
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    Links active
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isWebPublished}
+                    onClick={() => {
+                      if (webLoading) return;
+                      if (isWebPublished) {
+                        const ok = window.confirm(
+                          "Disable this link? The public page will stop working.",
+                        );
+                        if (!ok) return;
+                        onWebUnpublish();
+                        return;
+                      }
+                      onWebPublish();
+                    }}
+                    className={cx(
+                      "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                      isWebPublished
+                        ? "bg-emerald-500"
+                        : "bg-slate-300 dark:bg-slate-700",
+                    )}
+                  >
+                    <span
+                      className={cx(
+                        "inline-block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow transition-transform",
+                        isWebPublished && "translate-x-[22px]",
+                      )}
+                    />
+                  </button>
+                </div>
+
+                {webError ? (
+                  <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-900/30 dark:text-rose-200">
+                    {webError}
+                  </div>
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isWebPublished) return;
+                      const ok = window.confirm(
+                        "Refresh the link? The old link will stop working.",
+                      );
+                      if (!ok) return;
+                      onWebRotate();
+                    }}
+                    disabled={!isWebPublished || webLoading}
+                    className={cx(
+                      "inline-flex items-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900",
+                      "hover:bg-slate-50 active:bg-slate-100",
+                      "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+                      "disabled:cursor-not-allowed disabled:opacity-50",
+                    )}
+                  >
+                    Refresh link
+                  </button>
+                </div>
+
+                {isWebPublished && webLink ? (
+                  <div className="mt-4">
+                    <div className="text-xs font-semibold text-slate-500 dark:text-slate-300">
+                      Public view link
+                    </div>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={webLink}
+                        className={cx(
+                          "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900",
+                          "dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
+                        )}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(webLink, "web")}
+                        className={cx(
+                          "shrink-0 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900",
+                          "hover:bg-slate-50 active:bg-slate-100",
+                          "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+                        )}
+                      >
+                        {getCopyLabel("web")}
+                      </button>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                      Anyone with this link can view the schedule (read-only).
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : tab === "ical" && icalTab === "download" ? (
               <>

@@ -9,6 +9,7 @@ import {
 import LoginPage from "./pages/LoginPage";
 import PrintWeekPage from "./pages/PrintWeekPage";
 import PrintWeeksPage from "./pages/PrintWeeksPage";
+import PublicWeekPage from "./pages/PublicWeekPage";
 import WeeklySchedulePage from "./pages/WeeklySchedulePage";
 
 export default function App() {
@@ -42,10 +43,10 @@ export default function App() {
     window.localStorage.setItem("theme", theme);
   }, [theme]);
 
-  const isPrintWeekRoute =
-    typeof window !== "undefined" && window.location.pathname.startsWith("/print/week");
-  const isPrintWeeksRoute =
-    typeof window !== "undefined" && window.location.pathname.startsWith("/print/weeks");
+  const pathname = typeof window !== "undefined" ? window.location.pathname : "";
+  const isPrintWeekRoute = pathname.startsWith("/print/week");
+  const isPrintWeeksRoute = pathname.startsWith("/print/weeks");
+  const publicMatch = pathname.match(/^\/public\/([^/]+)\/?$/);
 
   if (isPrintWeekRoute || isPrintWeeksRoute) {
     if (loading) {
@@ -63,6 +64,10 @@ export default function App() {
       );
     }
     return isPrintWeeksRoute ? <PrintWeeksPage theme={theme} /> : <PrintWeekPage theme={theme} />;
+  }
+
+  if (publicMatch) {
+    return <PublicWeekPage token={publicMatch[1]} theme={theme} />;
   }
 
   const toggleTheme = () =>

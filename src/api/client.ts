@@ -72,6 +72,23 @@ export type IcalPublishStatus = {
   }>;
 };
 
+export type WebPublishStatus = {
+  published: boolean;
+  token?: string;
+};
+
+export type PublicWebWeekResponse = {
+  published: boolean;
+  weekStartISO: string;
+  weekEndISO: string;
+  rows?: WorkplaceRow[];
+  clinicians?: Clinician[];
+  assignments?: Assignment[];
+  minSlotsByRowId?: Record<string, MinSlots>;
+  slotOverridesByKey?: Record<string, number>;
+  holidays?: Holiday[];
+};
+
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const TOKEN_STORAGE_KEY = "authToken";
 const AUTH_EXPIRED_EVENT = "auth-expired";
@@ -311,6 +328,72 @@ export async function exportWeekPdf(startISO: string): Promise<Blob> {
     throw new Error(`Failed to export PDF: ${res.status}`);
   }
   return res.blob();
+}
+
+export async function getWebPublishStatus(): Promise<WebPublishStatus> {
+  const res = await fetch(`${API_BASE}/v1/web/publish`, {
+    headers: buildHeaders(),
+  });
+  if (res.status === 401) handleUnauthorized();
+  if (!res.ok) {
+    throw new Error(`Failed to fetch web publish status: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function publishWeb(): Promise<WebPublishStatus> {
+  const res = await fetch(`${API_BASE}/v1/web/publish`, {
+    method: "POST",
+    headers: buildHeaders(),
+  });
+  if (res.status === 401) handleUnauthorized();
+  if (!res.ok) {
+    throw new Error(`Failed to publish web link: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function rotateWeb(): Promise<WebPublishStatus> {
+  const res = await fetch(`${API_BASE}/v1/web/publish/rotate`, {
+    method: "POST",
+    headers: buildHeaders(),
+  });
+  if (res.status === 401) handleUnauthorized();
+  if (!res.ok) {
+    throw new Error(`Failed to rotate web link: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function unpublishWeb(): Promise<void> {
+  const res = await fetch(`${API_BASE}/v1/web/publish`, {
+    method: "DELETE",
+    headers: buildHeaders(),
+  });
+  if (res.status === 401) handleUnauthorized();
+  if (!res.ok) {
+    throw new Error(`Failed to unpublish web link: ${res.status}`);
+  }
+}
+
+export async function getPublicWebWeek(
+  token: string,
+  weekStartISO: string,
+): Promise<PublicWebWeekResponse> {
+  const res = await fetch(
+    `${API_BASE}/v1/web/${encodeURIComponent(token)}/week?start=${encodeURIComponent(
+      weekStartISO,
+    )}`,
+  );
+  if (res.status === 404) {
+    const error = new Error("Link not found") as Error & { status?: number };
+    error.status = 404;
+    throw error;
+  }
+  if (!res.ok) {
+    throw new Error(`Failed to fetch public schedule: ${res.status}`);
+  }
+  return res.json();
 }
 
 export async function exportWeeksPdf(startISO: string, weeks: number): Promise<Blob> {

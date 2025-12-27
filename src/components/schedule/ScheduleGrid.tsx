@@ -15,6 +15,7 @@ type ScheduleGridProps = {
   header?: React.ReactNode;
   holidayDates?: Set<string>;
   holidayNameByDate?: Record<string, string>;
+  readOnly?: boolean;
   getClinicianName: (clinicianId: string) => string;
   getIsQualified: (clinicianId: string, rowId: string) => boolean;
   getHasEligibleClasses: (clinicianId: string) => boolean;
@@ -45,6 +46,7 @@ export default function ScheduleGrid({
   header,
   holidayDates,
   holidayNameByDate,
+  readOnly = false,
   getClinicianName,
   getIsQualified,
   getHasEligibleClasses,
@@ -88,12 +90,14 @@ export default function ScheduleGrid({
   };
 
   const clearHoveredCell = () => {
+    if (readOnly) return;
     if (!hoveredClassCellRef.current) return;
     hoveredClassCellRef.current = null;
     setHoveredClassCell(null);
   };
 
   const handleMouseMove = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (readOnly) return;
     if (dragState.dragging) {
       clearHoveredCell();
       return;
@@ -162,8 +166,8 @@ export default function ScheduleGrid({
                 ref={gridRef}
                 data-schedule-grid="true"
                 className="grid"
-                onMouseMove={handleMouseMove}
-                onMouseLeave={clearHoveredCell}
+                onMouseMove={readOnly ? undefined : handleMouseMove}
+                onMouseLeave={readOnly ? undefined : clearHoveredCell}
                 style={{
                   gridTemplateColumns: `${leftColumn} repeat(${Math.max(
                     weekDays.length,
@@ -256,6 +260,7 @@ export default function ScheduleGrid({
                     onRemoveEmptySlot={onRemoveEmptySlot}
                     holidayDates={holidayDates}
                     holidayNameByDate={holidayNameByDate}
+                    readOnly={readOnly}
                   />
                 ))}
               </div>
@@ -291,6 +296,7 @@ function RowSection({
   onRemoveEmptySlot,
   holidayDates,
   holidayNameByDate,
+  readOnly = false,
 }: {
   row: WorkplaceRow;
   weekDays: Date[];
@@ -339,6 +345,7 @@ function RowSection({
   onRemoveEmptySlot?: (args: { rowId: string; dateISO: string }) => void;
   holidayDates?: Set<string>;
   holidayNameByDate?: Record<string, string>;
+  readOnly?: boolean;
 }) {
   const rowBg =
     row.id === "pool-vacation"
@@ -346,7 +353,7 @@ function RowSection({
       : row.id === "pool-manual"
         ? "bg-slate-50/70 dark:bg-slate-900/70"
         : "bg-white dark:bg-slate-900";
-  const shouldInsertControlRow = showSeparator;
+  const shouldInsertControlRow = showSeparator && !readOnly;
   const isDistributionPoolRow = row.id === "pool-not-allocated";
   const isManualPoolRow = row.id === "pool-manual";
   const borderBottomClass =
@@ -407,6 +414,7 @@ function RowSection({
         const isOtherDay = !!dragState.dragging && dragState.dragging.dateISO !== dateISO;
         const isActiveDay = !!dragState.dragging && dragState.dragging.dateISO === dateISO;
         const showQualified =
+          !readOnly &&
           !!dragState.dragging &&
           isActiveDay &&
           row.kind === "class" &&
@@ -429,44 +437,62 @@ function RowSection({
           <button
             key={key}
             type="button"
-            onClick={() => onCellClick({ row, date })}
-            onDragOver={(e) => {
-              if (!dragState.dragging) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-              if (dragState.dragging.dateISO !== dateISO) {
-                setDragState((s) => (s.dragOverKey ? { ...s, dragOverKey: null } : s));
-                return;
-              }
-              setDragState((s) => (s.dragOverKey === key ? s : { ...s, dragOverKey: key }));
-            }}
-            onDragLeave={() => {
-              setDragState((s) => (s.dragOverKey === key ? { ...s, dragOverKey: null } : s));
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              const raw = e.dataTransfer.getData("application/x-schedule-cell");
-              if (!raw) return;
-              try {
-                const payload = JSON.parse(raw) as {
-                  rowId: string;
-                  dateISO: string;
-                  assignmentId: string;
-                  clinicianId: string;
-                };
-                if (payload.dateISO !== dateISO) return;
-                if (payload.rowId === row.id) return;
-                onMoveWithinDay({
-                  dateISO,
-                  fromRowId: payload.rowId,
-                  toRowId: row.id,
-                  assignmentId: payload.assignmentId,
-                  clinicianId: payload.clinicianId,
-                });
-              } finally {
-                setDragState({ dragging: null, dragOverKey: null });
-              }
-            }}
+            onClick={readOnly ? undefined : () => onCellClick({ row, date })}
+            onDragOver={
+              readOnly
+                ? undefined
+                : (e) => {
+                    if (!dragState.dragging) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    if (dragState.dragging.dateISO !== dateISO) {
+                      setDragState((s) =>
+                        s.dragOverKey ? { ...s, dragOverKey: null } : s,
+                      );
+                      return;
+                    }
+                    setDragState((s) =>
+                      s.dragOverKey === key ? s : { ...s, dragOverKey: key },
+                    );
+                  }
+            }
+            onDragLeave={
+              readOnly
+                ? undefined
+                : () => {
+                    setDragState((s) =>
+                      s.dragOverKey === key ? { ...s, dragOverKey: null } : s,
+                    );
+                  }
+            }
+            onDrop={
+              readOnly
+                ? undefined
+                : (e) => {
+                    e.preventDefault();
+                    const raw = e.dataTransfer.getData("application/x-schedule-cell");
+                    if (!raw) return;
+                    try {
+                      const payload = JSON.parse(raw) as {
+                        rowId: string;
+                        dateISO: string;
+                        assignmentId: string;
+                        clinicianId: string;
+                      };
+                      if (payload.dateISO !== dateISO) return;
+                      if (payload.rowId === row.id) return;
+                      onMoveWithinDay({
+                        dateISO,
+                        fromRowId: payload.rowId,
+                        toRowId: row.id,
+                        assignmentId: payload.assignmentId,
+                        clinicianId: payload.clinicianId,
+                      });
+                    } finally {
+                      setDragState({ dragging: null, dragOverKey: null });
+                    }
+                  }
+            }
             data-schedule-cell="true"
             data-row-id={row.id}
             data-row-kind={row.kind}
@@ -488,80 +514,92 @@ function RowSection({
                   return (
                     <div
                       key={assignment.id}
-                      draggable
-                      onDragStart={(e) => {
-                        e.stopPropagation();
-                        setHoveredCell(null);
-                        e.dataTransfer.effectAllowed = "move";
-                        const source = e.currentTarget;
-                        const clone = source.cloneNode(true) as HTMLElement;
-                        const pill = clone.querySelector<HTMLElement>(
-                          '[data-assignment-pill="true"]',
-                        );
-                        if (pill) {
-                          pill.classList.remove(
-                            "border-emerald-500",
-                            "border-emerald-300",
-                            "bg-emerald-100",
-                            "bg-emerald-100/80",
-                            "text-emerald-950",
-                            "text-emerald-900",
-                            "dark:border-emerald-300",
-                            "dark:border-emerald-500/60",
-                            "dark:bg-emerald-900/70",
-                            "dark:bg-emerald-900/40",
-                            "dark:text-emerald-50",
-                            "dark:text-emerald-100",
-                          );
-                          pill.classList.add(
-                            "border-sky-200",
-                            "bg-sky-50",
-                            "text-sky-800",
-                            "dark:border-sky-500/40",
-                            "dark:bg-sky-900/40",
-                            "dark:text-sky-100",
-                          );
-                        }
-                        clone.style.position = "absolute";
-                        clone.style.top = "-9999px";
-                        clone.style.left = "-9999px";
-                        clone.style.pointerEvents = "none";
-                        clone.style.width = `${source.offsetWidth}px`;
-                        clone.style.height = `${source.offsetHeight}px`;
-                        document.body.appendChild(clone);
-                        e.dataTransfer.setDragImage(
-                          clone,
-                          source.offsetWidth / 2,
-                          source.offsetHeight / 2,
-                        );
-                        window.setTimeout(() => clone.remove(), 0);
-                        e.dataTransfer.setData(
-                          "application/x-schedule-cell",
-                          JSON.stringify({
-                            rowId: row.id,
-                            dateISO,
-                            assignmentId: assignment.id,
-                            clinicianId: assignment.clinicianId,
-                          }),
-                        );
-                        setDragState({
-                          dragging: {
-                            rowId: row.id,
-                            dateISO,
-                            assignmentId: assignment.id,
-                            clinicianId: assignment.clinicianId,
-                          },
-                          dragOverKey: null,
-                        });
-                      }}
-                      onClick={(e) => {
-                        if (!onClinicianClick) return;
-                        e.stopPropagation();
-                        onClinicianClick(assignment.clinicianId);
-                      }}
-                      onDragEnd={() => setDragState({ dragging: null, dragOverKey: null })}
+                      draggable={!readOnly}
+                      onDragStart={
+                        readOnly
+                          ? undefined
+                          : (e) => {
+                              e.stopPropagation();
+                              setHoveredCell(null);
+                              e.dataTransfer.effectAllowed = "move";
+                              const source = e.currentTarget;
+                              const clone = source.cloneNode(true) as HTMLElement;
+                              const pill = clone.querySelector<HTMLElement>(
+                                '[data-assignment-pill="true"]',
+                              );
+                              if (pill) {
+                                pill.classList.remove(
+                                  "border-emerald-500",
+                                  "border-emerald-300",
+                                  "bg-emerald-100",
+                                  "bg-emerald-100/80",
+                                  "text-emerald-950",
+                                  "text-emerald-900",
+                                  "dark:border-emerald-300",
+                                  "dark:border-emerald-500/60",
+                                  "dark:bg-emerald-900/70",
+                                  "dark:bg-emerald-900/40",
+                                  "dark:text-emerald-50",
+                                  "dark:text-emerald-100",
+                                );
+                                pill.classList.add(
+                                  "border-sky-200",
+                                  "bg-sky-50",
+                                  "text-sky-800",
+                                  "dark:border-sky-500/40",
+                                  "dark:bg-sky-900/40",
+                                  "dark:text-sky-100",
+                                );
+                              }
+                              clone.style.position = "absolute";
+                              clone.style.top = "-9999px";
+                              clone.style.left = "-9999px";
+                              clone.style.pointerEvents = "none";
+                              clone.style.width = `${source.offsetWidth}px`;
+                              clone.style.height = `${source.offsetHeight}px`;
+                              document.body.appendChild(clone);
+                              e.dataTransfer.setDragImage(
+                                clone,
+                                source.offsetWidth / 2,
+                                source.offsetHeight / 2,
+                              );
+                              window.setTimeout(() => clone.remove(), 0);
+                              e.dataTransfer.setData(
+                                "application/x-schedule-cell",
+                                JSON.stringify({
+                                  rowId: row.id,
+                                  dateISO,
+                                  assignmentId: assignment.id,
+                                  clinicianId: assignment.clinicianId,
+                                }),
+                              );
+                              setDragState({
+                                dragging: {
+                                  rowId: row.id,
+                                  dateISO,
+                                  assignmentId: assignment.id,
+                                  clinicianId: assignment.clinicianId,
+                                },
+                                dragOverKey: null,
+                              });
+                            }
+                      }
+                      onClick={
+                        readOnly || !onClinicianClick
+                          ? undefined
+                          : (e) => {
+                              e.stopPropagation();
+                              onClinicianClick(assignment.clinicianId);
+                            }
+                      }
+                      onDragEnd={
+                        readOnly
+                          ? undefined
+                          : () => setDragState({ dragging: null, dragOverKey: null })
+                      }
                       className={cx(
-                        "w-full cursor-grab active:cursor-grabbing",
+                        "w-full",
+                        !readOnly && "cursor-grab active:cursor-grabbing",
                         isDraggingAssignment && "opacity-0",
                       )}
                     >
@@ -590,7 +628,7 @@ function RowSection({
                     <EmptySlotPill
                       key={`${key}-empty-${idx}`}
                       onRemove={
-                        onRemoveEmptySlot && row.kind === "class"
+                        !readOnly && onRemoveEmptySlot && row.kind === "class"
                           ? () =>
                               onRemoveEmptySlot({
                                 rowId: row.id,
@@ -601,7 +639,7 @@ function RowSection({
                     />
                   ))
                 : assignments.length === 0 && row.kind === "class"
-                  ? (
+                  ? !readOnly && (
                       <EmptySlotPill
                         key={`${key}-empty-ghost`}
                         variant="ghost"

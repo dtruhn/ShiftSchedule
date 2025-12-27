@@ -94,7 +94,7 @@ Admin user management
 
 iCal (download + subscription feed)
 - The top bar has an **Export** button that opens a modal:
-  - Primary tabs: **PDF** and **iCal**.
+  - Primary tabs: **PDF**, **iCal**, **Web**.
   - iCal has a secondary toggle for **Subscription** (default) vs **Download**.
   - Subscriptions include **only weeks marked Published** in the schedule view (week toggle above the grid).
 
@@ -165,6 +165,24 @@ Known issues / fixes
   - Publish via UI, then `curl -i "<subscribeUrl>"` should return 200 + calendar data.
   - Re-run with `If-None-Match` or `If-Modified-Since` should return 304 if unchanged.
   - Note: Many real calendar clients (especially Apple Calendar on devices) strongly prefer HTTPS for subscriptions.
+
+Public web view (share link)
+- Public route: `/public/:token?start=YYYY-MM-DD` (no login).
+- Backend table: `web_publications` (one token per user; rotation invalidates old link).
+- Auth endpoints:
+  - `GET /v1/web/publish` (status)
+  - `POST /v1/web/publish` (enable)
+  - `POST /v1/web/publish/rotate` (new token)
+  - `DELETE /v1/web/publish` (disable)
+- Public data endpoint: `GET /v1/web/{token}/week?start=YYYY-MM-DD`
+  - Returns `published:false` if the week is not in `publishedWeekStartISOs`.
+  - When published: returns rows, clinicians, assignments (class rows only, within week), min slots, slot overrides, holidays.
+  - Vacation override is applied (assignments hidden on vacation days).
+  - HTTP caching: `ETag` + `Last-Modified` with conditional 304.
+- Export modal → **Web** tab:
+  - Links active toggle, refresh link (confirm), copyable public URL.
+  - URL uses `${window.location.origin}/public/<token>`.
+  - If a week is unpublished, the public page shows “This week is not published yet.” but keeps navigation visible.
 
 Hover highlight issue (remote)
 - Root cause: pills had both blue and emerald classes at once; Tailwind CSS order kept the blue background even when `isHighlighted` was true.

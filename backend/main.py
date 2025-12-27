@@ -144,6 +144,11 @@ class IcalPublishStatus(BaseModel):
     clinicians: List[IcalPublishClinicianLink] = Field(default_factory=list)
 
 
+class WebPublishStatus(BaseModel):
+    published: bool
+    token: Optional[str] = None
+
+
 def _default_state() -> AppState:
     current_year = datetime.now(timezone.utc).year
     rows = [
@@ -326,6 +331,16 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS web_publications (
+            username TEXT PRIMARY KEY,
+            token TEXT UNIQUE NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
 
     columns = [row["name"] for row in conn.execute("PRAGMA table_info(app_state)").fetchall()]
     if "updated_at" not in columns:
@@ -421,6 +436,13 @@ def _parse_iso_datetime(value: Optional[str]) -> datetime:
     return dt.astimezone(timezone.utc).replace(microsecond=0)
 
 
+def _normalize_week_start(date_iso: str) -> tuple[str, str]:
+    base = datetime.fromisoformat(f"{date_iso}T00:00:00+00:00").date()
+    week_start = base - timedelta(days=base.weekday())
+    week_end = week_start + timedelta(days=6)
+    return week_start.isoformat(), week_end.isoformat()
+
+
 def _etag_matches(if_none_match: Optional[str], etag: str) -> bool:
     if not if_none_match:
         return False
@@ -467,6 +489,24 @@ def _compute_public_etag(
     return f"\"{digest}\""
 
 
+def _compute_public_week_etag(
+    token: str,
+    week_start_iso: str,
+    state_updated_at: str,
+    publication_updated_at: str,
+) -> str:
+    payload = "|".join(
+        [
+            token,
+            week_start_iso,
+            state_updated_at or "",
+            publication_updated_at or "",
+        ]
+    )
+    digest = sha256(payload.encode("utf-8")).hexdigest()
+    return f"\"{digest}\""
+
+
 def _build_subscribe_url(request: Request, token: str) -> str:
     base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
     return f"{base}/v1/ical/{token}.ics"
@@ -485,6 +525,14 @@ def _token_exists(conn: sqlite3.Connection, token: str) -> bool:
     return row is not None
 
 
+def _web_token_exists(conn: sqlite3.Connection, token: str) -> bool:
+    row = conn.execute(
+        "SELECT token FROM web_publications WHERE token = ? LIMIT 1",
+        (token,),
+    ).fetchone()
+    return row is not None
+
+
 def _get_publication_by_username(username: str) -> Optional[sqlite3.Row]:
     conn = _get_connection()
     row = conn.execute(
@@ -494,6 +542,34 @@ def _get_publication_by_username(username: str) -> Optional[sqlite3.Row]:
         WHERE username = ?
         """,
         (username,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def _get_web_publication_by_username(username: str) -> Optional[sqlite3.Row]:
+    conn = _get_connection()
+    row = conn.execute(
+        """
+        SELECT username, token, created_at, updated_at
+        FROM web_publications
+        WHERE username = ?
+        """,
+        (username,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def _get_web_publication_by_token(token: str) -> Optional[sqlite3.Row]:
+    conn = _get_connection()
+    row = conn.execute(
+        """
+        SELECT username, token, created_at, updated_at
+        FROM web_publications
+        WHERE token = ?
+        """,
+        (token,),
     ).fetchone()
     conn.close()
     return row
@@ -722,6 +798,7 @@ def _delete_user(username: str) -> None:
     conn.execute("DELETE FROM app_state WHERE id = ?", (username,))
     conn.execute("DELETE FROM ical_publications WHERE username = ?", (username,))
     conn.execute("DELETE FROM ical_clinician_publications WHERE username = ?", (username,))
+    conn.execute("DELETE FROM web_publications WHERE username = ?", (username,))
     conn.commit()
     conn.close()
 
@@ -916,6 +993,92 @@ def set_state(payload: AppState, current_user: UserPublic = Depends(_get_current
     return payload
 
 
+@app.get("/v1/web/publish", response_model=WebPublishStatus)
+def get_web_publication_status(current_user: UserPublic = Depends(_get_current_user)):
+    publication = _get_web_publication_by_username(current_user.username)
+    if not publication:
+        return WebPublishStatus(published=False)
+    return WebPublishStatus(published=True, token=publication["token"])
+
+
+@app.post("/v1/web/publish", response_model=WebPublishStatus)
+def publish_web(current_user: UserPublic = Depends(_get_current_user)):
+    now = _utcnow_iso()
+    conn = _get_connection()
+    existing = conn.execute(
+        "SELECT token FROM web_publications WHERE username = ?",
+        (current_user.username,),
+    ).fetchone()
+    if existing:
+        token = existing["token"]
+        conn.execute(
+            "UPDATE web_publications SET updated_at = ? WHERE username = ?",
+            (now, current_user.username),
+        )
+        conn.commit()
+        conn.close()
+        return WebPublishStatus(published=True, token=token)
+
+    for _ in range(10):
+        token = secrets.token_urlsafe(32)
+        if _web_token_exists(conn, token):
+            continue
+        try:
+            conn.execute(
+                """
+                INSERT INTO web_publications (username, token, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (current_user.username, token, now, now),
+            )
+            conn.commit()
+            conn.close()
+            return WebPublishStatus(published=True, token=token)
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            continue
+    conn.close()
+    raise HTTPException(status_code=500, detail="Failed to generate token.")
+
+
+@app.post("/v1/web/publish/rotate", response_model=WebPublishStatus)
+def rotate_web(current_user: UserPublic = Depends(_get_current_user)):
+    now = _utcnow_iso()
+    conn = _get_connection()
+    existing = conn.execute(
+        "SELECT token FROM web_publications WHERE username = ?",
+        (current_user.username,),
+    ).fetchone()
+    if not existing:
+        conn.close()
+        raise HTTPException(status_code=404, detail="No publication found.")
+    for _ in range(10):
+        token = secrets.token_urlsafe(32)
+        if _web_token_exists(conn, token):
+            continue
+        try:
+            conn.execute(
+                "UPDATE web_publications SET token = ?, updated_at = ? WHERE username = ?",
+                (token, now, current_user.username),
+            )
+            conn.commit()
+            conn.close()
+            return WebPublishStatus(published=True, token=token)
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            continue
+    conn.close()
+    raise HTTPException(status_code=500, detail="Failed to generate token.")
+
+
+@app.delete("/v1/web/publish", status_code=204)
+def unpublish_web(current_user: UserPublic = Depends(_get_current_user)):
+    conn = _get_connection()
+    conn.execute("DELETE FROM web_publications WHERE username = ?", (current_user.username,))
+    conn.commit()
+    conn.close()
+
+
 @app.get("/v1/pdf/week")
 def export_week_pdf(
     start: str = Query(..., min_length=8),
@@ -1054,6 +1217,107 @@ def export_weeks_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/v1/web/{token}/week")
+def get_public_web_week(
+    token: str,
+    start: str = Query(..., min_length=8),
+    if_none_match: Optional[str] = Header(default=None),
+    if_modified_since: Optional[str] = Header(default=None),
+):
+    publication = _get_web_publication_by_token(token)
+    if not publication:
+        raise HTTPException(status_code=404, detail="Link not found.")
+
+    start_iso = _parse_date_input(start)
+    if not start_iso:
+        raise HTTPException(status_code=400, detail="Start date required.")
+    week_start_iso, week_end_iso = _normalize_week_start(start_iso)
+
+    state_payload, state_updated_at, state_updated_at_raw = _load_state_blob_and_updated_at(
+        publication["username"]
+    )
+    publication_updated_at_raw = publication["updated_at"] or ""
+    publication_updated_at = _parse_iso_datetime(publication_updated_at_raw)
+    last_modified = max(state_updated_at, publication_updated_at)
+    etag = _compute_public_week_etag(
+        token,
+        week_start_iso,
+        state_updated_at_raw,
+        publication_updated_at_raw,
+    )
+    headers = {
+        "Cache-Control": "private, max-age=0, must-revalidate",
+        "ETag": etag,
+        "Last-Modified": format_datetime(last_modified, usegmt=True),
+        "Referrer-Policy": "no-referrer",
+    }
+
+    if _etag_matches(if_none_match, etag) or _if_modified_since_matches(
+        if_modified_since, last_modified
+    ):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+
+    state = AppState.model_validate(state_payload)
+    published_weeks = set(state.publishedWeekStartISOs or [])
+    if week_start_iso not in published_weeks:
+        return Response(
+            content=json.dumps(
+                {
+                    "published": False,
+                    "weekStartISO": week_start_iso,
+                    "weekEndISO": week_end_iso,
+                }
+            ),
+            media_type="application/json",
+            headers=headers,
+        )
+
+    row_by_id = {row.id: row for row in state.rows}
+    clinician_by_id = {clinician.id: clinician for clinician in state.clinicians}
+    assignments: List[Dict[str, Any]] = []
+    for assignment in state.assignments:
+        if assignment.dateISO < week_start_iso or assignment.dateISO > week_end_iso:
+            continue
+        row = row_by_id.get(assignment.rowId)
+        if not row or row.kind != "class":
+            continue
+        clinician = clinician_by_id.get(assignment.clinicianId)
+        if not clinician:
+            continue
+        if any(
+            vacation.startISO <= assignment.dateISO <= vacation.endISO
+            for vacation in clinician.vacations
+        ):
+            continue
+        assignments.append(assignment.model_dump())
+
+    holidays = [
+        holiday.model_dump()
+        for holiday in state.holidays
+        if week_start_iso <= holiday.dateISO <= week_end_iso
+    ]
+
+    payload = {
+        "published": True,
+        "weekStartISO": week_start_iso,
+        "weekEndISO": week_end_iso,
+        "rows": [row.model_dump() for row in state.rows],
+        "clinicians": [clinician.model_dump() for clinician in state.clinicians],
+        "assignments": assignments,
+        "minSlotsByRowId": {
+            row_id: min_slots.model_dump()
+            for row_id, min_slots in state.minSlotsByRowId.items()
+        },
+        "slotOverridesByKey": state.slotOverridesByKey,
+        "holidays": holidays,
+    }
+    return Response(
+        content=json.dumps(payload),
+        media_type="application/json",
+        headers=headers,
     )
 
 
