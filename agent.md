@@ -428,3 +428,17 @@ Backend
 - If login fails and you need a forced reset, set `ADMIN_PASSWORD_RESET=true` in `.env` and restart backend, then remove/disable it after login works.
 - After changing `VITE_API_URL`, rebuild the frontend container: `docker compose -f docker-compose.ip.yml up -d --build frontend`.
 - iCal subscription endpoints require `/api` proxying in the frontend nginx config; otherwise `/api/v1/ical/*.ics` returns HTML and Apple Calendar rejects it.
+
+## 13) Domain Deployment (Caddy + HTTPS)
+- Stack: `docker compose up -d --build` (uses `docker-compose.yml` + Caddy).
+- `.env` required for domain setup:
+  - `DOMAIN=shiftplanner.wunderwerk.ai`
+  - `LETSENCRYPT_EMAIL=daniel.truhn@gmail.com`
+  - `ADMIN_USERNAME=admin`
+  - `ADMIN_PASSWORD=<prod password>`
+  - `JWT_SECRET=<prod secret>`
+  - `JWT_EXPIRE_MINUTES=720` (avoid empty string)
+- Caddy handles TLS + `/api` proxying. Frontend uses `VITE_API_URL=/api` so no extra env needed.
+- `PUBLIC_BASE_URL` is set in `docker-compose.yml` as `https://${DOMAIN}/api` (don’t leave it blank).
+- If admin login fails after switching stacks, the existing DB user may still have the old password. Reset via:
+  - `docker compose exec -T backend python - << 'PY' ...` (update `users` table in `/data/schedule.db`).
