@@ -407,9 +407,24 @@ Backend
 
 ## 12) Current Hetzner Deployment (IP-only)
 - Server IP: `46.224.114.183`
+- SSH user: `root`
 - Path: `/opt/shiftschedule`
 - Stack: `docker compose -f docker-compose.ip.yml up -d --build`
 - Frontend: `http://46.224.114.183`
 - Backend: `http://46.224.114.183:8000`
 - Data lives in the `backend_data` volume; you can update only the frontend without touching the DB.
 - Typical frontend update: rsync repo to `/opt/shiftschedule`, then `docker compose -f docker-compose.ip.yml build frontend` and `up -d frontend`.
+
+### Remote setup checklist (smooth deploy)
+- Ensure `/opt/shiftschedule/.env` exists before running compose. If you use `rsync --delete`, exclude `.env` or recreate it after sync.
+- Required `.env` values for IP-only setup:
+  - `ADMIN_USERNAME=admin`
+  - `ADMIN_PASSWORD=change-me`
+  - `JWT_SECRET=change-me-too`
+  - `JWT_EXPIRE_MINUTES=720` (avoid empty string; backend crashes on startup)
+  - `VITE_API_URL=http://46.224.114.183:8000`
+  - `PUBLIC_BASE_URL=http://46.224.114.183/api`
+  - `APP_ORIGIN=http://46.224.114.183`
+- If login fails and you need a forced reset, set `ADMIN_PASSWORD_RESET=true` in `.env` and restart backend, then remove/disable it after login works.
+- After changing `VITE_API_URL`, rebuild the frontend container: `docker compose -f docker-compose.ip.yml up -d --build frontend`.
+- iCal subscription endpoints require `/api` proxying in the frontend nginx config; otherwise `/api/v1/ical/*.ics` returns HTML and Apple Calendar rejects it.
