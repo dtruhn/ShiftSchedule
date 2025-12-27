@@ -89,18 +89,54 @@ Admin user management
 - User export: admin can download a user state JSON (export includes metadata + AppState).
 - User import: create user form accepts an export JSON to seed the new user's state.
 
-iCal export (frontend-only)
-- A new `iCal` button exists in the top bar. It opens a modal to download `.ics` files.
-- Export supports:
+iCal (download + subscription feed)
+- The top bar has an `iCal` button that opens a modal with two tabs:
+  - **Download**: generates `.ics` files locally in the browser (no server endpoint).
+  - **Subscribe / Publish**: publishes cryptic URL feeds (all clinicians + per clinician) that can be subscribed by external calendar clients without login.
+  - Subscriptions include **only weeks marked Published** in the schedule view (week toggle above the grid).
+
+iCal download (frontend-only)
+- Supports:
   - "All clinicians" (one `.ics` file containing many events across many dates)
   - Individual clinician `.ics` files
-  - A date range filter (Start/End) shown/entered as `DD.MM.YYYY`; empty means "all dates".
+  - A date range filter (Start/End) shown/entered as `DD.MM.YYYY` (empty = all dates)
 - Implementation details:
-  - ICS generation is done purely in the frontend (no backend endpoint).
   - Only class assignments are exported (pool rows are ignored).
   - Events are all-day (`DTSTART;VALUE=DATE` / `DTEND;VALUE=DATE` with end = +1 day).
   - Range parsing accepts `DD.MM.YYYY` (and also `YYYY-MM-DD`), swaps Start/End if reversed, and disables download on invalid input.
 - Files: `src/lib/ical.ts`, `src/components/schedule/IcalExportModal.tsx`, wiring in `src/pages/WeeklySchedulePage.tsx` + `src/components/schedule/TopBar.tsx`.
+
+Subscribable iCal feed (cryptic URL)
+- Publication scope is controlled by `publishedWeekStartISOs` in user state:
+  - Array of Monday ISO strings (YYYY-MM-DD) for weeks that are released.
+  - If empty, the feed is valid but has **zero** events.
+- Backend stores tokens in SQLite:
+  - `ical_publications` (one token per user, all clinicians).
+  - `ical_clinician_publications` (one token per clinician per user).
+- Public endpoint (no JWT): `GET /v1/ical/{token}.ics`
+  - Returns `text/calendar; charset=utf-8`
+  - Only class assignments are included (pool rows ignored)
+  - Only weeks listed in `publishedWeekStartISOs` are included
+  - Clinician tokens return only that clinician’s assignments
+  - Vacation override is applied: assignments are skipped on days where the clinician is on vacation (the UI hides these too, but raw assignments can remain in persisted state).
+  - Bug fix: clinician-specific feeds must not reuse/overwrite the `clinician_id` filter variable in `backend/ical.py`; otherwise every link returns the last clinician’s events.
+
+Known issues / fixes
+- ICS clinician filter bug: avoid shadowing `clinician_id` in `backend/ical.py` (use a different loop variable for clinicians). Symptom was that every clinician link returned the same clinician’s events.
+  - All-day events; UID is stable (`assignment.id@shiftschedule`) so clients update instead of duplicating
+  - HTTP caching: sets `ETag` + `Last-Modified` and supports conditional GET (returns 304 when unchanged)
+- Authenticated endpoints (JWT required):
+  - `GET /v1/ical/publish` (status, includes all + per-clinician URLs when published)
+  - `POST /v1/ical/publish` (enable links; keeps existing tokens)
+  - `POST /v1/ical/publish/rotate` (new tokens for all + clinicians; old URLs become 404)
+  - `DELETE /v1/ical/publish` (unpublish; URL becomes 404)
+- Subscribe URL base:
+  - Backend uses env var `PUBLIC_BASE_URL` if set (recommended for production behind HTTPS). For the domain+Caddy setup in this repo (backend behind `/api`), set `PUBLIC_BASE_URL=https://$DOMAIN/api`.
+  - Otherwise it falls back to `request.base_url` (works for local dev).
+- Local verification:
+  - Publish via UI, then `curl -i "<subscribeUrl>"` should return 200 + calendar data.
+  - Re-run with `If-None-Match` or `If-Modified-Since` should return 304 if unchanged.
+  - Note: Many real calendar clients (especially Apple Calendar on devices) strongly prefer HTTPS for subscriptions.
 
 Hover highlight issue (remote)
 - Root cause: pills had both blue and emerald classes at once; Tailwind CSS order kept the blue background even when `isHighlighted` was true.
@@ -190,12 +226,13 @@ Backend stores one JSON blob per user in SQLite:
   "clinicians": [...],
   "assignments": [...],
   "minSlotsByRowId": {...},
+  "publishedWeekStartISOs": ["2025-12-22"],
   "holidayCountry": "DE",
   "holidayYear": 2025,
   "holidays": [{ "dateISO": "2025-12-25", "name": "Christmas Day" }]
 }
 ```
-Table: `app_state` (id = username). Legacy row id `"state"` is migrated to `"jk"`.
+Table: `app_state` (id = username). Legacy row id `"state"` is migrated to `"jk"`. The table now also has an `updated_at` column which is bumped on every `POST /v1/state` save.
 
 Endpoints
 - `GET /health`
@@ -209,6 +246,11 @@ Endpoints
 - `GET /v1/state`
 - `POST /v1/state`
 - `POST /v1/solve`
+- `GET /v1/ical/publish`
+- `POST /v1/ical/publish`
+- `POST /v1/ical/publish/rotate`
+- `DELETE /v1/ical/publish`
+- `GET /v1/ical/{token}.ics` (public, no JWT)
 
 ---
 

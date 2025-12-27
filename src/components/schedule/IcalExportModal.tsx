@@ -1,6 +1,7 @@
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 import { cx } from "../../lib/classNames";
+import type { IcalPublishStatus } from "../../api/client";
 
 type IcalExportModalProps = {
   open: boolean;
@@ -13,6 +14,12 @@ type IcalExportModalProps = {
     clinicianId: string,
     range: { startISO?: string; endISO?: string },
   ) => void;
+  publishStatus: IcalPublishStatus | null;
+  publishLoading: boolean;
+  publishError: string | null;
+  onPublish: () => void;
+  onRotate: () => void;
+  onUnpublish: () => void;
 };
 
 export default function IcalExportModal({
@@ -23,9 +30,20 @@ export default function IcalExportModal({
   defaultEndISO,
   onDownloadAll,
   onDownloadClinician,
+  publishStatus,
+  publishLoading,
+  publishError,
+  onPublish,
+  onRotate,
+  onUnpublish,
 }: IcalExportModalProps) {
   const [startText, setStartText] = useState<string>("");
   const [endText, setEndText] = useState<string>("");
+  const [tab, setTab] = useState<"download" | "subscribe">("download");
+  const [copyState, setCopyState] = useState<{
+    status: "idle" | "copied" | "error";
+    key?: string;
+  }>({ status: "idle" });
 
   const isoToEuropean = (dateISO: string) => {
     const [year, month, day] = dateISO.split("-");
@@ -63,6 +81,8 @@ export default function IcalExportModal({
 
   useEffect(() => {
     if (!open) return;
+    setTab("download");
+    setCopyState({ status: "idle" });
     setStartText(isoToEuropean(defaultStartISO));
     setEndText(isoToEuropean(defaultEndISO));
   }, [defaultEndISO, defaultStartISO, open]);
@@ -87,6 +107,49 @@ export default function IcalExportModal({
       hasError: !parsedStart.valid || !parsedEnd.valid,
     };
   }, [endText, startText]);
+
+  const subscribeUrl = publishStatus?.all?.subscribeUrl ?? "";
+  const clinicianLinks = publishStatus?.clinicians ?? [];
+  const canPublish = !publishLoading;
+  const isPublished = publishStatus?.published === true;
+
+  const copyToClipboard = async (value: string, key: string) => {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyState({ status: "copied", key });
+      window.setTimeout(() => setCopyState({ status: "idle" }), 1200);
+      return;
+    } catch {
+      // fall through
+    }
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.style.position = "fixed";
+      textarea.style.top = "-9999px";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand("copy");
+      textarea.remove();
+      if (ok) {
+        setCopyState({ status: "copied", key });
+        window.setTimeout(() => setCopyState({ status: "idle" }), 1200);
+      } else {
+        setCopyState({ status: "error", key });
+      }
+    } catch {
+      setCopyState({ status: "error", key });
+    }
+  };
+
+  const getCopyLabel = (key: string) => {
+    if (copyState.status === "copied" && copyState.key === key) return "Copied";
+    if (copyState.status === "error" && copyState.key === key) return "Copy failed";
+    return "Copy";
+  };
 
   if (!open) return null;
 
@@ -131,148 +194,348 @@ export default function IcalExportModal({
               </ul>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Time range
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setStartText(isoToEuropean(defaultStartISO));
-                      setEndText(isoToEuropean(defaultEndISO));
-                    }}
-                    className={cx(
-                      "rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700",
-                      "hover:bg-slate-50 active:bg-slate-100",
-                      "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
-                    )}
-                  >
-                    Current week
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setStartText("");
-                      setEndText("");
-                    }}
-                    className={cx(
-                      "rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700",
-                      "hover:bg-slate-50 active:bg-slate-100",
-                      "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
-                    )}
-                  >
-                    All dates
-                  </button>
-                </div>
-              </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="grid gap-1">
-                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
-                    Start (inclusive)
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="DD.MM.YYYY"
-                    value={startText}
-                    onChange={(e) => setStartText(e.target.value)}
-                    className={cx(
-                      "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900",
-                      "focus:border-sky-300 focus:outline-none",
-                      "dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
-                      !validation.startValid && "border-rose-300 bg-rose-50/50",
-                    )}
-                  />
-                </label>
-                <label className="grid gap-1">
-                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
-                    End (inclusive)
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="DD.MM.YYYY"
-                    value={endText}
-                    onChange={(e) => setEndText(e.target.value)}
-                    className={cx(
-                      "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900",
-                      "focus:border-sky-300 focus:outline-none",
-                      "dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
-                      !validation.endValid && "border-rose-300 bg-rose-50/50",
-                    )}
-                  />
-                </label>
-              </div>
-              {validation.hasError ? (
-                <div className="mt-2 text-xs font-semibold text-rose-600 dark:text-rose-300">
-                  Invalid date format. Use DD.MM.YYYY.
-                </div>
-              ) : (
-                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  Leave Start/End empty to export everything. If Start is after End,
-                  the range is automatically swapped.
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Download
-              </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => onDownloadAll(range)}
-                disabled={validation.hasError}
+                onClick={() => setTab("download")}
                 className={cx(
-                  "inline-flex items-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900",
-                  "hover:bg-slate-50 active:bg-slate-100",
-                  "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
-                  "disabled:cursor-not-allowed disabled:opacity-50",
+                  "rounded-full border px-3 py-1.5 text-xs font-semibold",
+                  tab === "download"
+                    ? "border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800",
                 )}
               >
-                All clinicians (one file)
+                Download
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("subscribe")}
+                className={cx(
+                  "rounded-full border px-3 py-1.5 text-xs font-semibold",
+                  tab === "subscribe"
+                    ? "border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800",
+                )}
+              >
+                Subscribe / Publish
               </button>
             </div>
 
-            <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
-              <div className="bg-white px-4 py-2 text-xs font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-300">
-                Individual files
-              </div>
-              <div className="divide-y divide-slate-200 dark:divide-slate-800">
-                {clinicians.map((clinician) => (
-                  <div
-                    key={clinician.id}
-                    className="flex items-center justify-between gap-3 bg-white px-4 py-3 dark:bg-slate-900"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-                        {clinician.name}
-                      </div>
-                    </div>
+            {tab === "download" ? (
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    Time range
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => onDownloadClinician(clinician.id, range)}
-                      disabled={validation.hasError}
+                      onClick={() => {
+                        setStartText(isoToEuropean(defaultStartISO));
+                        setEndText(isoToEuropean(defaultEndISO));
+                      }}
                       className={cx(
-                        "inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900",
+                        "rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700",
+                        "hover:bg-slate-50 active:bg-slate-100",
+                        "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
+                      )}
+                    >
+                      Current week
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStartText("");
+                        setEndText("");
+                      }}
+                      className={cx(
+                        "rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700",
+                        "hover:bg-slate-50 active:bg-slate-100",
+                        "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700",
+                      )}
+                    >
+                      All dates
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="grid gap-1">
+                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
+                      Start (inclusive)
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="DD.MM.YYYY"
+                      value={startText}
+                      onChange={(e) => setStartText(e.target.value)}
+                      className={cx(
+                        "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900",
+                        "focus:border-sky-300 focus:outline-none",
+                        "dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
+                        !validation.startValid && "border-rose-300 bg-rose-50/50",
+                      )}
+                    />
+                  </label>
+                  <label className="grid gap-1">
+                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-300">
+                      End (inclusive)
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="DD.MM.YYYY"
+                      value={endText}
+                      onChange={(e) => setEndText(e.target.value)}
+                      className={cx(
+                        "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900",
+                        "focus:border-sky-300 focus:outline-none",
+                        "dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
+                        !validation.endValid && "border-rose-300 bg-rose-50/50",
+                      )}
+                    />
+                  </label>
+                </div>
+                {validation.hasError ? (
+                  <div className="mt-2 text-xs font-semibold text-rose-600 dark:text-rose-300">
+                    Invalid date format. Use DD.MM.YYYY.
+                  </div>
+                ) : (
+                  <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    Leave Start/End empty to export everything. If Start is after End, the range
+                    is automatically swapped.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Subscription scope
+                </div>
+                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  This subscription feed contains only weeks marked{" "}
+                  <span className="font-semibold">Published</span> in the schedule view.
+                </div>
+              </div>
+            )}
+
+            {tab === "download" ? (
+              <>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    Download
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onDownloadAll(range)}
+                    disabled={validation.hasError}
+                    className={cx(
+                      "inline-flex items-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900",
+                      "hover:bg-slate-50 active:bg-slate-100",
+                      "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+                      "disabled:cursor-not-allowed disabled:opacity-50",
+                    )}
+                  >
+                    All clinicians (one file)
+                  </button>
+                </div>
+
+                <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <div className="bg-white px-4 py-2 text-xs font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-300">
+                    Individual files
+                  </div>
+                  <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                    {clinicians.map((clinician) => (
+                      <div
+                        key={clinician.id}
+                        className="flex items-center justify-between gap-3 bg-white px-4 py-3 dark:bg-slate-900"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                            {clinician.name}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onDownloadClinician(clinician.id, range)}
+                          disabled={validation.hasError}
+                          className={cx(
+                            "inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900",
+                            "hover:bg-slate-50 active:bg-slate-100",
+                            "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+                            "disabled:cursor-not-allowed disabled:opacity-50",
+                          )}
+                        >
+                          Download
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-4 text-xs text-slate-500 dark:text-slate-400">
+                  Tip: Import the downloaded <span className="font-semibold">.ics</span>{" "}
+                  file into your calendar app (Google Calendar, Apple Calendar, Outlook).
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      Status
+                    </div>
+                    <span
+                      className={cx(
+                        "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset",
+                        isPublished
+                          ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:ring-emerald-500/40"
+                          : "bg-slate-50 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700",
+                      )}
+                    >
+                      {publishLoading && !publishStatus
+                        ? "Loading…"
+                        : isPublished
+                          ? "Published"
+                          : "Not published"}
+                    </span>
+                  </div>
+
+                  {publishError ? (
+                    <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-900/30 dark:text-rose-200">
+                      {publishError}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={onPublish}
+                      disabled={!canPublish}
+                      className={cx(
+                        "inline-flex items-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900",
                         "hover:bg-slate-50 active:bg-slate-100",
                         "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
                         "disabled:cursor-not-allowed disabled:opacity-50",
                       )}
                     >
-                      Download
+                      {isPublished ? "Update links" : "Publish links"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onRotate}
+                      disabled={!isPublished || publishLoading}
+                      className={cx(
+                        "inline-flex items-center rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900",
+                        "hover:bg-slate-50 active:bg-slate-100",
+                        "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+                        "disabled:cursor-not-allowed disabled:opacity-50",
+                      )}
+                    >
+                      Rotate link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!isPublished) return;
+                        const ok = window.confirm(
+                          "Unpublish this calendar feed? Existing subscription links will stop working.",
+                        );
+                        if (!ok) return;
+                        onUnpublish();
+                      }}
+                      disabled={!isPublished || publishLoading}
+                      className={cx(
+                        "inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700",
+                        "hover:bg-rose-100 active:bg-rose-200/70",
+                        "dark:border-rose-500/40 dark:bg-rose-900/30 dark:text-rose-200 dark:hover:bg-rose-900/40",
+                        "disabled:cursor-not-allowed disabled:opacity-50",
+                      )}
+                    >
+                      Unpublish
                     </button>
                   </div>
-                ))}
-              </div>
-            </div>
 
-            <div className="mt-4 text-xs text-slate-500 dark:text-slate-400">
-              Tip: Import the downloaded <span className="font-semibold">.ics</span>{" "}
-              file into your calendar app (Google Calendar, Apple Calendar, Outlook).
-            </div>
+                  {isPublished && subscribeUrl ? (
+                    <div className="mt-4">
+                      <div className="text-xs font-semibold text-slate-500 dark:text-slate-300">
+                        All clinicians
+                      </div>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          type="text"
+                          readOnly
+                          value={subscribeUrl}
+                          className={cx(
+                            "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900",
+                            "dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
+                          )}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(subscribeUrl, "all")}
+                          className={cx(
+                            "shrink-0 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900",
+                            "hover:bg-slate-50 active:bg-slate-100",
+                            "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+                          )}
+                        >
+                          {getCopyLabel("all")}
+                        </button>
+                      </div>
+                      <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        Anyone with this link can subscribe (read-only). Keep it private.
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {isPublished && clinicianLinks.length > 0 ? (
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
+                      <div className="bg-white px-4 py-2 text-xs font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-300">
+                        Clinician links
+                      </div>
+                      <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                        {clinicianLinks.map((clinician) => {
+                          const key = `clinician-${clinician.clinicianId}`;
+                          return (
+                            <div
+                              key={clinician.clinicianId}
+                              className="bg-white px-4 py-3 dark:bg-slate-900"
+                            >
+                              <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                                {clinician.clinicianName}
+                              </div>
+                              <div className="mt-2 flex gap-2">
+                                <input
+                                  type="text"
+                                  readOnly
+                                  value={clinician.subscribeUrl}
+                                  className={cx(
+                                    "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900",
+                                    "dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
+                                  )}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(clinician.subscribeUrl, key)}
+                                  className={cx(
+                                    "shrink-0 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900",
+                                    "hover:bg-slate-50 active:bg-slate-100",
+                                    "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+                                  )}
+                                >
+                                  {getCopyLabel(key)}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

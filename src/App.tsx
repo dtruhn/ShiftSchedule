@@ -29,6 +29,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const handler = () => setCurrentUser(null);
+    window.addEventListener("auth-expired", handler);
+    return () => window.removeEventListener("auth-expired", handler);
+  }, []);
+
+  useEffect(() => {
     if (typeof document === "undefined") return;
     document.documentElement.classList.toggle("dark", theme === "dark");
     window.localStorage.setItem("theme", theme);

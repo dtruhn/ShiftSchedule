@@ -44,6 +44,7 @@ export type AppState = {
   holidayCountry?: string;
   holidayYear?: number;
   holidays?: Holiday[];
+  publishedWeekStartISOs?: string[];
 };
 
 export type UserStateExport = {
@@ -61,8 +62,19 @@ export type AuthUser = {
   active: boolean;
 };
 
+export type IcalPublishStatus = {
+  published: boolean;
+  all?: { subscribeUrl: string };
+  clinicians?: Array<{
+    clinicianId: string;
+    clinicianName: string;
+    subscribeUrl: string;
+  }>;
+};
+
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const TOKEN_STORAGE_KEY = "authToken";
+const AUTH_EXPIRED_EVENT = "auth-expired";
 
 function readToken() {
   if (typeof window === "undefined") return null;
@@ -77,6 +89,12 @@ export function setAuthToken(token: string) {
 export function clearAuthToken() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+function handleUnauthorized() {
+  clearAuthToken();
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
 }
 
 function buildHeaders() {
@@ -98,6 +116,7 @@ export async function login(username: string, password: string): Promise<{
     headers: buildHeaders(),
     body: JSON.stringify({ username, password }),
   });
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     throw new Error(`Failed to login: ${res.status}`);
   }
@@ -108,6 +127,7 @@ export async function getCurrentUser(): Promise<AuthUser> {
   const res = await fetch(`${API_BASE}/auth/me`, {
     headers: buildHeaders(),
   });
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     throw new Error(`Failed to fetch user: ${res.status}`);
   }
@@ -118,6 +138,7 @@ export async function listUsers(): Promise<AuthUser[]> {
   const res = await fetch(`${API_BASE}/auth/users`, {
     headers: buildHeaders(),
   });
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     throw new Error(`Failed to list users: ${res.status}`);
   }
@@ -135,6 +156,7 @@ export async function createUser(payload: {
     headers: buildHeaders(),
     body: JSON.stringify(payload),
   });
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     throw new Error(`Failed to create user: ${res.status}`);
   }
@@ -148,6 +170,7 @@ export async function exportUserState(username: string): Promise<UserStateExport
       headers: buildHeaders(),
     },
   );
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     throw new Error(`Failed to export user: ${res.status}`);
   }
@@ -163,6 +186,7 @@ export async function updateUser(
     headers: buildHeaders(),
     body: JSON.stringify(payload),
   });
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     throw new Error(`Failed to update user: ${res.status}`);
   }
@@ -174,6 +198,7 @@ export async function deleteUser(username: string): Promise<void> {
     method: "DELETE",
     headers: buildHeaders(),
   });
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     throw new Error(`Failed to delete user: ${res.status}`);
   }
@@ -183,6 +208,7 @@ export async function getState(): Promise<AppState> {
   const res = await fetch(`${API_BASE}/v1/state`, {
     headers: buildHeaders(),
   });
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     throw new Error(`Failed to fetch state: ${res.status}`);
   }
@@ -195,6 +221,7 @@ export async function saveState(state: AppState): Promise<AppState> {
     headers: buildHeaders(),
     body: JSON.stringify(state),
   });
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     throw new Error(`Failed to save state: ${res.status}`);
   }
@@ -217,8 +244,57 @@ export async function solveDay(
       only_fill_required: options?.onlyFillRequired ?? false,
     }),
   });
+  if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
     throw new Error(`Failed to solve day: ${res.status}`);
   }
   return res.json();
+}
+
+export async function getIcalPublishStatus(): Promise<IcalPublishStatus> {
+  const res = await fetch(`${API_BASE}/v1/ical/publish`, {
+    headers: buildHeaders(),
+  });
+  if (res.status === 401) handleUnauthorized();
+  if (!res.ok) {
+    throw new Error(`Failed to fetch iCal status: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function publishIcal(): Promise<IcalPublishStatus> {
+  const res = await fetch(`${API_BASE}/v1/ical/publish`, {
+    method: "POST",
+    headers: buildHeaders(),
+    body: JSON.stringify({}),
+  });
+  if (res.status === 401) handleUnauthorized();
+  if (!res.ok) {
+    throw new Error(`Failed to publish iCal: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function rotateIcalToken(): Promise<IcalPublishStatus> {
+  const res = await fetch(`${API_BASE}/v1/ical/publish/rotate`, {
+    method: "POST",
+    headers: buildHeaders(),
+    body: JSON.stringify({}),
+  });
+  if (res.status === 401) handleUnauthorized();
+  if (!res.ok) {
+    throw new Error(`Failed to rotate iCal token: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function unpublishIcal(): Promise<void> {
+  const res = await fetch(`${API_BASE}/v1/ical/publish`, {
+    method: "DELETE",
+    headers: buildHeaders(),
+  });
+  if (res.status === 401) handleUnauthorized();
+  if (!res.ok) {
+    throw new Error(`Failed to unpublish iCal: ${res.status}`);
+  }
 }

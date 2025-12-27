@@ -7,3 +7,4 @@ schedule.db
 *.tsbuildinfo
 .env
 .env.*
+!.env.example

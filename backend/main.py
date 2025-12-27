@@ -1,16 +1,24 @@
 import json
 import os
+import re
+import secrets
 import sqlite3
+from email.utils import format_datetime, parsedate_to_datetime
+from hashlib import sha256
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, Field, ValidationError
 from ortools.sat.python import cp_model
 
+try:
+    from backend.ical import generate_ics
+except ImportError:  # pragma: no cover
+    from ical import generate_ics
 
 RowKind = Literal["class", "pool"]
 Role = Literal["admin", "user"]
@@ -93,6 +101,7 @@ class AppState(BaseModel):
     holidayCountry: Optional[str] = None
     holidayYear: Optional[int] = None
     holidays: List[Holiday] = Field(default_factory=list)
+    publishedWeekStartISOs: List[str] = Field(default_factory=list)
 
 
 class UserStateExport(BaseModel):
@@ -113,6 +122,26 @@ class SolveDayResponse(BaseModel):
     notes: List[str]
 
 
+class IcalPublishRequest(BaseModel):
+    pass
+
+
+class IcalPublishAllLink(BaseModel):
+    subscribeUrl: str
+
+
+class IcalPublishClinicianLink(BaseModel):
+    clinicianId: str
+    clinicianName: str
+    subscribeUrl: str
+
+
+class IcalPublishStatus(BaseModel):
+    published: bool
+    all: Optional[IcalPublishAllLink] = None
+    clinicians: List[IcalPublishClinicianLink] = Field(default_factory=list)
+
+
 def _default_state() -> AppState:
     current_year = datetime.now(timezone.utc).year
     rows = [
@@ -124,7 +153,7 @@ def _default_state() -> AppState:
         ),
         WorkplaceRow(
             id="pool-manual",
-            name="Pool",
+            name="Reserve Pool",
             kind="pool",
             dotColorClass="bg-slate-300",
         ),
@@ -224,16 +253,34 @@ def _default_state() -> AppState:
 
 DB_PATH = os.environ.get("SCHEDULE_DB_PATH", "schedule.db")
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret")
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip()
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "720"))
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+_SCHEMA_READY = False
 
 
-def _get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+def _utcnow_iso() -> str:
+    return _utcnow().isoformat()
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
+        return
+
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS app_state (id TEXT PRIMARY KEY, data TEXT NOT NULL)"
+        """
+        CREATE TABLE IF NOT EXISTS app_state (
+            id TEXT PRIMARY KEY,
+            data TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
     )
     conn.execute(
         """
@@ -247,6 +294,49 @@ def _get_connection() -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ical_publications (
+            username TEXT PRIMARY KEY,
+            token TEXT UNIQUE NOT NULL,
+            start_date_iso TEXT NULL,
+            end_date_iso TEXT NULL,
+            cal_name TEXT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ical_clinician_publications (
+            username TEXT NOT NULL,
+            clinician_id TEXT NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (username, clinician_id)
+        )
+        """
+    )
+
+    columns = [row["name"] for row in conn.execute("PRAGMA table_info(app_state)").fetchall()]
+    if "updated_at" not in columns:
+        conn.execute("ALTER TABLE app_state ADD COLUMN updated_at TEXT")
+        now = _utcnow_iso()
+        conn.execute(
+            "UPDATE app_state SET updated_at = ? WHERE updated_at IS NULL OR updated_at = ''",
+            (now,),
+        )
+
+    conn.commit()
+    _SCHEMA_READY = True
+
+
+def _get_connection() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    _ensure_schema(conn)
     return conn
 
 
@@ -277,12 +367,248 @@ def _load_state(user_id: str) -> AppState:
 def _save_state(state: AppState, user_id: str) -> None:
     conn = _get_connection()
     payload = state.model_dump()
+    now = _utcnow_iso()
     conn.execute(
-        "INSERT OR REPLACE INTO app_state (id, data) VALUES (?, ?)",
-        (user_id, json.dumps(payload)),
+        "INSERT OR REPLACE INTO app_state (id, data, updated_at) VALUES (?, ?, ?)",
+        (user_id, json.dumps(payload), now),
     )
     conn.commit()
     conn.close()
+
+
+def _parse_date_input(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", trimmed):
+        try:
+            datetime.fromisoformat(f"{trimmed}T00:00:00+00:00")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid date.") from exc
+        return trimmed
+    match = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$", trimmed)
+    if not match:
+        raise HTTPException(status_code=400, detail="Invalid date format.")
+    day_raw, month_raw, year_raw = match.groups()
+    day = int(day_raw)
+    month = int(month_raw)
+    year = int(year_raw)
+    try:
+        dt = datetime(year, month, day, tzinfo=timezone.utc)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid date.") from exc
+    return dt.date().isoformat()
+
+
+def _parse_iso_datetime(value: Optional[str]) -> datetime:
+    if not value:
+        return _utcnow()
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return _utcnow()
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).replace(microsecond=0)
+
+
+def _etag_matches(if_none_match: Optional[str], etag: str) -> bool:
+    if not if_none_match:
+        return False
+    raw = if_none_match.strip()
+    if raw == "*":
+        return True
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    for part in parts:
+        if part == etag:
+            return True
+        if part.startswith("W/") and part[2:].strip() == etag:
+            return True
+    return False
+
+
+def _if_modified_since_matches(if_modified_since: Optional[str], last_modified: datetime) -> bool:
+    if not if_modified_since:
+        return False
+    try:
+        parsed = parsedate_to_datetime(if_modified_since)
+    except (TypeError, ValueError):
+        return False
+    if parsed is None:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    parsed_utc = parsed.astimezone(timezone.utc).replace(microsecond=0)
+    return parsed_utc >= last_modified
+
+
+def _compute_public_etag(
+    token: str,
+    state_updated_at: str,
+    publication_updated_at: str,
+) -> str:
+    payload = "|".join(
+        [
+            token,
+            state_updated_at or "",
+            publication_updated_at or "",
+        ]
+    )
+    digest = sha256(payload.encode("utf-8")).hexdigest()
+    return f"\"{digest}\""
+
+
+def _build_subscribe_url(request: Request, token: str) -> str:
+    base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
+    return f"{base}/v1/ical/{token}.ics"
+
+
+def _token_exists(conn: sqlite3.Connection, token: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT token FROM ical_publications WHERE token = ?
+        UNION
+        SELECT token FROM ical_clinician_publications WHERE token = ?
+        LIMIT 1
+        """,
+        (token, token),
+    ).fetchone()
+    return row is not None
+
+
+def _get_publication_by_username(username: str) -> Optional[sqlite3.Row]:
+    conn = _get_connection()
+    row = conn.execute(
+        """
+        SELECT username, token, start_date_iso, end_date_iso, cal_name, created_at, updated_at
+        FROM ical_publications
+        WHERE username = ?
+        """,
+        (username,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def _get_publication_by_token(token: str) -> Optional[sqlite3.Row]:
+    conn = _get_connection()
+    row = conn.execute(
+        """
+        SELECT username, token, start_date_iso, end_date_iso, cal_name, created_at, updated_at
+        FROM ical_publications
+        WHERE token = ?
+        """,
+        (token,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def _get_clinician_publication_by_token(token: str) -> Optional[sqlite3.Row]:
+    conn = _get_connection()
+    row = conn.execute(
+        """
+        SELECT username, clinician_id, token, created_at, updated_at
+        FROM ical_clinician_publications
+        WHERE token = ?
+        """,
+        (token,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def _get_clinician_publications_for_user(
+    conn: sqlite3.Connection, username: str
+) -> Dict[str, Dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT clinician_id, token, created_at, updated_at
+        FROM ical_clinician_publications
+        WHERE username = ?
+        """,
+        (username,),
+    ).fetchall()
+    return {row["clinician_id"]: dict(row) for row in rows}
+
+
+def _ensure_clinician_publications(
+    conn: sqlite3.Connection, username: str, clinicians: List[Clinician]
+) -> Dict[str, Dict[str, Any]]:
+    now = _utcnow_iso()
+    existing = _get_clinician_publications_for_user(conn, username)
+    for clinician in clinicians:
+        if clinician.id in existing:
+            continue
+        for _ in range(10):
+            token = secrets.token_urlsafe(32)
+            if _token_exists(conn, token):
+                continue
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO ical_clinician_publications (
+                        username, clinician_id, token, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (username, clinician.id, token, now, now),
+                )
+                existing[clinician.id] = {
+                    "clinician_id": clinician.id,
+                    "token": token,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                break
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                continue
+    return existing
+
+
+def _build_publish_status(
+    request: Request,
+    publication: sqlite3.Row,
+    clinician_rows: Dict[str, Dict[str, Any]],
+    clinicians: List[Clinician],
+) -> IcalPublishStatus:
+    all_link = IcalPublishAllLink(
+        subscribeUrl=_build_subscribe_url(request, publication["token"])
+    )
+    clinician_links = []
+    for clinician in clinicians:
+        row = clinician_rows.get(clinician.id)
+        if not row:
+            continue
+        clinician_links.append(
+            IcalPublishClinicianLink(
+                clinicianId=clinician.id,
+                clinicianName=clinician.name,
+                subscribeUrl=_build_subscribe_url(request, row["token"]),
+            )
+        )
+    return IcalPublishStatus(published=True, all=all_link, clinicians=clinician_links)
+
+
+def _load_state_blob_and_updated_at(username: str) -> tuple[Dict[str, Any], datetime, str]:
+    conn = _get_connection()
+    row = conn.execute(
+        "SELECT data, updated_at FROM app_state WHERE id = ?",
+        (username,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="User state not found.")
+    updated_at_raw = row["updated_at"] or ""
+    updated_at = _parse_iso_datetime(updated_at_raw)
+    try:
+        payload = json.loads(row["data"])
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail="Invalid stored state.") from exc
+    return payload, updated_at, updated_at_raw
 
 
 def _parse_import_state(payload: Optional[Dict[str, Any]]) -> Optional[AppState]:
@@ -387,6 +713,8 @@ def _delete_user(username: str) -> None:
     conn = _get_connection()
     conn.execute("DELETE FROM users WHERE username = ?", (username,))
     conn.execute("DELETE FROM app_state WHERE id = ?", (username,))
+    conn.execute("DELETE FROM ical_publications WHERE username = ?", (username,))
+    conn.execute("DELETE FROM ical_clinician_publications WHERE username = ?", (username,))
     conn.commit()
     conn.close()
 
@@ -460,6 +788,8 @@ app.add_middleware(
 
 @app.on_event("startup")
 def _startup() -> None:
+    conn = _get_connection()
+    conn.close()
     _ensure_admin_user()
 
 
@@ -568,6 +898,192 @@ def get_state(current_user: UserPublic = Depends(_get_current_user)):
 def set_state(payload: AppState, current_user: UserPublic = Depends(_get_current_user)):
     _save_state(payload, current_user.username)
     return payload
+
+
+@app.get("/v1/ical/publish", response_model=IcalPublishStatus)
+def get_ical_publication_status(
+    request: Request, current_user: UserPublic = Depends(_get_current_user)
+):
+    publication = _get_publication_by_username(current_user.username)
+    if not publication:
+        return IcalPublishStatus(published=False)
+    state = _load_state(current_user.username)
+    conn = _get_connection()
+    clinician_rows = _ensure_clinician_publications(conn, current_user.username, state.clinicians)
+    conn.commit()
+    conn.close()
+    return _build_publish_status(request, publication, clinician_rows, state.clinicians)
+
+
+@app.post("/v1/ical/publish", response_model=IcalPublishStatus)
+def publish_ical(
+    request: Request,
+    current_user: UserPublic = Depends(_get_current_user),
+    _payload: Optional[IcalPublishRequest] = None,
+):
+    now = _utcnow_iso()
+    conn = _get_connection()
+    existing = conn.execute(
+        "SELECT token FROM ical_publications WHERE username = ?",
+        (current_user.username,),
+    ).fetchone()
+    if existing:
+        token = existing["token"]
+        conn.execute(
+            """
+            UPDATE ical_publications
+            SET updated_at = ?
+            WHERE username = ?
+            """,
+            (now, current_user.username),
+        )
+        state = _load_state(current_user.username)
+        clinician_rows = _ensure_clinician_publications(
+            conn, current_user.username, state.clinicians
+        )
+        conn.commit()
+        conn.close()
+        return _build_publish_status(request, {"token": token}, clinician_rows, state.clinicians)
+
+    for _ in range(10):
+        token = secrets.token_urlsafe(32)
+        if _token_exists(conn, token):
+            continue
+        try:
+            conn.execute(
+                """
+                INSERT INTO ical_publications (
+                    username, token, start_date_iso, end_date_iso, cal_name, created_at, updated_at
+                )
+                VALUES (?, ?, NULL, NULL, NULL, ?, ?)
+                """,
+                (current_user.username, token, now, now),
+            )
+            state = _load_state(current_user.username)
+            clinician_rows = _ensure_clinician_publications(
+                conn, current_user.username, state.clinicians
+            )
+            conn.commit()
+            conn.close()
+            return _build_publish_status(request, {"token": token}, clinician_rows, state.clinicians)
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            continue
+    conn.close()
+    raise HTTPException(status_code=500, detail="Could not generate a unique token.")
+
+
+@app.post("/v1/ical/publish/rotate", response_model=IcalPublishStatus)
+def rotate_ical_token(
+    request: Request, current_user: UserPublic = Depends(_get_current_user)
+):
+    now = _utcnow_iso()
+    conn = _get_connection()
+    existing = conn.execute(
+        "SELECT token FROM ical_publications WHERE username = ?",
+        (current_user.username,),
+    ).fetchone()
+    if not existing:
+        conn.close()
+        raise HTTPException(status_code=404, detail="No publication found.")
+    for _ in range(10):
+        token = secrets.token_urlsafe(32)
+        if _token_exists(conn, token):
+            continue
+        try:
+            conn.execute(
+                "UPDATE ical_publications SET token = ?, updated_at = ? WHERE username = ?",
+                (token, now, current_user.username),
+            )
+            conn.execute(
+                "DELETE FROM ical_clinician_publications WHERE username = ?",
+                (current_user.username,),
+            )
+            state = _load_state(current_user.username)
+            clinician_rows = _ensure_clinician_publications(
+                conn, current_user.username, state.clinicians
+            )
+            conn.commit()
+            conn.close()
+            return _build_publish_status(request, {"token": token}, clinician_rows, state.clinicians)
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            continue
+
+    conn.close()
+    raise HTTPException(status_code=500, detail="Could not generate a unique token.")
+
+
+@app.delete("/v1/ical/publish", status_code=204)
+def unpublish_ical(current_user: UserPublic = Depends(_get_current_user)):
+    conn = _get_connection()
+    conn.execute(
+        "DELETE FROM ical_publications WHERE username = ?",
+        (current_user.username,),
+    )
+    conn.execute(
+        "DELETE FROM ical_clinician_publications WHERE username = ?",
+        (current_user.username,),
+    )
+    conn.commit()
+    conn.close()
+
+
+@app.get("/v1/ical/{token}.ics")
+def get_public_ical(
+    token: str,
+    request: Request,
+    if_none_match: Optional[str] = Header(default=None, alias="If-None-Match"),
+    if_modified_since: Optional[str] = Header(default=None, alias="If-Modified-Since"),
+):
+    publication = _get_publication_by_token(token)
+    clinician_scope = None
+    if not publication:
+        publication = _get_clinician_publication_by_token(token)
+        if not publication:
+            raise HTTPException(status_code=404, detail="Not found.")
+        clinician_scope = publication["clinician_id"]
+
+    owner = publication["username"]
+    app_state, state_updated_at, state_updated_at_raw = _load_state_blob_and_updated_at(owner)
+    publication_updated_at_raw = publication["updated_at"] or ""
+    publication_updated_at = _parse_iso_datetime(publication_updated_at_raw)
+
+    last_modified = max(state_updated_at, publication_updated_at)
+    etag = _compute_public_etag(
+        token=token,
+        state_updated_at=state_updated_at_raw,
+        publication_updated_at=publication_updated_at_raw,
+    )
+    headers = {
+        "Cache-Control": "private, max-age=0, must-revalidate",
+        "ETag": etag,
+        "Last-Modified": format_datetime(last_modified, usegmt=True),
+    }
+
+    if _etag_matches(if_none_match, etag) or _if_modified_since_matches(
+        if_modified_since, last_modified
+    ):
+        return Response(status_code=304, headers=headers)
+
+    cal_name = f"Shift Planner ({owner})"
+    if clinician_scope:
+        clinician_name = None
+        for clinician in app_state.get("clinicians") or []:
+            if clinician.get("id") == clinician_scope:
+                clinician_name = clinician.get("name")
+                break
+        if clinician_name:
+            cal_name = f"Shift Planner ({clinician_name})"
+    ics = generate_ics(
+        app_state,
+        app_state.get("publishedWeekStartISOs") or [],
+        cal_name,
+        clinician_id=clinician_scope,
+        dtstamp=last_modified,
+    )
+    headers["Content-Disposition"] = f'inline; filename="shift-planner-{owner}.ics"'
+    return Response(content=ics, media_type="text/calendar", headers=headers)
 
 
 @app.post("/v1/solve", response_model=SolveDayResponse)

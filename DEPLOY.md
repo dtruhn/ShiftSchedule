@@ -50,7 +50,9 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-me
 JWT_SECRET=change-me-too
 JWT_EXPIRE_MINUTES=720
+PUBLIC_BASE_URL=https://schedule.example.com/api
 ```
+`PUBLIC_BASE_URL` is used to build the public iCal subscription URL (the backend is exposed via `/api` in the domain setup).
 
 ## 6) Run the stack
 ```
@@ -70,6 +72,7 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-me
 JWT_SECRET=change-me-too
 JWT_EXPIRE_MINUTES=720
+PUBLIC_BASE_URL=http://SERVER_IP:8000
 ```
 2) Start the IP-only stack:
 ```

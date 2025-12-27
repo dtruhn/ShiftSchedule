@@ -198,11 +198,11 @@ export default function HelpView() {
           </p>
         </Section>
 
-        <Section title="11. iCal Calendar Export">
+        <Section title="11. iCal (Download & Subscribe)">
           <p>
             You can download your schedule as an <span className="font-medium">iCal</span>{" "}
-            file (<span className="font-medium">.ics</span>) and import it into Google
-            Calendar, Apple Calendar, or Outlook.
+            file (<span className="font-medium">.ics</span>) or publish a subscribe link
+            for calendar apps (Google Calendar, Apple Calendar, Outlook).
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li>
@@ -210,12 +210,21 @@ export default function HelpView() {
               <span className="font-medium">multiple events across many dates</span>.
             </li>
             <li>
-              You can download either <span className="font-medium">one file for all clinicians</span>{" "}
-              or <span className="font-medium">individual files per clinician</span>.
+              In <span className="font-medium">Download</span>, you can export either{" "}
+              <span className="font-medium">one file for all clinicians</span> or{" "}
+              <span className="font-medium">individual files per clinician</span>.
             </li>
             <li>
-              Use the <span className="font-medium">time range</span> filter to limit what
-              gets exported (date format: <span className="font-medium">DD.MM.YYYY</span>).
+              In <span className="font-medium">Subscribe / Publish</span>, you can publish a
+              read-only link (anyone with the link can subscribe), rotate the link, or unpublish it.
+            </li>
+            <li>
+              Subscriptions include only weeks marked{" "}
+              <span className="font-medium">Published</span> in the schedule view.
+            </li>
+            <li>
+              When published, you get one link for{" "}
+              <span className="font-medium">all clinicians</span> and one link per clinician.
             </li>
           </ul>
         </Section>
