@@ -311,7 +311,7 @@ export default function WeeklySchedulePage({
           : row.name;
         const description = options.includeClinicianInSummary
           ? undefined
-          : `Clinician: ${clinician.name}`;
+          : `Person: ${clinician.name}`;
         return {
           uid: `${assignment.id}@shift-planner`,
           dateISO: assignment.dateISO,
@@ -331,7 +331,7 @@ export default function WeeklySchedulePage({
       includeClinicianInSummary: true,
     });
     const ics = buildICalendar({
-      calendarName: "Shift Planner (All clinicians)",
+      calendarName: "Shift Planner (All people)",
       events,
     });
     downloadTextFile("shift-planner-all.ics", "text/calendar;charset=utf-8", ics);

@@ -642,7 +642,7 @@ export default function IcalExportModal({
                       "disabled:cursor-not-allowed disabled:opacity-50",
                     )}
                   >
-                    All clinicians (one file)
+                    All people (one file)
                   </button>
                 </div>
 
@@ -758,7 +758,7 @@ export default function IcalExportModal({
                         Subscription links
                       </div>
                       <div className="divide-y divide-slate-200 dark:divide-slate-800">
-                        {[{ clinicianId: "all", clinicianName: "All clinicians", subscribeUrl }, ...clinicianLinks]
+                        {[{ clinicianId: "all", clinicianName: "All people", subscribeUrl }, ...clinicianLinks]
                           .filter((item) => item.subscribeUrl)
                           .map((clinician) => {
                             const key = `clinician-${clinician.clinicianId}`;

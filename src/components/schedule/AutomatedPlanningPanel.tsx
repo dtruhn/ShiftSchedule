@@ -238,7 +238,7 @@ export default function AutomatedPlanningPanel({
                   "disabled:cursor-not-allowed disabled:opacity-60",
                 )}
               >
-                Distribute all clinicians from Distribution Pool
+                Distribute all people from Distribution Pool
               </button>
             </div>
           </div>

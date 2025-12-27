@@ -67,9 +67,9 @@ export default function HelpView() {
 
         <Section title="3. Automated Filling (Solver)">
           <p>
-            The solver attempts to allocate clinicians based on eligibility and
+            The solver attempts to allocate people based on eligibility and
             Open Slot requirements, with the goal of filling as many Open Slots
-            as possible using available clinicians.
+            as possible using available people.
           </p>
 
           <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -83,7 +83,7 @@ export default function HelpView() {
                   runs the solver without forcing full distribution.
                 </li>
                 <li>
-                  <span className="font-medium">Distribute all clinicians</span>:
+                  <span className="font-medium">Distribute all people</span>:
                   uses the Distribution Pool to spread assignments.
                 </li>
                 <li>
@@ -103,14 +103,14 @@ export default function HelpView() {
               <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-slate-200">
                 <li>
                   <span className="font-medium">Distribution Pool</span>:
-                  clinicians here are used for automatic allocation.
+                  people here are used for automatic allocation.
                 </li>
                 <li>
-                  <span className="font-medium">Reserve Pool</span>: clinicians
+                  <span className="font-medium">Reserve Pool</span>: people
                   here are not considered by the solver.
                 </li>
                 <li>
-                  <span className="font-medium">Vacation Pool</span>: clinicians
+                  <span className="font-medium">Vacation Pool</span>: people
                   on vacation are excluded from automatic allocation.
                 </li>
               </ul>
@@ -120,22 +120,22 @@ export default function HelpView() {
 
         <Section title="4. Manual Assignment (Drag & Drop)">
           <ul className="list-disc space-y-1 pl-5">
-            <li>Drag a clinician pill from a pool.</li>
+            <li>Drag a person pill from a pool.</li>
             <li>Drop it into a class cell for a specific day.</li>
           </ul>
           <p className="mt-2">
             If a drop is not allowed (e.g. wrong day or ineligible class), the
-            clinician snaps back to the original position.
+            person snaps back to the original position.
           </p>
         </Section>
 
         <Section title="5. Eligibility Highlighting">
           <ul className="list-disc space-y-1 pl-5">
             <li>
-              When dragging a clinician, all eligible cells are highlighted.
+              When dragging a person, all eligible cells are highlighted.
             </li>
             <li>
-              When hovering over a class/day cell, all eligible clinicians are
+              When hovering over a class/day cell, all eligible people are
               highlighted in green.
             </li>
           </ul>
@@ -156,9 +156,9 @@ export default function HelpView() {
 
         <Section title="7. Vacations">
           <p>
-            Vacations remove clinicians from scheduling for their vacation days.
+            Vacations remove people from scheduling for their vacation days.
             You can manage vacations in Settings (and in some setups by dragging
-            clinicians into/out of the Vacation row).
+            people into/out of the Vacation row).
           </p>
         </Section>
 
@@ -182,7 +182,7 @@ export default function HelpView() {
               minimum required slots (weekday vs weekend/holiday).
             </li>
             <li>
-              <span className="font-medium">Clinicians</span>: add/edit/remove,
+              <span className="font-medium">People</span>: add/edit/remove,
               eligible classes, vacations.
             </li>
             <li>
@@ -211,8 +211,8 @@ export default function HelpView() {
             </li>
             <li>
               In <span className="font-medium">Download</span>, you can export either{" "}
-              <span className="font-medium">one file for all clinicians</span> or{" "}
-              <span className="font-medium">individual files per clinician</span>.
+              <span className="font-medium">one file for all people</span> or{" "}
+              <span className="font-medium">individual files per person</span>.
             </li>
             <li>
               In <span className="font-medium">Subscribe / Publish</span>, you can publish a
@@ -224,7 +224,7 @@ export default function HelpView() {
             </li>
             <li>
               When published, you get one link for{" "}
-              <span className="font-medium">all clinicians</span> and one link per clinician.
+              <span className="font-medium">all people</span> and one link per person.
             </li>
           </ul>
         </Section>

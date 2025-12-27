@@ -155,10 +155,10 @@ export default function SettingsView({
     return `${day}.${month}.${year}`;
   };
   const poolNoteById: Record<string, string> = {
-    "pool-not-allocated": "Pool from which clinicians are distributed to workplaces.",
-    "pool-manual": "Reserve pool of clinicians that will not be automatically distributed.",
+    "pool-not-allocated": "Pool from which people are distributed to workplaces.",
+    "pool-manual": "Reserve pool of people that will not be automatically distributed.",
     "pool-vacation":
-      "Clinicians on vacations. Drag in or out of this row to update vacations.",
+      "People on vacation. Drag in or out of this row to update vacations.",
   };
 
   return (
@@ -342,10 +342,10 @@ export default function SettingsView({
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                Clinicians
+                People
               </div>
               <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                Manage clinicians and open the same editor as in the calendar.
+                Manage people and open the same editor as in the calendar.
               </div>
             </div>
           </div>
@@ -354,7 +354,7 @@ export default function SettingsView({
               type="text"
               value={newClinicianName}
               onChange={(e) => setNewClinicianName(e.target.value)}
-              placeholder="New clinician name"
+              placeholder="New person name"
               className={cx(
                 "w-full max-w-xs rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900",
                 "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
@@ -374,7 +374,7 @@ export default function SettingsView({
                 "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
               )}
             >
-              Add Clinician
+              Add Person
             </button>
           </div>
           <div className="mt-5 divide-y divide-slate-200 rounded-xl border border-slate-200 dark:border-slate-800 dark:divide-slate-800">
