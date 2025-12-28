@@ -32,6 +32,8 @@ type ScheduleGridProps = {
   minSlotsByRowId?: Record<string, { weekday: number; weekend: number }>;
   slotOverridesByKey?: Record<string, number>;
   onRemoveEmptySlot?: (args: { rowId: string; dateISO: string }) => void;
+  showShiftNames?: boolean;
+  showLocations?: boolean;
 };
 
 export default function ScheduleGrid({
@@ -53,6 +55,8 @@ export default function ScheduleGrid({
   minSlotsByRowId = {},
   slotOverridesByKey = {},
   onRemoveEmptySlot,
+  showShiftNames = true,
+  showLocations = false,
 }: ScheduleGridProps) {
   const [dragState, setDragState] = useState<{
     dragging: {
@@ -255,6 +259,8 @@ export default function ScheduleGrid({
                         holidayDates={holidayDates}
                         holidayNameByDate={holidayNameByDate}
                         readOnly={readOnly}
+                        showShiftNames={showShiftNames}
+                        showLocations={showLocations}
                       />
                     </Fragment>
                   );
@@ -289,6 +295,8 @@ function RowSection({
   holidayDates,
   holidayNameByDate,
   readOnly = false,
+  showShiftNames = true,
+  showLocations = false,
 }: {
   row: WorkplaceRow;
   weekDays: Date[];
@@ -334,6 +342,8 @@ function RowSection({
   holidayDates?: Set<string>;
   holidayNameByDate?: Record<string, string>;
   readOnly?: boolean;
+  showShiftNames?: boolean;
+  showLocations?: boolean;
 }) {
   const rowBg =
     row.id === "pool-vacation"
@@ -410,6 +420,12 @@ function RowSection({
               : row.kind === "class" && isWeekend
                 ? "bg-white dark:bg-slate-900"
                 : rowBg;
+        const uniqueShiftNames = new Set(
+          sortedAssignments
+            .map((assignment) => assignment.shiftName?.trim())
+            .filter((name): name is string => Boolean(name)),
+        );
+        const shouldShowShiftLabels = showShiftNames && uniqueShiftNames.size > 1;
 
         return (
           <button
@@ -489,6 +505,10 @@ function RowSection({
                     dragState.dragging?.assignmentId === assignment.id &&
                     dragState.dragging?.rowId === row.id &&
                     dragState.dragging?.dateISO === dateISO;
+                  const showShiftLabel =
+                    shouldShowShiftLabels && Boolean(assignment.shiftName);
+                  const showLocation =
+                    showLocations && Boolean(assignment.location?.trim());
                   return (
                     <div
                       key={assignment.id}
@@ -583,6 +603,10 @@ function RowSection({
                     >
                       <AssignmentPill
                         name={getClinicianName(assignment.clinicianId)}
+                        shiftName={assignment.shiftName}
+                        showShiftName={showShiftLabel}
+                        location={assignment.location}
+                        showLocation={showLocation}
                         showNoEligibilityWarning={
                           !getHasEligibleClasses(assignment.clinicianId)
                         }

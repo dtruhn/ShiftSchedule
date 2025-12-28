@@ -31,6 +31,8 @@ export type Assignment = {
   rowId: string;
   dateISO: string;
   clinicianId: string;
+  shiftName?: string;
+  location?: string;
 };
 
 export type MinSlots = { weekday: number; weekend: number };
@@ -41,6 +43,7 @@ export type AppState = {
   assignments: Assignment[];
   minSlotsByRowId: Record<string, MinSlots>;
   slotOverridesByKey?: Record<string, number>;
+  showLocationsInView?: boolean;
   holidayCountry?: string;
   holidayYear?: number;
   holidays?: Holiday[];
@@ -86,6 +89,7 @@ export type PublicWebWeekResponse = {
   assignments?: Assignment[];
   minSlotsByRowId?: Record<string, MinSlots>;
   slotOverridesByKey?: Record<string, number>;
+  showLocationsInView?: boolean;
   holidays?: Holiday[];
 };
 
