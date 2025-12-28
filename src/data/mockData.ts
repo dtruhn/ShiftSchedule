@@ -12,6 +12,8 @@ export type Assignment = {
   rowId: string;
   dateISO: string; // YYYY-MM-DD
   clinicianId: string;
+  shiftName?: string;
+  location?: string;
 };
 
 export type VacationPeriod = {

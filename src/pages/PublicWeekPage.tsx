@@ -110,6 +110,7 @@ export default function PublicWeekPage({ token, theme }: PublicWeekPageProps) {
     () => rows.find((row) => row.kind === "pool")?.id ?? "",
     [rows],
   );
+  const showLocationsInView = data?.showLocationsInView ?? true;
 
   const handlePrevWeek = () => setWeekStartDate((prev) => addWeeks(prev, -1));
   const handleNextWeek = () => setWeekStartDate((prev) => addWeeks(prev, 1));
@@ -161,6 +162,7 @@ export default function PublicWeekPage({ token, theme }: PublicWeekPageProps) {
           separatorBeforeRowIds={poolSeparatorId ? [poolSeparatorId] : []}
           minSlotsByRowId={data?.minSlotsByRowId ?? {}}
           slotOverridesByKey={data?.slotOverridesByKey ?? {}}
+          showLocations={showLocationsInView}
           getClinicianName={(id) => clinicians.find((c) => c.id === id)?.name ?? "Unknown"}
           getHasEligibleClasses={(id) => {
             const clinician = clinicians.find((item) => item.id === id);
