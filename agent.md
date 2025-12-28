@@ -462,32 +462,35 @@ Backend
 
 ---
 
-## 12) Current Hetzner Deployment (IP-only)
+## 12) Current Hetzner Deployment (Domain, default)
 - Server IP: `46.224.114.183`
 - SSH user: `root`
 - Path: `/opt/shiftschedule`
-- Stack: `docker compose -f docker-compose.ip.yml up -d --build`
-- Frontend: `http://46.224.114.183`
-- Backend: `http://46.224.114.183:8000`
+- Stack: `docker compose up -d --build` (uses `docker-compose.yml` + Caddy).
+- Frontend: `https://shiftplanner.wunderwerk.ai`
+- Backend: `https://shiftplanner.wunderwerk.ai/api`
 - Data lives in the `backend_data` volume; you can update only the frontend without touching the DB.
-- Typical frontend update: rsync repo to `/opt/shiftschedule`, then `docker compose -f docker-compose.ip.yml build frontend` and `up -d frontend`.
+- Typical frontend update: rsync repo to `/opt/shiftschedule`, then `docker compose build frontend` and `up -d frontend`.
 
 ### Remote setup checklist (smooth deploy)
 - Ensure `/opt/shiftschedule/.env` exists before running compose. If you use `rsync --delete`, exclude `.env` or recreate it after sync.
-- Required `.env` values for IP-only setup:
+- Required `.env` values for domain setup:
+  - `DOMAIN=shiftplanner.wunderwerk.ai`
+  - `LETSENCRYPT_EMAIL=daniel.truhn@gmail.com`
   - `ADMIN_USERNAME=admin`
   - `ADMIN_PASSWORD=change-me`
   - `JWT_SECRET=change-me-too`
   - `JWT_EXPIRE_MINUTES=720` (avoid empty string; backend crashes on startup)
-  - `VITE_API_URL=http://46.224.114.183:8000`
-  - `PUBLIC_BASE_URL=http://46.224.114.183/api`
-  - `APP_ORIGIN=http://46.224.114.183`
+- `PUBLIC_BASE_URL` is set in `docker-compose.yml` as `https://${DOMAIN}/api` (don’t leave it blank).
 - If login fails and you need a forced reset, set `ADMIN_PASSWORD_RESET=true` in `.env` and restart backend, then remove/disable it after login works.
-- After changing `VITE_API_URL`, rebuild the frontend container: `docker compose -f docker-compose.ip.yml up -d --build frontend`.
 - iCal subscription endpoints require `/api` proxying in the frontend nginx config; otherwise `/api/v1/ical/*.ics` returns HTML and Apple Calendar rejects it.
+- Domain stack uses Caddy on ports 80/443; stop the IP-only stack first to avoid port conflicts.
 
-## 13) Domain Deployment (Caddy + HTTPS)
-- Stack: `docker compose up -d --build` (uses `docker-compose.yml` + Caddy).
+## 13) IP-only Deployment (optional)
+- Stack: `docker compose -f docker-compose.ip.yml up -d --build`
+- Frontend: `http://46.224.114.183`
+- Backend: `http://46.224.114.183:8000`
+- IP-only stack binds port 80 directly; it conflicts with Caddy, so only run one stack at a time.
 - `.env` required for domain setup:
   - `DOMAIN=shiftplanner.wunderwerk.ai`
   - `LETSENCRYPT_EMAIL=daniel.truhn@gmail.com`

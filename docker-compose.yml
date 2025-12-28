@@ -1,8 +1,8 @@
 services:
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       SCHEDULE_DB_PATH: /data/schedule.db
       CORS_ALLOW_ORIGINS: https://${DOMAIN}
