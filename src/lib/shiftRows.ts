@@ -9,7 +9,8 @@ import type {
 export const SHIFT_ROW_SEPARATOR = "::";
 export const DEFAULT_LOCATION_ID = "loc-default";
 export const DEFAULT_LOCATION_NAME = "Default";
-const DEFAULT_SUB_SHIFT_HOURS = 8;
+const DEFAULT_SUB_SHIFT_MINUTES = 8 * 60;
+const DEFAULT_SUB_SHIFT_START_MINUTES = 8 * 60;
 
 export type ScheduleRow = WorkplaceRow & {
   parentId?: string;
@@ -17,12 +18,29 @@ export type ScheduleRow = WorkplaceRow & {
   subShiftId?: string;
   subShiftName?: string;
   subShiftOrder?: number;
+  subShiftStartTime?: string;
+  subShiftEndTime?: string;
+  subShiftEndDayOffset?: number;
   locationName?: string;
   isSubShiftRow?: boolean;
 };
 
 export function buildShiftRowId(classId: string, subShiftId: string) {
   return `${classId}${SHIFT_ROW_SEPARATOR}${subShiftId}`;
+}
+
+export function getAvailableSubShiftId(usedIds: Set<string>, order: number): string {
+  const preferred = `s${order}`;
+  if (!usedIds.has(preferred)) return preferred;
+  const fallback = ["s1", "s2", "s3"].find((id) => !usedIds.has(id));
+  if (fallback) return fallback;
+  let suffix = 2;
+  let candidate = `${preferred}-${suffix}`;
+  while (usedIds.has(candidate)) {
+    suffix += 1;
+    candidate = `${preferred}-${suffix}`;
+  }
+  return candidate;
 }
 
 export function parseShiftRowId(rowId: string): { classId: string; subShiftId?: string } {
@@ -33,10 +51,38 @@ export function parseShiftRowId(rowId: string): { classId: string; subShiftId?: 
   return { classId, subShiftId };
 }
 
+function parseTimeToMinutes(value?: string): number | null {
+  if (!value) return null;
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function formatMinutes(totalMinutes: number): string {
+  const clamped = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const hours = Math.floor(clamped / 60);
+  const minutes = clamped % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
 export function normalizeSubShifts(subShifts?: SubShift[]): SubShift[] {
   const source = subShifts?.length
     ? subShifts
-    : [{ id: "s1", name: "Shift 1", order: 1, hours: DEFAULT_SUB_SHIFT_HOURS }];
+    : [
+        {
+          id: "s1",
+          name: "Shift 1",
+          order: 1,
+          startTime: "08:00",
+          endTime: "16:00",
+          endDayOffset: 0,
+          hours: undefined,
+        },
+      ];
   const usedOrders = new Set<number>();
   const normalized: SubShift[] = [];
   for (const item of source) {
@@ -51,15 +97,28 @@ export function normalizeSubShifts(subShifts?: SubShift[]): SubShift[] {
     usedOrders.add(order);
     const id = item.id?.trim() || `s${order}`;
     const name = item.name?.trim() || `Shift ${order}`;
-    const hours =
+    const rawStart = parseTimeToMinutes(item.startTime);
+    const rawEnd = parseTimeToMinutes(item.endTime);
+    const rawOffset =
+      typeof item.endDayOffset === "number" && Number.isFinite(item.endDayOffset)
+        ? Math.max(0, Math.min(3, Math.floor(item.endDayOffset)))
+        : 0;
+    const legacyHours =
       typeof item.hours === "number" && Number.isFinite(item.hours)
         ? Math.max(0, item.hours)
-        : DEFAULT_SUB_SHIFT_HOURS;
+        : null;
+    const fallbackStart =
+      DEFAULT_SUB_SHIFT_START_MINUTES + (order - 1) * DEFAULT_SUB_SHIFT_MINUTES;
+    const startMinutes = rawStart ?? fallbackStart;
+    const durationMinutes = legacyHours !== null ? legacyHours * 60 : DEFAULT_SUB_SHIFT_MINUTES;
+    const endMinutes = rawEnd ?? startMinutes + durationMinutes;
     normalized.push({
       id,
       name,
       order: order as 1 | 2 | 3,
-      hours,
+      startTime: formatMinutes(startMinutes),
+      endTime: formatMinutes(endMinutes),
+      endDayOffset: rawOffset,
     });
   }
   if (!normalized.length) {
@@ -67,7 +126,9 @@ export function normalizeSubShifts(subShifts?: SubShift[]): SubShift[] {
       id: "s1",
       name: "Shift 1",
       order: 1,
-      hours: DEFAULT_SUB_SHIFT_HOURS,
+      startTime: "08:00",
+      endTime: "16:00",
+      endDayOffset: 0,
     });
   }
   return normalized.sort((a, b) => a.order - b.order).slice(0, 3);
@@ -90,6 +151,10 @@ export function ensureLocations(locations?: Location[]): Location[] {
 
 export function normalizeAppState(state: AppState): { state: AppState; changed: boolean } {
   let changed = false;
+  const locationsEnabled = state.locationsEnabled !== false;
+  if (state.locationsEnabled !== locationsEnabled) {
+    changed = true;
+  }
   const locations = ensureLocations(state.locations);
   if (!state.locations || state.locations.length !== locations.length) {
     changed = true;
@@ -98,11 +163,27 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
 
   const rows = (state.rows ?? []).map((row) => {
     if (row.kind !== "class") return row;
-    const subShifts = normalizeSubShifts(row.subShifts);
-    const locationId =
+    const normalizedShifts = normalizeSubShifts(row.subShifts);
+    const usedSubShiftIds = new Set<string>();
+    const subShifts = normalizedShifts.map((shift) => {
+      const baseId = shift.id?.trim() || `s${shift.order}`;
+      if (!usedSubShiftIds.has(baseId)) {
+        usedSubShiftIds.add(baseId);
+        return baseId === shift.id ? shift : { ...shift, id: baseId };
+      }
+      const nextId = getAvailableSubShiftId(usedSubShiftIds, shift.order);
+      usedSubShiftIds.add(nextId);
+      changed = true;
+      return { ...shift, id: nextId };
+    });
+    let locationId =
       row.locationId && locationIdSet.has(row.locationId)
         ? row.locationId
         : DEFAULT_LOCATION_ID;
+    if (!locationsEnabled && locationId !== DEFAULT_LOCATION_ID) {
+      locationId = DEFAULT_LOCATION_ID;
+      changed = true;
+    }
     if (
       row.locationId !== locationId ||
       !row.subShifts ||
@@ -197,6 +278,7 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
   return {
     state: {
       ...state,
+      locationsEnabled,
       locations,
       rows,
       assignments,
@@ -210,6 +292,7 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
 export function buildScheduleRows(
   rows: WorkplaceRow[],
   locations: Location[],
+  locationsEnabled = true,
 ): ScheduleRow[] {
   const locationNameById = new Map(locations.map((loc) => [loc.id, loc.name]));
   const scheduleRows: ScheduleRow[] = [];
@@ -219,9 +302,10 @@ export function buildScheduleRows(
       continue;
     }
     const subShifts = normalizeSubShifts(row.subShifts);
-    const locationName =
-      (row.locationId && locationNameById.get(row.locationId)) ??
-      locationNameById.get(DEFAULT_LOCATION_ID);
+    const locationName = locationsEnabled
+      ? (row.locationId && locationNameById.get(row.locationId)) ??
+        locationNameById.get(DEFAULT_LOCATION_ID)
+      : undefined;
     for (const shift of subShifts) {
       scheduleRows.push({
         ...row,
@@ -231,6 +315,9 @@ export function buildScheduleRows(
         subShiftId: shift.id,
         subShiftName: shift.name,
         subShiftOrder: shift.order,
+        subShiftStartTime: shift.startTime,
+        subShiftEndTime: shift.endTime,
+        subShiftEndDayOffset: shift.endDayOffset,
         locationName,
         isSubShiftRow: true,
       });

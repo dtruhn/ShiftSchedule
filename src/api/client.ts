@@ -9,7 +9,10 @@ export type SubShift = {
   id: string;
   name: string;
   order: 1 | 2 | 3;
-  hours: number;
+  startTime: string;
+  endTime: string;
+  endDayOffset?: number;
+  hours?: number;
 };
 
 export type WorkplaceRow = {
@@ -38,6 +41,7 @@ export type Clinician = {
   qualifiedClassIds: string[];
   preferredClassIds: string[];
   vacations: VacationRange[];
+  workingHoursPerWeek?: number;
 };
 
 export type Assignment = {
@@ -51,6 +55,7 @@ export type MinSlots = { weekday: number; weekend: number };
 
 export type AppState = {
   locations?: Location[];
+  locationsEnabled?: boolean;
   rows: WorkplaceRow[];
   clinicians: Clinician[];
   assignments: Assignment[];
@@ -97,6 +102,7 @@ export type PublicWebWeekResponse = {
   weekStartISO: string;
   weekEndISO: string;
   locations?: Location[];
+  locationsEnabled?: boolean;
   rows?: WorkplaceRow[];
   clinicians?: Clinician[];
   assignments?: Assignment[];

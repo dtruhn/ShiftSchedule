@@ -84,6 +84,7 @@ export default function PublicWeekPage({ token, theme }: PublicWeekPageProps) {
     if (!data?.published) return null;
     const normalizedState = normalizeAppState({
       locations: data.locations ?? [],
+      locationsEnabled: data.locationsEnabled ?? true,
       rows: (data.rows ?? []) as WorkplaceRow[],
       clinicians: (data.clinicians ?? []) as Clinician[],
       assignments: (data.assignments ?? []) as Assignment[],
@@ -97,9 +98,10 @@ export default function PublicWeekPage({ token, theme }: PublicWeekPageProps) {
 
   const rows = (normalized?.rows ?? []) as WorkplaceRow[];
   const clinicians = (normalized?.clinicians ?? []) as Clinician[];
+  const locationsEnabled = normalized?.locationsEnabled ?? true;
   const scheduleRows = useMemo(
-    () => buildScheduleRows(rows, normalized?.locations ?? defaultLocations),
-    [rows, normalized?.locations],
+    () => buildScheduleRows(rows, normalized?.locations ?? defaultLocations, locationsEnabled),
+    [rows, normalized?.locations, locationsEnabled],
   );
   const rowById = useMemo(
     () => new Map(scheduleRows.map((row) => [row.id, row])),

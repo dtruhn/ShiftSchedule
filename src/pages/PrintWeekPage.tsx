@@ -29,6 +29,7 @@ const parseISODate = (value: string | null) => {
 export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
   const [rows, setRows] = useState<WorkplaceRow[]>([]);
   const [locations, setLocations] = useState(defaultLocations);
+  const [locationsEnabled, setLocationsEnabled] = useState(true);
   const [clinicians, setClinicians] = useState<Clinician[]>([]);
   const [assignmentMap, setAssignmentMap] = useState<Map<string, Assignment[]>>(new Map());
   const [minSlotsByRowId, setMinSlotsByRowId] = useState(defaultMinSlotsByRowId);
@@ -66,7 +67,10 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
   }, [holidays]);
 
   const poolsSeparatorId = useMemo(() => rows.find((row) => row.kind === "pool")?.id, [rows]);
-  const scheduleRows = useMemo(() => buildScheduleRows(rows, locations), [rows, locations]);
+  const scheduleRows = useMemo(
+    () => buildScheduleRows(rows, locations, locationsEnabled),
+    [rows, locations, locationsEnabled],
+  );
   const rowById = useMemo(() => new Map(scheduleRows.map((row) => [row.id, row])), [scheduleRows]);
 
   const isWeekendOrHoliday = (dateISO: string) => {
@@ -92,6 +96,7 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
         if (!alive) return;
         const { state: normalized } = normalizeAppState(state);
         if (normalized.locations?.length) setLocations(normalized.locations);
+        setLocationsEnabled(normalized.locationsEnabled ?? true);
         if (normalized.rows?.length) setRows(normalized.rows);
         if (normalized.clinicians?.length) {
           setClinicians(

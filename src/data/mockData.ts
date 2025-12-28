@@ -18,7 +18,10 @@ export type SubShift = {
   id: string;
   name: string;
   order: 1 | 2 | 3;
-  hours: number;
+  startTime: string;
+  endTime: string;
+  endDayOffset?: number;
+  hours?: number;
 };
 
 export type Assignment = {
@@ -40,9 +43,11 @@ export type Clinician = {
   qualifiedClassIds: string[];
   preferredClassIds: string[];
   vacations: VacationPeriod[];
+  workingHoursPerWeek?: number;
 };
 
 export const locations: Location[] = [{ id: "loc-default", name: "Default" }];
+export const locationsEnabled = true;
 
 export const workplaceRows: WorkplaceRow[] = [
   {
@@ -64,7 +69,16 @@ export const workplaceRows: WorkplaceRow[] = [
     kind: "class",
     dotColorClass: "bg-violet-500",
     locationId: "loc-default",
-    subShifts: [{ id: "s1", name: "Shift 1", order: 1, hours: 8 }],
+    subShifts: [
+      {
+        id: "s1",
+        name: "Shift 1",
+        order: 1,
+        startTime: "08:00",
+        endTime: "16:00",
+        endDayOffset: 0,
+      },
+    ],
   },
   {
     id: "ct",
@@ -72,7 +86,16 @@ export const workplaceRows: WorkplaceRow[] = [
     kind: "class",
     dotColorClass: "bg-cyan-500",
     locationId: "loc-default",
-    subShifts: [{ id: "s1", name: "Shift 1", order: 1, hours: 8 }],
+    subShifts: [
+      {
+        id: "s1",
+        name: "Shift 1",
+        order: 1,
+        startTime: "08:00",
+        endTime: "16:00",
+        endDayOffset: 0,
+      },
+    ],
   },
   {
     id: "sonography",
@@ -80,7 +103,16 @@ export const workplaceRows: WorkplaceRow[] = [
     kind: "class",
     dotColorClass: "bg-fuchsia-500",
     locationId: "loc-default",
-    subShifts: [{ id: "s1", name: "Shift 1", order: 1, hours: 8 }],
+    subShifts: [
+      {
+        id: "s1",
+        name: "Shift 1",
+        order: 1,
+        startTime: "08:00",
+        endTime: "16:00",
+        endDayOffset: 0,
+      },
+    ],
   },
   {
     id: "conventional",
@@ -88,7 +120,16 @@ export const workplaceRows: WorkplaceRow[] = [
     kind: "class",
     dotColorClass: "bg-amber-400",
     locationId: "loc-default",
-    subShifts: [{ id: "s1", name: "Shift 1", order: 1, hours: 8 }],
+    subShifts: [
+      {
+        id: "s1",
+        name: "Shift 1",
+        order: 1,
+        startTime: "08:00",
+        endTime: "16:00",
+        endDayOffset: 0,
+      },
+    ],
   },
   {
     id: "on-call",
@@ -96,7 +137,16 @@ export const workplaceRows: WorkplaceRow[] = [
     kind: "class",
     dotColorClass: "bg-blue-600",
     locationId: "loc-default",
-    subShifts: [{ id: "s1", name: "Shift 1", order: 1, hours: 8 }],
+    subShifts: [
+      {
+        id: "s1",
+        name: "Shift 1",
+        order: 1,
+        startTime: "08:00",
+        endTime: "16:00",
+        endDayOffset: 0,
+      },
+    ],
   },
 ];
 
@@ -118,6 +168,7 @@ export const clinicians: Clinician[] = [
     qualifiedClassIds: ["mri", "sonography", "conventional"],
     preferredClassIds: ["sonography", "mri"],
     vacations: [{ id: "vac-1", startISO: "2025-12-18", endISO: "2025-12-20" }],
+    workingHoursPerWeek: 38,
   },
   {
     id: "james-wilson",
@@ -125,6 +176,7 @@ export const clinicians: Clinician[] = [
     qualifiedClassIds: ["mri", "on-call"],
     preferredClassIds: ["on-call"],
     vacations: [],
+    workingHoursPerWeek: 40,
   },
   {
     id: "michael-ross",
@@ -132,6 +184,7 @@ export const clinicians: Clinician[] = [
     qualifiedClassIds: ["ct", "conventional", "on-call"],
     preferredClassIds: ["ct"],
     vacations: [],
+    workingHoursPerWeek: 36,
   },
   {
     id: "emily-brooks",
@@ -139,6 +192,7 @@ export const clinicians: Clinician[] = [
     qualifiedClassIds: ["sonography", "conventional"],
     preferredClassIds: ["conventional"],
     vacations: [],
+    workingHoursPerWeek: 32,
   },
   {
     id: "david-kim",
@@ -146,6 +200,7 @@ export const clinicians: Clinician[] = [
     qualifiedClassIds: ["ct", "sonography"],
     preferredClassIds: ["ct"],
     vacations: [],
+    workingHoursPerWeek: 40,
   },
   {
     id: "ava-patel",
@@ -153,6 +208,7 @@ export const clinicians: Clinician[] = [
     qualifiedClassIds: ["ct", "mri"],
     preferredClassIds: [],
     vacations: [],
+    workingHoursPerWeek: 28,
   },
   {
     id: "lena-park",
@@ -160,6 +216,7 @@ export const clinicians: Clinician[] = [
     qualifiedClassIds: ["conventional"],
     preferredClassIds: ["conventional"],
     vacations: [],
+    workingHoursPerWeek: 30,
   },
 ];
 

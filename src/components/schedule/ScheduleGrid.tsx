@@ -238,7 +238,7 @@ export default function ScheduleGrid({
                   const hasNextSubShift =
                     row.kind === "class" &&
                     nextRow?.kind === "class" &&
-                    row.parentId &&
+                    !!row.parentId &&
                     row.parentId === nextRow.parentId;
                   return (
                     <Fragment key={row.id}>

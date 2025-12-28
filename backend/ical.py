@@ -166,7 +166,7 @@ def generate_ics(
         clinician_name = clinician_name_by_id.get(
             assignment_clinician_id, assignment_clinician_id or "Unknown"
         )
-        row_name = row.get("name") or class_id or "Class"
+        row_name = row.get("name") or class_id or "Section"
         sub_shift_name = _resolve_sub_shift_name(row, sub_shift_id)
         assignment_id = assignment.get("id") or f"{date_iso}-{row_id}-{assignment_clinician_id}"
 

@@ -28,7 +28,9 @@ Role = Literal["admin", "user"]
 SHIFT_ROW_SEPARATOR = "::"
 DEFAULT_LOCATION_ID = "loc-default"
 DEFAULT_LOCATION_NAME = "Default"
-DEFAULT_SUB_SHIFT_HOURS = 8.0
+DEFAULT_SUB_SHIFT_MINUTES = 8 * 60
+DEFAULT_SUB_SHIFT_START_MINUTES = 8 * 60
+DEFAULT_SUB_SHIFT_START = "08:00"
 
 
 class UserPublic(BaseModel):
@@ -70,7 +72,10 @@ class SubShift(BaseModel):
     id: str
     name: str
     order: Literal[1, 2, 3]
-    hours: float
+    startTime: Optional[str] = None
+    endTime: Optional[str] = None
+    endDayOffset: Optional[int] = None
+    hours: Optional[float] = None
 
 
 class WorkplaceRow(BaseModel):
@@ -99,6 +104,7 @@ class Clinician(BaseModel):
     qualifiedClassIds: List[str]
     preferredClassIds: List[str] = []
     vacations: List[VacationRange]
+    workingHoursPerWeek: Optional[float] = None
 
 
 class Assignment(BaseModel):
@@ -115,6 +121,7 @@ class MinSlots(BaseModel):
 
 class AppState(BaseModel):
     locations: List[Location] = Field(default_factory=list)
+    locationsEnabled: bool = True
     rows: List[WorkplaceRow]
     clinicians: List[Clinician]
     assignments: List[Assignment]
@@ -188,12 +195,35 @@ def _ensure_locations(locations: List[Location]) -> List[Location]:
         )
     return list(by_id.values())
 
+def _parse_time_to_minutes(value: Optional[str]) -> Optional[int]:
+    if not value:
+        return None
+    match = re.match(r"^(\d{1,2}):(\d{2})$", value.strip())
+    if not match:
+        return None
+    hours = int(match.group(1))
+    minutes = int(match.group(2))
+    if hours < 0 or hours > 23 or minutes < 0 or minutes > 59:
+        return None
+    return hours * 60 + minutes
+
+
+def _format_minutes(total_minutes: int) -> str:
+    clamped = total_minutes % (24 * 60)
+    hours = clamped // 60
+    minutes = clamped % 60
+    return f"{hours:02d}:{minutes:02d}"
+
 
 def _normalize_sub_shifts(sub_shifts: List[SubShift]) -> List[SubShift]:
     if not sub_shifts:
         return [
             SubShift(
-                id="s1", name="Shift 1", order=1, hours=DEFAULT_SUB_SHIFT_HOURS
+                id="s1",
+                name="Shift 1",
+                order=1,
+                startTime=DEFAULT_SUB_SHIFT_START,
+                endTime=_format_minutes(DEFAULT_SUB_SHIFT_START_MINUTES + DEFAULT_SUB_SHIFT_MINUTES),
             )
         ]
     used_orders = set()
@@ -210,19 +240,39 @@ def _normalize_sub_shifts(sub_shifts: List[SubShift]) -> List[SubShift]:
         used_orders.add(order)
         shift_id = shift.id or f"s{order}"
         shift_name = shift.name or f"Shift {order}"
-        hours = shift.hours if isinstance(shift.hours, (int, float)) else DEFAULT_SUB_SHIFT_HOURS
+        start_minutes = _parse_time_to_minutes(shift.startTime)
+        end_minutes = _parse_time_to_minutes(shift.endTime)
+        raw_offset = shift.endDayOffset if isinstance(shift.endDayOffset, int) else 0
+        end_day_offset = max(0, min(3, raw_offset))
+        if start_minutes is None:
+            start_minutes = DEFAULT_SUB_SHIFT_START_MINUTES + DEFAULT_SUB_SHIFT_MINUTES * (
+                order - 1
+            )
+        legacy_hours = shift.hours if isinstance(shift.hours, (int, float)) else None
+        duration_minutes = (
+            int(max(0, legacy_hours) * 60) if legacy_hours is not None else DEFAULT_SUB_SHIFT_MINUTES
+        )
+        if end_minutes is None:
+            end_minutes = start_minutes + duration_minutes
         normalized.append(
             SubShift(
                 id=shift_id,
                 name=shift_name,
                 order=order,
-                hours=float(max(0, hours)),
+                startTime=_format_minutes(start_minutes),
+                endTime=_format_minutes(end_minutes),
+                endDayOffset=end_day_offset,
             )
         )
     if not normalized:
         normalized.append(
             SubShift(
-                id="s1", name="Shift 1", order=1, hours=DEFAULT_SUB_SHIFT_HOURS
+                id="s1",
+                name="Shift 1",
+                order=1,
+                startTime=DEFAULT_SUB_SHIFT_START,
+                endTime=_format_minutes(DEFAULT_SUB_SHIFT_START_MINUTES + DEFAULT_SUB_SHIFT_MINUTES),
+                endDayOffset=0,
             )
         )
     normalized.sort(key=lambda item: item.order)
@@ -246,6 +296,10 @@ def _resolve_shift_row(
 
 def _normalize_state(state: AppState) -> tuple[AppState, bool]:
     changed = False
+    locations_enabled = state.locationsEnabled is not False
+    if state.locationsEnabled != locations_enabled:
+        state.locationsEnabled = locations_enabled
+        changed = True
     locations = _ensure_locations(state.locations or [])
     if state.locations != locations:
         state.locations = locations
@@ -264,6 +318,9 @@ def _normalize_state(state: AppState) -> tuple[AppState, bool]:
         else:
             row.subShifts = normalized_shifts
         if not row.locationId or row.locationId not in location_ids:
+            row.locationId = DEFAULT_LOCATION_ID
+            changed = True
+        if not locations_enabled and row.locationId != DEFAULT_LOCATION_ID:
             row.locationId = DEFAULT_LOCATION_ID
             changed = True
         class_rows.append(row)
@@ -367,7 +424,18 @@ def _default_state() -> AppState:
             kind="class",
             dotColorClass="bg-violet-500",
             locationId=DEFAULT_LOCATION_ID,
-            subShifts=[SubShift(id="s1", name="Shift 1", order=1, hours=DEFAULT_SUB_SHIFT_HOURS)],
+            subShifts=[
+                SubShift(
+                    id="s1",
+                    name="Shift 1",
+                    order=1,
+                    startTime=DEFAULT_SUB_SHIFT_START,
+                    endTime=_format_minutes(
+                        DEFAULT_SUB_SHIFT_START_MINUTES + DEFAULT_SUB_SHIFT_MINUTES
+                    ),
+                    endDayOffset=0,
+                )
+            ],
         ),
         WorkplaceRow(
             id="ct",
@@ -375,7 +443,18 @@ def _default_state() -> AppState:
             kind="class",
             dotColorClass="bg-cyan-500",
             locationId=DEFAULT_LOCATION_ID,
-            subShifts=[SubShift(id="s1", name="Shift 1", order=1, hours=DEFAULT_SUB_SHIFT_HOURS)],
+            subShifts=[
+                SubShift(
+                    id="s1",
+                    name="Shift 1",
+                    order=1,
+                    startTime=DEFAULT_SUB_SHIFT_START,
+                    endTime=_format_minutes(
+                        DEFAULT_SUB_SHIFT_START_MINUTES + DEFAULT_SUB_SHIFT_MINUTES
+                    ),
+                    endDayOffset=0,
+                )
+            ],
         ),
         WorkplaceRow(
             id="sonography",
@@ -383,7 +462,18 @@ def _default_state() -> AppState:
             kind="class",
             dotColorClass="bg-fuchsia-500",
             locationId=DEFAULT_LOCATION_ID,
-            subShifts=[SubShift(id="s1", name="Shift 1", order=1, hours=DEFAULT_SUB_SHIFT_HOURS)],
+            subShifts=[
+                SubShift(
+                    id="s1",
+                    name="Shift 1",
+                    order=1,
+                    startTime=DEFAULT_SUB_SHIFT_START,
+                    endTime=_format_minutes(
+                        DEFAULT_SUB_SHIFT_START_MINUTES + DEFAULT_SUB_SHIFT_MINUTES
+                    ),
+                    endDayOffset=0,
+                )
+            ],
         ),
         WorkplaceRow(
             id="conventional",
@@ -391,7 +481,18 @@ def _default_state() -> AppState:
             kind="class",
             dotColorClass="bg-amber-400",
             locationId=DEFAULT_LOCATION_ID,
-            subShifts=[SubShift(id="s1", name="Shift 1", order=1, hours=DEFAULT_SUB_SHIFT_HOURS)],
+            subShifts=[
+                SubShift(
+                    id="s1",
+                    name="Shift 1",
+                    order=1,
+                    startTime=DEFAULT_SUB_SHIFT_START,
+                    endTime=_format_minutes(
+                        DEFAULT_SUB_SHIFT_START_MINUTES + DEFAULT_SUB_SHIFT_MINUTES
+                    ),
+                    endDayOffset=0,
+                )
+            ],
         ),
         WorkplaceRow(
             id="on-call",
@@ -399,7 +500,18 @@ def _default_state() -> AppState:
             kind="class",
             dotColorClass="bg-blue-600",
             locationId=DEFAULT_LOCATION_ID,
-            subShifts=[SubShift(id="s1", name="Shift 1", order=1, hours=DEFAULT_SUB_SHIFT_HOURS)],
+            subShifts=[
+                SubShift(
+                    id="s1",
+                    name="Shift 1",
+                    order=1,
+                    startTime=DEFAULT_SUB_SHIFT_START,
+                    endTime=_format_minutes(
+                        DEFAULT_SUB_SHIFT_START_MINUTES + DEFAULT_SUB_SHIFT_MINUTES
+                    ),
+                    endDayOffset=0,
+                )
+            ],
         ),
     ]
     clinicians = [
@@ -462,6 +574,7 @@ def _default_state() -> AppState:
     }
     return AppState(
         locations=[default_location],
+        locationsEnabled=True,
         rows=rows,
         clinicians=clinicians,
         assignments=[],
@@ -1535,6 +1648,7 @@ def get_public_web_week(
         "weekStartISO": week_start_iso,
         "weekEndISO": week_end_iso,
         "locations": [loc.model_dump() for loc in state.locations],
+        "locationsEnabled": state.locationsEnabled,
         "rows": [row.model_dump() for row in state.rows],
         "clinicians": [clinician.model_dump() for clinician in state.clinicians],
         "assignments": assignments,

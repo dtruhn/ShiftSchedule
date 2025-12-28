@@ -35,6 +35,7 @@ import {
   Clinician,
   clinicians as defaultClinicians,
   defaultMinSlotsByRowId,
+  locationsEnabled as defaultLocationsEnabled,
   locations as defaultLocations,
   WorkplaceRow,
   workplaceRows,
@@ -51,6 +52,7 @@ import {
   buildScheduleRows,
   buildShiftRowId,
   DEFAULT_LOCATION_ID,
+  getAvailableSubShiftId,
   normalizeAppState,
   normalizeSubShifts,
 } from "../lib/shiftRows";
@@ -202,6 +204,7 @@ export default function WeeklySchedulePage({
   const [holidayCountry, setHolidayCountry] = useState("DE");
   const [holidayYear, setHolidayYear] = useState(currentYear);
   const [publishedWeekStartISOs, setPublishedWeekStartISOs] = useState<string[]>([]);
+  const [locationsEnabled, setLocationsEnabled] = useState(defaultLocationsEnabled);
 
   const isMobile = useMediaQuery("(max-width: 640px)");
   const weekStart = useMemo(() => startOfWeek(anchorDate, 1), [anchorDate]);
@@ -225,8 +228,8 @@ export default function WeeklySchedulePage({
   const classRows = useMemo(() => rows.filter((r) => r.kind === "class"), [rows]);
   const poolRows = useMemo(() => rows.filter((r) => r.kind === "pool"), [rows]);
   const scheduleRows = useMemo(
-    () => buildScheduleRows(rows, locations),
-    [rows, locations],
+    () => buildScheduleRows(rows, locations, locationsEnabled),
+    [rows, locations, locationsEnabled],
   );
   const classShiftRows = useMemo(
     () => scheduleRows.filter((row) => row.kind === "class"),
@@ -805,6 +808,7 @@ export default function WeeklySchedulePage({
         if (!alive) return;
         const { state: normalized } = normalizeAppState(state);
         if (normalized.locations?.length) setLocations(normalized.locations);
+        setLocationsEnabled(normalized.locationsEnabled ?? true);
         if (normalized.rows?.length) {
           const filteredRows = normalized.rows.filter(
             (row) => row.id !== "pool-not-working",
@@ -877,6 +881,7 @@ export default function WeeklySchedulePage({
     if (!hasLoaded || loadedUserId !== currentUser.username) return;
     const { state: normalized } = normalizeAppState({
       locations,
+      locationsEnabled,
       rows,
       clinicians,
       assignments: toAssignments(),
@@ -895,6 +900,7 @@ export default function WeeklySchedulePage({
     return () => window.clearTimeout(handle);
   }, [
     locations,
+    locationsEnabled,
     rows,
     clinicians,
     assignmentMap,
@@ -912,6 +918,7 @@ export default function WeeklySchedulePage({
     if (hasLoaded && loadedUserId === currentUser.username) {
       const { state: normalized } = normalizeAppState({
         locations,
+        locationsEnabled,
         rows,
         clinicians,
         assignments: toAssignments(),
@@ -1023,6 +1030,22 @@ export default function WeeklySchedulePage({
     );
   };
 
+  const handleToggleLocationsEnabled = () => {
+    setLocationsEnabled((prev) => {
+      const next = !prev;
+      if (!next) {
+        setRows((currentRows) =>
+          currentRows.map((row) =>
+            row.kind === "class" && row.locationId !== DEFAULT_LOCATION_ID
+              ? { ...row, locationId: DEFAULT_LOCATION_ID }
+              : row,
+          ),
+        );
+      }
+      return next;
+    });
+  };
+
   const handleRenameSubShift = (
     rowId: string,
     subShiftId: string,
@@ -1041,19 +1064,55 @@ export default function WeeklySchedulePage({
     );
   };
 
-  const handleUpdateSubShiftHours = (
+  const handleUpdateSubShiftStartTime = (
     rowId: string,
     subShiftId: string,
-    nextHours: number,
+    nextStartTime: string,
   ) => {
-    const safeHours = Number.isFinite(nextHours) ? Math.max(0, nextHours) : 0;
     setRows((prev) =>
       prev.map((row) => {
         if (row.id !== rowId || row.kind !== "class") return row;
         return {
           ...row,
           subShifts: (row.subShifts ?? []).map((shift) =>
-            shift.id === subShiftId ? { ...shift, hours: safeHours } : shift,
+            shift.id === subShiftId ? { ...shift, startTime: nextStartTime } : shift,
+          ),
+        };
+      }),
+    );
+  };
+
+  const handleUpdateSubShiftEndTime = (
+    rowId: string,
+    subShiftId: string,
+    nextEndTime: string,
+  ) => {
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.id !== rowId || row.kind !== "class") return row;
+        return {
+          ...row,
+          subShifts: (row.subShifts ?? []).map((shift) =>
+            shift.id === subShiftId ? { ...shift, endTime: nextEndTime } : shift,
+          ),
+        };
+      }),
+    );
+  };
+
+  const handleUpdateSubShiftEndDayOffset = (
+    rowId: string,
+    subShiftId: string,
+    nextOffset: number,
+  ) => {
+    const safeOffset = Math.min(3, Math.max(0, Math.floor(nextOffset)));
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.id !== rowId || row.kind !== "class") return row;
+        return {
+          ...row,
+          subShifts: (row.subShifts ?? []).map((shift) =>
+            shift.id === subShiftId ? { ...shift, endDayOffset: safeOffset } : shift,
           ),
         };
       }),
@@ -1064,18 +1123,47 @@ export default function WeeklySchedulePage({
     const row = classRows.find((item) => item.id === rowId);
     if (!row) return;
     const currentShifts = normalizeSubShifts(row.subShifts);
+    const usedShiftIds = new Set(currentShifts.map((shift) => shift.id));
     const clampedCount = Math.min(3, Math.max(1, Math.floor(nextCount)));
     if (currentShifts.length === clampedCount) return;
+
+    const parseTime = (value: string | undefined) => {
+      if (!value) return null;
+      const match = value.match(/^(\d{1,2}):(\d{2})$/);
+      if (!match) return null;
+      const hours = Number(match[1]);
+      const minutes = Number(match[2]);
+      if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+      if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+      return hours * 60 + minutes;
+    };
+    const formatTime = (totalMinutes: number) => {
+      const clamped = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+      const hours = Math.floor(clamped / 60);
+      const minutes = clamped % 60;
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    };
+    const getDefaultStart = (order: number) => 8 * 60 + (order - 1) * 8 * 60;
 
     const nextShifts = Array.from({ length: clampedCount }, (_, index) => {
       const order = (index + 1) as 1 | 2 | 3;
       const existing = currentShifts.find((shift) => shift.order === order);
       if (existing) return existing;
+      const id = getAvailableSubShiftId(usedShiftIds, order);
+      usedShiftIds.add(id);
+      const prev = currentShifts.find((shift) => shift.order === order - 1);
+      const startMinutes =
+        (prev && parseTime(prev.endTime)) ??
+        parseTime(prev?.startTime) ??
+        getDefaultStart(order);
+      const endMinutes = startMinutes + 8 * 60;
       return {
-        id: `s${order}`,
+        id,
         name: `Shift ${order}`,
         order,
-        hours: 8,
+        startTime: formatTime(startMinutes),
+        endTime: formatTime(endMinutes),
+        endDayOffset: 0,
       };
     });
 
@@ -1136,6 +1224,79 @@ export default function WeeklySchedulePage({
         const [keyRowId, keyDate] = key.split("__");
         if (!keyRowId || !keyDate) continue;
         if (!removedShiftRowIds.includes(keyRowId)) continue;
+        const fallbackKey = `${fallbackShiftRowId}__${keyDate}`;
+        next[fallbackKey] = (next[fallbackKey] ?? 0) + (next[key] ?? 0);
+        delete next[key];
+      }
+      return next;
+    });
+  };
+
+  const handleRemoveSubShift = (rowId: string, subShiftId: string) => {
+    const row = classRows.find((item) => item.id === rowId);
+    if (!row) return;
+    const currentShifts = normalizeSubShifts(row.subShifts);
+    if (currentShifts.length <= 1) return;
+    const remaining = currentShifts.filter((shift) => shift.id !== subShiftId);
+    if (remaining.length === currentShifts.length || remaining.length === 0) return;
+
+    const nextShifts = remaining
+      .sort((a, b) => a.order - b.order)
+      .map((shift, index) => ({
+        ...shift,
+        order: (index + 1) as 1 | 2 | 3,
+      }));
+
+    const removedShiftRowId = buildShiftRowId(rowId, subShiftId);
+    const fallbackShiftId = nextShifts[nextShifts.length - 1]?.id ?? "s1";
+    const fallbackShiftRowId = buildShiftRowId(rowId, fallbackShiftId);
+
+    setRows((prev) =>
+      prev.map((item) =>
+        item.id === rowId && item.kind === "class"
+          ? { ...item, subShifts: nextShifts }
+          : item,
+      ),
+    );
+
+    setAssignmentMap((prev) => {
+      const next = new Map<string, Assignment[]>();
+      for (const [key, list] of prev.entries()) {
+        const [keyRowId, keyDate] = key.split("__");
+        if (!keyRowId || !keyDate) continue;
+        if (keyRowId !== removedShiftRowId) {
+          next.set(key, list);
+          continue;
+        }
+        const moved = list.map((assignment) => ({
+          ...assignment,
+          rowId: fallbackShiftRowId,
+        }));
+        const fallbackKey = `${fallbackShiftRowId}__${keyDate}`;
+        const existing = next.get(fallbackKey) ?? [];
+        next.set(fallbackKey, [...existing, ...moved]);
+      }
+      return next;
+    });
+
+    setMinSlotsByRowId((prev) => {
+      const next = { ...prev };
+      delete next[removedShiftRowId];
+      for (const shift of nextShifts) {
+        const shiftRowId = buildShiftRowId(rowId, shift.id);
+        if (!next[shiftRowId]) {
+          next[shiftRowId] = { weekday: 0, weekend: 0 };
+        }
+      }
+      return next;
+    });
+
+    setSlotOverridesByKey((prev) => {
+      const next: Record<string, number> = { ...prev };
+      for (const key of Object.keys(prev)) {
+        const [keyRowId, keyDate] = key.split("__");
+        if (!keyRowId || !keyDate) continue;
+        if (keyRowId !== removedShiftRowId) continue;
         const fallbackKey = `${fallbackShiftRowId}__${keyDate}`;
         next[fallbackKey] = (next[fallbackKey] ?? 0) + (next[key] ?? 0);
         delete next[key];
@@ -1272,11 +1433,6 @@ export default function WeeklySchedulePage({
       <TopBar
         viewMode={viewMode}
         onSetViewMode={setViewMode}
-        onOpenExport={() => {
-          setPdfError(null);
-          setPdfProgress(null);
-          openExportModal();
-        }}
         username={currentUser.username}
         onLogout={handleLogout}
         theme={theme}
@@ -1465,15 +1621,43 @@ export default function WeeklySchedulePage({
             }}
           />
           <div className="mx-auto w-full max-w-7xl px-4 pb-8 sm:px-6 sm:pb-10">
-            <AutomatedPlanningPanel
-              weekStartISO={toISODate(weekStart)}
-              weekEndISO={toISODate(weekEndInclusive)}
-              isRunning={autoPlanRunning}
-              progress={autoPlanProgress}
-              error={autoPlanError}
-              onRun={handleRunAutomatedPlanning}
-              onReset={handleResetAutomatedRange}
-            />
+            <div className="flex w-full flex-col gap-6 lg:flex-row lg:items-start">
+              <AutomatedPlanningPanel
+                weekStartISO={toISODate(weekStart)}
+                weekEndISO={toISODate(weekEndInclusive)}
+                isRunning={autoPlanRunning}
+                progress={autoPlanProgress}
+                error={autoPlanError}
+                onRun={handleRunAutomatedPlanning}
+                onReset={handleResetAutomatedRange}
+              />
+              <div className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:max-w-sm sm:px-6">
+                <div className="flex flex-col gap-4">
+                  <div className="-mt-7 inline-flex self-start rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-normal text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    Export
+                  </div>
+                  <div className="text-sm text-slate-600 dark:text-slate-300">
+                    Download PDFs, iCal feeds, or shareable web links for published weeks.
+                  </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPdfError(null);
+                    setPdfProgress(null);
+                    openExportModal();
+                  }}
+                  className={cx(
+                    "rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-normal text-slate-900 shadow-sm",
+                    "hover:bg-slate-50 active:bg-slate-100",
+                    "disabled:cursor-not-allowed disabled:opacity-70",
+                    "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+                  )}
+                >
+                    Open Export
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </>
       ) : viewMode === "settings" ? (
@@ -1482,6 +1666,7 @@ export default function WeeklySchedulePage({
             classRows={classRows}
             poolRows={poolRows}
             locations={locations}
+            locationsEnabled={locationsEnabled}
             minSlotsByRowId={minSlotsByRowId}
             clinicians={clinicians}
             holidays={holidays}
@@ -1555,11 +1740,20 @@ export default function WeeklySchedulePage({
                   ...classRows,
                   {
                     id,
-                    name: "New Class",
+                    name: "New Section",
                     kind: "class",
                     dotColorClass: color,
                     locationId: DEFAULT_LOCATION_ID,
-                    subShifts: [{ id: "s1", name: "Shift 1", order: 1, hours: 8 }],
+                    subShifts: [
+                      {
+                        id: "s1",
+                        name: "Shift 1",
+                        order: 1,
+                        startTime: "08:00",
+                        endTime: "16:00",
+                        endDayOffset: 0,
+                      },
+                    ],
                   },
                   ...poolRows,
                 ];
@@ -1585,7 +1779,10 @@ export default function WeeklySchedulePage({
             onChangeClassLocation={handleChangeClassLocation}
             onSetSubShiftCount={handleSetSubShiftCount}
             onRenameSubShift={handleRenameSubShift}
-            onUpdateSubShiftHours={handleUpdateSubShiftHours}
+            onRemoveSubShift={handleRemoveSubShift}
+            onUpdateSubShiftStartTime={handleUpdateSubShiftStartTime}
+            onUpdateSubShiftEndTime={handleUpdateSubShiftEndTime}
+            onUpdateSubShiftEndDayOffset={handleUpdateSubShiftEndDayOffset}
             onRenamePool={(rowId, nextName) => {
               setRows((prev) =>
                 prev.map((row) =>
@@ -1596,7 +1793,8 @@ export default function WeeklySchedulePage({
             onAddLocation={handleAddLocation}
             onRenameLocation={handleRenameLocation}
             onRemoveLocation={handleRemoveLocation}
-            onAddClinician={(name) => {
+            onToggleLocationsEnabled={handleToggleLocationsEnabled}
+            onAddClinician={(name, workingHoursPerWeek) => {
               const slug = name
                 .toLowerCase()
                 .replace(/[^a-z0-9]+/g, "-")
@@ -1610,6 +1808,7 @@ export default function WeeklySchedulePage({
                   qualifiedClassIds: [],
                   preferredClassIds: [],
                   vacations: [],
+                  workingHoursPerWeek,
                 },
               ]);
             }}
@@ -1656,6 +1855,15 @@ export default function WeeklySchedulePage({
         onAddVacation={handleAddVacation}
         onUpdateVacation={handleUpdateVacation}
         onRemoveVacation={handleRemoveVacation}
+        onUpdateWorkingHours={(clinicianId, workingHoursPerWeek) => {
+          setClinicians((prev) =>
+            prev.map((clinician) =>
+              clinician.id === clinicianId
+                ? { ...clinician, workingHoursPerWeek }
+                : clinician,
+            ),
+          );
+        }}
       />
 
       <IcalExportModal
