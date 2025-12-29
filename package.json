@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty false",
-    "check:tailwind": "node scripts/check-tailwind-conflicts.mjs"
+    "check:tailwind": "node scripts/check-tailwind-conflicts.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=mac15-arm64 playwright test"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -18,10 +21,16 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@playwright/test": "^1.49.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.0.1",
+    "@testing-library/user-event": "^14.5.2",
     "autoprefixer": "^10.4.20",
+    "jsdom": "^25.0.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
   }
 }

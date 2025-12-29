@@ -119,6 +119,15 @@ Solver Settings
 - Violations include: rest-day conflicts, multiple shifts per day (when disabled), same-day location mismatches (when enforced), and overlapping shift times.
 - Automated planning runs the week solver over the selected date range in one call and shows an ETA based on the last run's per-day duration.
 
+Testing
+- Frontend unit/component tests: Vitest + Testing Library (`npm run test` runs `src/**/*.test.{ts,tsx}` only).
+- Backend tests: pytest (dev deps in `backend/requirements-dev.txt`), run `python3 -m pytest backend/tests`.
+- E2E tests: Playwright specs in `e2e/` (`npm run test:e2e`).
+  - Uses API login and seeds `localStorage.authToken`.
+  - Resets state before each test and restores original state after the suite.
+  - Env: `E2E_USERNAME`, `E2E_PASSWORD`, `PLAYWRIGHT_API_URL`, `PLAYWRIGHT_BASE_URL`.
+  - `test:e2e` script includes `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=mac15-arm64` for Apple Silicon.
+
 Vacation Overview
 - Open via the Vacation Planner panel in the main schedule view.
 - Full-screen year grid: clinicians as rows, day numbers across the year, month headers span their days.
@@ -550,6 +559,9 @@ Backend
 - If login fails and you need a forced reset, set `ADMIN_PASSWORD_RESET=true` in `.env` and restart backend, then remove/disable it after login works.
 - iCal subscription endpoints require `/api` proxying in the frontend nginx config; otherwise `/api/v1/ical/*.ics` returns HTML and Apple Calendar rejects it.
 - Domain stack uses Caddy on ports 80/443; stop the IP-only stack first to avoid port conflicts.
+- After deploy, always verify:
+  - `curl -s -o /dev/null -w "%{http_code}" https://shiftplanner.wunderwerk.ai` (expect 200)
+  - `curl -s -o /dev/null -w "%{http_code}" https://shiftplanner.wunderwerk.ai/api/health` (expect 200)
 
 ## 13) IP-only Deployment (optional)
 - Stack: `docker compose -f docker-compose.ip.yml up -d --build`

@@ -48,10 +48,14 @@ export default function LoginPage({ onLogin, theme, onToggleTheme }: LoginPagePr
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
-              <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              <label
+                htmlFor="login-username"
+                className="text-sm font-semibold text-slate-700 dark:text-slate-200"
+              >
                 Username
               </label>
               <input
+                id="login-username"
                 type="text"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
@@ -64,11 +68,15 @@ export default function LoginPage({ onLogin, theme, onToggleTheme }: LoginPagePr
               />
             </div>
             <div>
-              <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              <label
+                htmlFor="login-password"
+                className="text-sm font-semibold text-slate-700 dark:text-slate-200"
+              >
                 Password
               </label>
               <div className="relative mt-2">
                 <input
+                  id="login-password"
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}

@@ -7,6 +7,9 @@ schedule.db
 frontend.dev.out
 backend/logs/
 *.tsbuildinfo
+playwright-report/
+test-results/
+.playwright/
 .env
 .env.*
 !.env.example

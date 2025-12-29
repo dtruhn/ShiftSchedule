@@ -2166,7 +2166,7 @@ export default function WeeklySchedulePage({
                 [buildShiftRowId(id, "s1")]: { weekday: 1, weekend: 1 },
               }));
             }}
-            onReorderClass={(fromId, toId) => {
+            onReorderClass={(fromId, toId, position = "above") => {
               setRows((prev) => {
                 const classRows = prev.filter((row) => row.kind === "class");
                 const poolRows = prev.filter((row) => row.kind === "pool");
@@ -2175,7 +2175,10 @@ export default function WeeklySchedulePage({
                 if (fromIndex === -1 || toIndex === -1) return prev;
                 const nextClasses = [...classRows];
                 const [moved] = nextClasses.splice(fromIndex, 1);
-                nextClasses.splice(toIndex, 0, moved);
+                let insertIndex = toIndex + (position === "below" ? 1 : 0);
+                if (insertIndex > nextClasses.length) insertIndex = nextClasses.length;
+                if (fromIndex < insertIndex) insertIndex -= 1;
+                nextClasses.splice(insertIndex, 0, moved);
                 return [...nextClasses, ...poolRows];
               });
             }}

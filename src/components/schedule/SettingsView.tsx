@@ -27,7 +27,11 @@ type SettingsViewProps = {
   onRenameClass: (rowId: string, nextName: string) => void;
   onRemoveClass: (rowId: string) => void;
   onAddClass: () => void;
-  onReorderClass: (fromId: string, toId: string) => void;
+  onReorderClass: (
+    fromId: string,
+    toId: string,
+    position?: "above" | "below",
+  ) => void;
   onChangeClassLocation: (rowId: string, locationId: string) => void;
   onSetSubShiftCount: (rowId: string, nextCount: number) => void;
   onRenameSubShift: (rowId: string, subShiftId: string, nextName: string) => void;
@@ -103,6 +107,9 @@ export default function SettingsView({
 }: SettingsViewProps) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [dragOverPosition, setDragOverPosition] = useState<"above" | "below" | null>(
+    null,
+  );
   const [newLocationName, setNewLocationName] = useState("");
   const [locationError, setLocationError] = useState<string | null>(null);
   const [newClinicianName, setNewClinicianName] = useState("");
@@ -404,46 +411,65 @@ export default function SettingsView({
       </div>
 
       <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                Sections and Shifts
-              </div>
-              <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                Set section order, shift details, and required staffing.
-              </div>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
+              Sections and Shifts
+            </div>
+            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+              Set section order, shift details, and required staffing.
             </div>
           </div>
-          <div className="mt-4 space-y-4">
-            {classRows.map((row, index) => {
-              const subShifts = normalizeSubShifts(row.subShifts);
-              const subShiftCount = subShifts.length;
-              return (
+        </div>
+        <div className="mt-4 space-y-4">
+          {classRows.map((row, index) => {
+            const subShifts = normalizeSubShifts(row.subShifts);
+            const subShiftCount = subShifts.length;
+            if (draggingId === row.id) {
+              return null;
+            }
+            const showDropAbove =
+              dragOverId === row.id && dragOverPosition === "above";
+            const showDropBelow =
+              dragOverId === row.id && dragOverPosition === "below";
+            return (
+              <div key={row.id}>
+                {showDropAbove ? (
+                  <div className="mx-4 my-1 h-0.5 rounded-full bg-sky-400/80 dark:bg-sky-300/70" />
+                ) : null}
                 <div
-                  key={row.id}
+                  data-section-panel="true"
                   className={cx(
                     "rounded-2xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/60",
-                    dragOverId === row.id && "border-sky-200 bg-sky-50 dark:bg-sky-950/40",
+                    dragOverId === row.id &&
+                      "border-sky-200 bg-sky-50 dark:bg-sky-950/40",
                   )}
                   onDragOver={(event) => {
                     if (!draggingId) return;
                     if (draggingId === row.id) return;
                     event.preventDefault();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const midpoint = rect.top + rect.height / 2;
+                    setDragOverPosition(event.clientY < midpoint ? "above" : "below");
                     setDragOverId(row.id);
                   }}
                   onDragLeave={() => {
                     setDragOverId((prev) => (prev === row.id ? null : prev));
+                    setDragOverPosition(null);
                   }}
                   onDrop={(event) => {
                     event.preventDefault();
-                    const fromId = draggingId || event.dataTransfer.getData("text/plain");
+                    const fromId =
+                      draggingId || event.dataTransfer.getData("text/plain");
                     if (!fromId || fromId === row.id) {
                       setDragOverId(null);
+                      setDragOverPosition(null);
                       return;
                     }
-                    onReorderClass(fromId, row.id);
+                    onReorderClass(fromId, row.id, dragOverPosition ?? "above");
                     setDraggingId(null);
                     setDragOverId(null);
+                    setDragOverPosition(null);
                   }}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-4">
@@ -457,11 +483,35 @@ export default function SettingsView({
                         onDragStart={(event) => {
                           event.dataTransfer.effectAllowed = "move";
                           event.dataTransfer.setData("text/plain", row.id);
+                          const panel = event.currentTarget.closest<HTMLElement>(
+                            '[data-section-panel="true"]',
+                          );
+                          if (panel) {
+                            const clone = panel.cloneNode(true) as HTMLElement;
+                            const rect = panel.getBoundingClientRect();
+                            const offsetX = Math.max(
+                              0,
+                              Math.round(event.clientX - rect.left),
+                            );
+                            const offsetY = Math.max(
+                              0,
+                              Math.round(event.clientY - rect.top),
+                            );
+                            clone.style.position = "absolute";
+                            clone.style.top = "-9999px";
+                            clone.style.left = "-9999px";
+                            clone.style.pointerEvents = "none";
+                            clone.style.width = `${panel.offsetWidth}px`;
+                            document.body.appendChild(clone);
+                            event.dataTransfer.setDragImage(clone, offsetX, offsetY);
+                            window.setTimeout(() => clone.remove(), 0);
+                          }
                           setDraggingId(row.id);
                         }}
                         onDragEnd={() => {
                           setDraggingId(null);
                           setDragOverId(null);
+                          setDragOverPosition(null);
                         }}
                         className="cursor-grab rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                         aria-label={`Reorder ${row.name}`}
@@ -480,7 +530,9 @@ export default function SettingsView({
                       {locationsEnabled ? (
                         <select
                           value={row.locationId ?? DEFAULT_LOCATION_ID}
-                          onChange={(event) => onChangeClassLocation(row.id, event.target.value)}
+                          onChange={(event) =>
+                            onChangeClassLocation(row.id, event.target.value)
+                          }
                           className={cx(
                             "h-9 rounded-xl border border-slate-200 px-3 text-sm font-normal text-slate-700",
                             "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
@@ -511,27 +563,27 @@ export default function SettingsView({
                   </div>
 
                   <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
-                  <div className="grid grid-cols-[auto_2fr_1fr_1fr_1fr_1fr_auto] gap-3 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-                    <div>Shift</div>
-                    <div>Name</div>
-                    <div>Start</div>
-                    <div>End</div>
-                    <div>Min Slots (Weekday)</div>
-                    <div>Min Slots (Weekend)</div>
-                    <div />
-                  </div>
-                  <div className="divide-y divide-slate-200 dark:divide-slate-800">
-                    {subShifts.map((shift) => {
-                      const shiftRowId = buildShiftRowId(row.id, shift.id);
-                      return (
-                        <div
-                          key={shift.id}
-                          className="grid grid-cols-[auto_2fr_1fr_1fr_1fr_1fr_auto] items-center gap-3 px-4 py-3 text-sm dark:bg-slate-900/70"
-                        >
-                          <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                            {shift.order}
-                          </div>
-                          <input
+                    <div className="grid grid-cols-[auto_2fr_1fr_1fr_1fr_1fr_auto] gap-3 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                      <div>Shift</div>
+                      <div>Name</div>
+                      <div>Start</div>
+                      <div>End</div>
+                      <div>Min Slots (Weekday)</div>
+                      <div>Min Slots (Weekend)</div>
+                      <div />
+                    </div>
+                    <div className="divide-y divide-slate-200 dark:divide-slate-800">
+                      {subShifts.map((shift) => {
+                        const shiftRowId = buildShiftRowId(row.id, shift.id);
+                        return (
+                          <div
+                            key={shift.id}
+                            className="grid grid-cols-[auto_2fr_1fr_1fr_1fr_1fr_auto] items-center gap-3 px-4 py-3 text-sm dark:bg-slate-900/70"
+                          >
+                            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                              {shift.order}
+                            </div>
+                            <input
                               type="text"
                               value={shift.name}
                               onChange={(event) =>
@@ -540,66 +592,31 @@ export default function SettingsView({
                               className={cx(
                                 "w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
                                 "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
-                            )}
-                          />
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="HH:MM"
-                            value={
-                              shiftTimeDrafts[makeShiftKey(row.id, shift.id, "start")] ??
-                              shift.startTime
-                            }
-                            onChange={(event) => {
-                              const key = makeShiftKey(row.id, shift.id, "start");
-                              setShiftTimeDrafts((prev) => ({
-                                ...prev,
-                                [key]: event.target.value,
-                              }));
-                            }}
-                            onBlur={() => {
-                              const key = makeShiftKey(row.id, shift.id, "start");
-                              const next = shiftTimeDrafts[key];
-                              if (next === undefined) return;
-                              const normalized = normalizeTimeInput(next);
-                              if (normalized) {
-                                onUpdateSubShiftStartTime(row.id, shift.id, normalized);
-                              }
-                              setShiftTimeDrafts((prev) => {
-                                const { [key]: _unused, ...rest } = prev;
-                                return rest;
-                              });
-                            }}
-                            className={cx(
-                              "w-24 rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
-                              "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
-                              isInvalidTimeDraft(row.id, shift.id, "start") &&
-                                "border-rose-300 text-rose-700 focus:border-rose-400 dark:border-rose-500/60 dark:text-rose-200",
-                            )}
-                          />
-                          <div className="relative w-24">
+                              )}
+                            />
                             <input
                               type="text"
                               inputMode="numeric"
                               placeholder="HH:MM"
                               value={
-                                shiftTimeDrafts[makeShiftKey(row.id, shift.id, "end")] ??
-                                shift.endTime
+                                shiftTimeDrafts[
+                                  makeShiftKey(row.id, shift.id, "start")
+                                ] ?? shift.startTime
                               }
                               onChange={(event) => {
-                                const key = makeShiftKey(row.id, shift.id, "end");
+                                const key = makeShiftKey(row.id, shift.id, "start");
                                 setShiftTimeDrafts((prev) => ({
                                   ...prev,
                                   [key]: event.target.value,
                                 }));
                               }}
                               onBlur={() => {
-                                const key = makeShiftKey(row.id, shift.id, "end");
+                                const key = makeShiftKey(row.id, shift.id, "start");
                                 const next = shiftTimeDrafts[key];
                                 if (next === undefined) return;
                                 const normalized = normalizeTimeInput(next);
                                 if (normalized) {
-                                  onUpdateSubShiftEndTime(row.id, shift.id, normalized);
+                                  onUpdateSubShiftStartTime(row.id, shift.id, normalized);
                                 }
                                 setShiftTimeDrafts((prev) => {
                                   const { [key]: _unused, ...rest } = prev;
@@ -609,27 +626,64 @@ export default function SettingsView({
                               className={cx(
                                 "w-24 rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
                                 "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
-                                isInvalidTimeDraft(row.id, shift.id, "end") &&
+                                isInvalidTimeDraft(row.id, shift.id, "start") &&
                                   "border-rose-300 text-rose-700 focus:border-rose-400 dark:border-rose-500/60 dark:text-rose-200",
                               )}
                             />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const current = shift.endDayOffset ?? 0;
-                                const next = (current + 1) % 4;
-                                onUpdateSubShiftEndDayOffset(row.id, shift.id, next);
-                              }}
-                              className={cx(
-                                "absolute left-2 top-full -mt-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400",
-                                "hover:text-slate-600",
-                                "dark:text-slate-500 dark:hover:text-slate-300",
-                              )}
-                            >
-                              +{shift.endDayOffset ?? 0}{" "}
-                              {(shift.endDayOffset ?? 0) <= 1 ? "day" : "days"}
-                            </button>
-                          </div>
+                            <div className="relative w-24">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                placeholder="HH:MM"
+                                value={
+                                  shiftTimeDrafts[
+                                    makeShiftKey(row.id, shift.id, "end")
+                                  ] ?? shift.endTime
+                                }
+                                onChange={(event) => {
+                                  const key = makeShiftKey(row.id, shift.id, "end");
+                                  setShiftTimeDrafts((prev) => ({
+                                    ...prev,
+                                    [key]: event.target.value,
+                                  }));
+                                }}
+                                onBlur={() => {
+                                  const key = makeShiftKey(row.id, shift.id, "end");
+                                  const next = shiftTimeDrafts[key];
+                                  if (next === undefined) return;
+                                  const normalized = normalizeTimeInput(next);
+                                  if (normalized) {
+                                    onUpdateSubShiftEndTime(row.id, shift.id, normalized);
+                                  }
+                                  setShiftTimeDrafts((prev) => {
+                                    const { [key]: _unused, ...rest } = prev;
+                                    return rest;
+                                  });
+                                }}
+                                className={cx(
+                                  "w-24 rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
+                                  "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
+                                  isInvalidTimeDraft(row.id, shift.id, "end") &&
+                                    "border-rose-300 text-rose-700 focus:border-rose-400 dark:border-rose-500/60 dark:text-rose-200",
+                                )}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const current = shift.endDayOffset ?? 0;
+                                  const next = (current + 1) % 4;
+                                  onUpdateSubShiftEndDayOffset(row.id, shift.id, next);
+                                }}
+                                className={cx(
+                                  "absolute left-2 top-full -mt-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400",
+                                  "hover:text-slate-600",
+                                  "dark:text-slate-500 dark:hover:text-slate-300",
+                                )}
+                              >
+                                +{shift.endDayOffset ?? 0}{" "}
+                                {(shift.endDayOffset ?? 0) <= 1 ? "day" : "days"}
+                              </button>
+                            </div>
                             <input
                               type="number"
                               min={0}
@@ -682,40 +736,44 @@ export default function SettingsView({
                         );
                       })}
                     </div>
-                  </div>
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => onSetSubShiftCount(row.id, subShiftCount + 1)}
-                      disabled={subShiftCount >= 3}
-                      className={cx(
-                        "w-full rounded-xl border border-dashed border-slate-300 bg-slate-50/80 px-3 py-2 text-xs font-semibold text-slate-700",
-                        "hover:bg-slate-100 active:bg-slate-200/60",
-                        "disabled:cursor-not-allowed disabled:opacity-50",
-                        "dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-100 dark:hover:bg-slate-800",
-                      )}
-                    >
-                      Add Shift
-                    </button>
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => onSetSubShiftCount(row.id, subShiftCount + 1)}
+                        disabled={subShiftCount >= 3}
+                        className={cx(
+                          "w-full rounded-xl border border-dashed border-slate-300 bg-slate-50/80 px-3 py-2 text-xs font-semibold text-slate-700",
+                          "hover:bg-slate-100 active:bg-slate-200/60",
+                          "disabled:cursor-not-allowed disabled:opacity-50",
+                          "dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-100 dark:hover:bg-slate-800",
+                        )}
+                      >
+                        Add Shift
+                      </button>
+                    </div>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={onAddClass}
-              className={cx(
-                "w-full rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 px-4 py-3 text-sm font-semibold text-slate-700",
-                "hover:bg-slate-100 active:bg-slate-200/60",
-                "dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-100 dark:hover:bg-slate-800",
-              )}
-            >
-              Add Section
-            </button>
-          </div>
+                {showDropBelow ? (
+                  <div className="mx-4 my-1 h-0.5 rounded-full bg-sky-400/80 dark:bg-sky-300/70" />
+                ) : null}
+              </div>
+            );
+          })}
         </div>
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={onAddClass}
+            className={cx(
+              "w-full rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 px-4 py-3 text-sm font-semibold text-slate-700",
+              "hover:bg-slate-100 active:bg-slate-200/60",
+              "dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-100 dark:hover:bg-slate-800",
+            )}
+          >
+            Add Section
+          </button>
+        </div>
+      </div>
 
       <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
           <div className="text-base font-semibold text-slate-900 dark:text-slate-100">Pools</div>

@@ -260,6 +260,7 @@ export default function ScheduleGrid({
                         row={row}
                         weekDays={weekDays}
                         assignmentMap={assignmentMap}
+                        solverSettings={solverSettings}
                         getClinicianName={getClinicianName}
                         getIsQualified={getIsQualified}
                         getHasEligibleClasses={getHasEligibleClasses}
@@ -300,6 +301,7 @@ function RowSection({
   row,
   weekDays,
   assignmentMap,
+  solverSettings,
   getClinicianName,
   getIsQualified,
   getHasEligibleClasses,
@@ -326,6 +328,7 @@ function RowSection({
   row: ScheduleRow;
   weekDays: Date[];
   assignmentMap: Map<string, RenderedAssignment[]>;
+  solverSettings?: SolverSettings;
   getClinicianName: (clinicianId: string) => string;
   getIsQualified: (clinicianId: string, rowId: string) => boolean;
   getHasEligibleClasses: (clinicianId: string) => boolean;
@@ -563,9 +566,12 @@ function RowSection({
                       !!dragState.dragging &&
                       dragState.dragging.dateISO === dateISO &&
                       dragState.dragging.clinicianId === assignment.clinicianId;
-                    const timeLabel = row.kind === "class" ? rowTimeLabel : undefined;
+                    const showTime =
+                      solverSettings?.allowMultipleShiftsPerDay !== false;
+                    const timeLabel =
+                      showTime && row.kind === "class" ? rowTimeLabel : undefined;
                     const timeSegments =
-                      row.id === "pool-not-allocated"
+                      showTime && row.id === "pool-not-allocated"
                         ? assignment.availabilitySegments
                         : undefined;
                     const violationKey = `${assignment.rowId}__${assignment.dateISO}__${assignment.clinicianId}`;
