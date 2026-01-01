@@ -1,6 +1,7 @@
 import { addDays, toISODate } from "./date";
+import { getDayType } from "./dayTypes";
 import type { SolverSettings } from "../api/client";
-import type { Assignment, Clinician } from "../data/mockData";
+import type { Assignment, Clinician } from "../api/client";
 import type { ScheduleRow } from "./shiftRows";
 
 export const FREE_POOL_ID = "pool-not-allocated";
@@ -42,13 +43,13 @@ export function formatTimeRangeLabel(start: number, end: number): string {
 
 export function buildShiftInterval(row: ScheduleRow): TimeRange | null {
   if (row.kind !== "class") return null;
-  const start = parseTimeToMinutes(row.subShiftStartTime);
+  const start = parseTimeToMinutes(row.startTime);
   if (start === null) return null;
-  const endBase = parseTimeToMinutes(row.subShiftEndTime);
+  const endBase = parseTimeToMinutes(row.endTime);
   if (endBase === null) return null;
   const offset =
-    typeof row.subShiftEndDayOffset === "number" && Number.isFinite(row.subShiftEndDayOffset)
-      ? Math.max(0, Math.min(3, Math.floor(row.subShiftEndDayOffset)))
+    typeof row.endDayOffset === "number" && Number.isFinite(row.endDayOffset)
+      ? Math.max(0, Math.min(3, Math.floor(row.endDayOffset)))
       : 0;
   const end = endBase + offset * MINUTES_IN_DAY;
   if (end <= start) return null;
@@ -124,9 +125,11 @@ export function buildRenderedAssignmentMap(
   options?: {
     scheduleRows?: ScheduleRow[];
     solverSettings?: SolverSettings;
+    holidayDates?: Set<string>;
   },
 ) {
   const scheduleRows = options?.scheduleRows ?? [];
+  const holidayDates = options?.holidayDates;
   const solverSettings = options?.solverSettings ?? {
     allowMultipleShiftsPerDay: false,
     enforceSameLocationPerDay: false,
@@ -137,10 +140,10 @@ export function buildRenderedAssignmentMap(
   };
   const displayDateSet = new Set(displayDays.map((date) => toISODate(date)));
   const rowKindById = new Map(scheduleRows.map((row) => [row.id, row.kind]));
-  const shiftParentById = new Map(
+  const sectionByRowId = new Map(
     scheduleRows
       .filter((row) => row.kind === "class")
-      .map((row) => [row.id, row.parentId ?? row.id]),
+      .map((row) => [row.id, row.sectionId ?? row.id]),
   );
   const hasManualPoolRow = scheduleRows.some((row) => row.id === MANUAL_POOL_ID);
   const hasRestDayPoolRow = scheduleRows.some((row) => row.id === REST_DAY_POOL_ID);
@@ -148,8 +151,8 @@ export function buildRenderedAssignmentMap(
   const restDaysBefore = Math.max(0, solverSettings.onCallRestDaysBefore ?? 0);
   const restDaysAfter = Math.max(0, solverSettings.onCallRestDaysAfter ?? 0);
   const onCallShiftRowIds = new Set(
-    Array.from(shiftParentById.entries())
-      .filter(([, parentId]) => parentId === onCallRestClassId)
+    Array.from(sectionByRowId.entries())
+      .filter(([, sectionId]) => sectionId === onCallRestClassId)
       .map(([rowId]) => rowId),
   );
   const shiftIntervalsByRowId = new Map<string, TimeRange>();
@@ -190,6 +193,7 @@ export function buildRenderedAssignmentMap(
   const assignedCliniciansByDate = new Map<string, Set<string>>();
   const unknownIntervalByDate = new Map<string, Set<string>>();
   const assignedShiftRowsByDate = new Map<string, Map<string, Set<string>>>();
+  const restDayAssignmentsByDate = new Map<string, Set<string>>();
   const poolCliniciansByKey = new Map<string, Set<string>>();
   const poolCliniciansByDate = new Map<string, Set<string>>();
 
@@ -213,6 +217,13 @@ export function buildRenderedAssignmentMap(
         poolCliniciansByDate.set(dateISO, dateSet);
       }
       poolCliniciansByKey.set(key, poolSet);
+      if (rowId === REST_DAY_POOL_ID) {
+        const restSet = restDayAssignmentsByDate.get(dateISO) ?? new Set<string>();
+        for (const item of filtered) {
+          restSet.add(item.clinicianId);
+        }
+        restDayAssignmentsByDate.set(dateISO, restSet);
+      }
     }
 
     if (rowKind !== "class") continue;
@@ -285,6 +296,11 @@ export function buildRenderedAssignmentMap(
   }
 
   const offByDate = new Map<string, Set<string>>();
+  for (const [dateISO, cliniciansOff] of restDayAssignmentsByDate.entries()) {
+    const offSet = offByDate.get(dateISO) ?? new Set<string>();
+    cliniciansOff.forEach((clinicianId) => offSet.add(clinicianId));
+    offByDate.set(dateISO, offSet);
+  }
   if (
     solverSettings.onCallRestEnabled &&
     onCallShiftRowIds.size > 0 &&
@@ -316,8 +332,67 @@ export function buildRenderedAssignmentMap(
     }
   }
 
+  if (offByDate.size > 0) {
+    for (const [key, list] of next.entries()) {
+      const [rowId, dateISO] = key.split("__");
+      if (!rowId || !dateISO) continue;
+      const offSet = offByDate.get(dateISO);
+      if (!offSet || offSet.size === 0) continue;
+      if (rowId === REST_DAY_POOL_ID || rowId === VACATION_POOL_ID) continue;
+      const filtered = list.filter((item) => !offSet.has(item.clinicianId));
+      if (filtered.length === 0) {
+        next.delete(key);
+      } else if (filtered.length !== list.length) {
+        next.set(key, filtered);
+      }
+    }
+  }
+
+  const columnIntervalsByDayType = (() => {
+    const map = new Map<string, { interval: TimeRange | null; mixed: boolean }>();
+    for (const row of scheduleRows) {
+      if (row.kind !== "class") continue;
+      if (!row.dayType || !row.colBandOrder) continue;
+      const interval = shiftIntervalsByRowId.get(row.id);
+      if (!interval) continue;
+      const key = `${row.dayType}-${row.colBandOrder}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, { interval, mixed: false });
+        continue;
+      }
+      if (!existing.interval) continue;
+      if (
+        existing.interval.start !== interval.start ||
+        existing.interval.end !== interval.end
+      ) {
+        map.set(key, { interval: existing.interval, mixed: true });
+      }
+    }
+    return map;
+  })();
+
+  const getColumnIntervalsForDayType = (dayType: string) => {
+    const entries: Array<{ colOrder: number; interval: TimeRange }> = [];
+    let mixed = false;
+    for (const [key, meta] of columnIntervalsByDayType.entries()) {
+      const [keyDayType, keyColOrder] = key.split("-");
+      if (keyDayType !== dayType) continue;
+      const colOrder = Number(keyColOrder);
+      if (!Number.isFinite(colOrder)) continue;
+      if (meta.mixed || !meta.interval) {
+        mixed = true;
+      } else {
+        entries.push({ colOrder, interval: meta.interval });
+      }
+    }
+    entries.sort((a, b) => a.colOrder - b.colOrder);
+    return { intervals: entries.map((entry) => entry.interval), mixed };
+  };
+
   for (const date of displayDays) {
     const dateISO = toISODate(date);
+    const dayType = getDayType(dateISO, holidayDates);
     const assigned = assignedByDate.get(dateISO) ?? new Map();
     const assignedSet = assignedCliniciansByDate.get(dateISO) ?? new Set<string>();
     const unknownSet = unknownIntervalByDate.get(dateISO) ?? new Set<string>();
@@ -347,6 +422,21 @@ export function buildRenderedAssignmentMap(
             !hasFreeShift(clinicianAssignments ?? [], allShiftIntervals))
         ) {
           continue;
+        }
+        if (
+          solverSettings.allowMultipleShiftsPerDay &&
+          hasAssignments &&
+          !unknownSet.has(clinician.id)
+        ) {
+          const { intervals, mixed } = getColumnIntervalsForDayType(dayType);
+          if (!mixed && intervals.length > 0) {
+            const coversAll = intervals.every((interval) =>
+              (clinicianAssignments ?? []).some((assignedInterval) =>
+                intervalsOverlap(interval, assignedInterval),
+              ),
+            );
+            if (coversAll) continue;
+          }
         }
       }
 

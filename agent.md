@@ -4,6 +4,28 @@ This repo is a doctors/clinicians scheduling system with a React frontend and a 
 
 ---
 
+## Quick Start for New Agents
+Where to look first
+- UI logic + state: `src/pages/WeeklySchedulePage.tsx`
+- Grid rendering + drag/drop: `src/components/schedule/ScheduleGrid.tsx`
+- Shared calendar layout helpers (main/public/print): `src/lib/calendarView.ts`
+- Slot/template normalization + row building: `src/lib/shiftRows.ts`
+- Rendered assignment map + pool logic + overlaps: `src/lib/schedule.ts`
+- Backend normalization + persistence: `backend/state.py`, `backend/db.py`
+- Solver: `backend/solver.py`
+- E2E tests + diagnostics: `e2e/fixtures.ts`, `e2e/app.spec.ts`
+- API client: `src/api/client.ts`
+- Settings UI: `src/components/schedule/SettingsView.tsx`
+
+Where to verify behavior
+- UI rules, drag/drop, overlaps: `src/components/schedule/ScheduleGrid.tsx`, `src/lib/schedule.ts`
+- Template/slot migration: `src/lib/shiftRows.ts` and `backend/state.py`
+- Solver constraints: `backend/solver.py`
+- Public/published views: `src/pages/PublicWeekPage.tsx`, `backend/web.py`
+  - Public + print routes use the same calendar layout helpers as the main view (`src/lib/calendarView.ts`).
+
+---
+
 ## 1) Tech Stack
 Frontend
 - React 18 + TypeScript
@@ -32,6 +54,7 @@ Schedule card
 - Today is shown by circling the day number in the header.
 - Week starts Monday; weekend/holiday styling is header-only: weekend header light gray, holiday header light lavender; holiday name is a tiny purple label under the day.
 - Mobile: grid uses touch scrolling and slightly tighter paddings.
+- Calendar grid should not scroll vertically; it expands and the page scrolls. Horizontal scrolling remains.
 - Automated shift planning and Export are separate panels in the schedule view; Export panel opens the same modal as before.
 - Vacation Planner panel sits between Automated Shift Planning and Export; it opens the full-screen Vacation Overview.
 - Control row between section rows and pool rows with icon buttons:
@@ -40,18 +63,20 @@ Schedule card
 - Rule violations badge sits next to Open Slots only when violations exist; click to see details and highlight the related pills (red).
 
 Rows
-- Section rows (editable, reorderable priority): MRI, CT, Sonography, Conventional, On Call, etc.
-- Each section expands into 1-3 shift rows in the grid; the section name shows once, shift labels are indented, and the time range + location (if enabled) are right-aligned.
+- Sections are stored as class rows (MRI, CT, Sonography, On Call, etc.) and are selected inside template blocks (no separate section/shift panel).
+- Calendar view groups template slots by location + row band (one row per row band with at least one placed slot); row labels show the row label centered with the location name directly beneath it.
+- Per day, additional sub-columns appear for day columns that have slots; header shows `Col N` for extra columns, and pool rows render only in the first column per day.
 - Pool rows (editable names, not deletable): Distribution Pool (id: pool-not-allocated), Reserve Pool (id: pool-manual), Rest Day (id: pool-rest-day), Vacation (id: pool-vacation).
 - Pool rows appear below a separator line.
 - Row labels are uppercase, no colored dots, truncate around 20 characters (tighter on mobile).
 - Vacation row background stays the same gray even on weekends/holidays.
 
 Cells
+- Each active class cell shows a small panel with the section name and time at the top; open slots and assignments render inside that panel.
 - Multiple clinician pills per cell, sorted by surname.
-- Empty slots shown as gray dashed pills based on min slots; plus/minus badges are gray; label is not bold.
+- Empty slots shown as gray dashed pills based on the template required count per day type (fallback to legacy min slots); plus/minus badges are gray; label is not bold.
 - Drag and drop is same-day only; invalid drops (wrong day or outside the grid) snap back instantly.
-- Drag/drop does not block rule-violating placements (overlap, same-day location mix, multiple shifts); solver enforces rules but manual overrides are allowed and shown in red.
+- Drag/drop does not block rule-violating placements (same-day location mix, multiple shifts); solver enforces rules but manual overrides are allowed and shown in red. Overlap within the same day is blocked by drag/drop (uses time intervals).
 - Dragging into or out of Vacation updates the clinician vacation ranges.
 - Eligible target cells for a dragged clinician use a pale green background (consistent with the green "Open Slots" badge when count is 0).
 - Ineligible manual assignment is allowed, with a yellow warning icon.
@@ -63,7 +88,7 @@ Pills
 - Compact blue pill, normal font weight; eligible hover highlight uses green background + green border (no extra thickness).
 - Warning icons are small circular badges at top-right of the pill.
 - Drag preview uses the normal pill style (highlight removed).
-- Assignment pills show a tiny second line with the shift time range.
+- Assignment pills show only the name; time is shown in the section block header or the column header (when consistent).
 - Distribution Pool pills show only the remaining free time segments.
 - Rule-violation pills render in red automatically.
 - While dragging a clinician, all other pills for the same clinician on the same day turn darker blue with a black outline; the dragged pill uses the same style.
@@ -72,20 +97,27 @@ Pills
 ---
 
 ## 3) Settings
-Sections and Shifts
-- Reorder by drag handle to set priority.
-- Rename, remove, add.
-- Location selector per section (in the section header).
-- Sub-shifts per section: 1-3, named, ordered, with editable start/end times and end-day offset (+0–+3 days).
-- Time inputs accept HH:MM (24h) and show inline validation (red border) on invalid values.
-- Min slots split into weekday vs weekend/holiday per sub-shift.
-- Add Section button is full-width with dashed outline at the bottom of the panel.
-- Add Shift button is full-width with dashed outline under each section’s shifts.
+Section Blocks (Weekly Calendar Template)
+- Section blocks are just section names; time, end-day offset, and required slots are set per placed slot in the grid.
+- Add block by name; delete via the small x in the block list (no clone/gear).
+- Drag blocks into the grid or click an empty cell to add; placed blocks can be dragged to move.
+- Empty grid cells show "Drop a block or click to add a block."
+- Multiple shifts are represented by multiple blocks (no sub-shift editor).
+
+Weekly Calendar Template
+- Single calendar with locations stacked; day-type columns are shared across locations (Mon..Sun + Holiday).
+- Per-day columns: add columns for a specific day; delete via a hover-only "Delete Column" button at the top of the first row (confirm only if the column has slots; column outlines red on hover/confirm).
+- Row bands are simple rows with an editable row label in the left header cell; Add row is a full-width dashed button below each location; row delete confirms only if the row has slots.
+- Section blocks sidebar stays visible while scrolling the template grid (sticky on large screens).
+- Blocks live in `weeklyTemplate.blocks` and slots reference `blockId`.
+- Slots define time range, end-day offset, and required slots (single value); blocks carry only the section reference.
+- Holiday day type always overrides weekdays at runtime (no fallback).
+- Settings views that use section dropdowns (solver on-call rest, clinician eligible sections) are filtered to sections that exist as current template blocks.
 
 Locations
-- Add, rename, delete (delete blocked while referenced by any section).
-- Default location always exists (id: loc-default).
-- Toggle in panel header enables/disables locations; when disabled, all sections use Default and location labels are hidden.
+- Manage locations inside the calendar template (top-left "+ Location" button).
+- Location order uses a dropdown; names are edited inline.
+- Delete location (confirm) is allowed even for the default location; the next location becomes the new default (`loc-default`) and slot locationIds are updated.
 
 Pools
 - Rename pool rows (Distribution Pool, Reserve Pool, Rest Day, Vacation). No deletion.
@@ -97,12 +129,15 @@ Clinicians
 - Optional working hours per week field (contract hours).
 
 Clinician Editor (modal)
+- Panel order: Eligible Sections → Vacations → Preferred Working Times.
 - Eligible sections list is ordered. Drag to set priority (this order is also the preference list).
 - Add eligible sections via dropdown + Add button; remove via per-row Remove button.
 - Vacation management uses compact DD.MM.YYYY inputs with a dash between start and end.
 - Past vacations collapsed in a <details>.
 - Modal body is scrollable for long vacation lists.
-- Vacation section is shown before Eligible Sections.
+- Preferred working times persist per clinician as `preferredWorkingTimes` (mon..sun with startTime/endTime + requirement none/preference/mandatory).
+- Mandatory windows are hard solver constraints; preference windows add a small solver reward.
+- Week solver nudges total assigned minutes toward `workingHoursPerWeek` within the tolerance (manual assignments count toward totals).
 
 Holidays
 - Year selector with stepper buttons.
@@ -115,6 +150,8 @@ Holidays
 Solver Settings
 - Toggles: Allow multiple shifts per day; Enforce same location per day.
 - On-call rest days: toggle + section selector + days before/after. When enabled, solver enforces rest days and the UI places clinicians into the Rest Day pool.
+- On-call rest days dropdown only shows sections that exist as current template section blocks.
+- Working hours tolerance (hours) is stored as `solverSettings.workingHoursToleranceHours` (default 5).
 - Rule violations are evaluated for the current week and surfaced in the header badge; affected pills are shown in red.
 - Violations include: rest-day conflicts, multiple shifts per day (when disabled), same-day location mismatches (when enforced), and overlapping shift times.
 - Automated planning runs the week solver over the selected date range in one call and shows an ETA based on the last run's per-day duration.
@@ -126,7 +163,16 @@ Testing
   - Uses API login and seeds `localStorage.authToken`.
   - Resets state before each test and restores original state after the suite.
   - Env: `E2E_USERNAME`, `E2E_PASSWORD`, `PLAYWRIGHT_API_URL`, `PLAYWRIGHT_BASE_URL`.
+  - Defaults to `testuser` / `sdjhfl34-wfsdfwsd2` when `E2E_USERNAME`/`E2E_PASSWORD` are unset.
   - `test:e2e` script includes `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=mac15-arm64` for Apple Silicon.
+  - Default non-admin test user for local E2E: `testuser` / `sdjhfl34-wfsdfwsd2` (set `ENABLE_E2E_TEST_USER=0` to disable creation, do not use in production).
+  - Diagnostics on failure: console, page errors, failed requests, >=400 responses, screenshot, HTML snapshot, and trace (see `e2e/fixtures.ts`).
+
+Dev restart script
+- `scripts/restart-dev.sh` stops dev servers and restarts backend + frontend.
+- Logs: `logs/dev-backend.log`, `logs/dev-frontend.log`.
+- Binds backend/frontend to `127.0.0.1` (`uvicorn --host 127.0.0.1`, `vite --host 127.0.0.1`).
+- Requires elevated permissions in this sandbox to bind ports 8000/5173.
 
 Vacation Overview
 - Open via the Vacation Planner panel in the main schedule view.
@@ -154,8 +200,11 @@ PDF export (server-side, Playwright)
   - `GET /v1/pdf/week?start=YYYY-MM-DD` (single week)
   - `GET /v1/pdf/weeks?start=YYYY-MM-DD&weeks=N` (combined PDF)
 - PDF render specifics:
-  - A4 landscape with background colors.
-  - Auto-scale to fit the full table on the page.
+  - Always A4 landscape with background colors.
+  - Auto-scale to fit the full table on the page using `.calendar-scroll`/`.schedule-grid` measurements.
+  - Adds a small safety scale (2%) to avoid overflow/page breaks.
+  - Margins are 6mm on all sides.
+  - Multi-week export uses the max width/height across all `.print-page` grids.
   - Open Slots badge, Publish toggle, and Open Slot pills are hidden in PDF.
 - The print route sets `window.__PDF_READY__ = true` after data loads + two rAFs; backend waits for that signal.
 - Export UI:
@@ -164,7 +213,7 @@ PDF export (server-side, Playwright)
 - Env var `FRONTEND_BASE_URL` is used by the backend to reach the frontend for PDF rendering:
   - Domain setup: `https://$DOMAIN`
   - IP-only setup: `http://SERVER_IP`
-- Print CSS lives in `src/index.css` (A4 landscape, `print-color-adjust`, overflow visible, no-print elements hidden).
+- Print CSS lives in `src/index.css` (`print-color-adjust`, overflow visible, no-print elements hidden).
 
 iCal download (frontend-only)
 - Supports:
@@ -294,6 +343,48 @@ type Assignment = {
 
 type MinSlotsByRowId = Record<string, { weekday: number; weekend: number }>;
 
+type DayType = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun" | "holiday";
+
+type TemplateRowBand = {
+  id: string;
+  order: number;
+  label?: string;
+};
+
+type TemplateColBand = { id: string; label?: string; order: number; dayType: DayType };
+
+type TemplateBlock = {
+  id: string;
+  sectionId: string;
+  label?: string;
+  requiredSlots: number; // legacy; slots carry requiredSlots
+};
+
+type TemplateSlot = {
+  id: string; // used as Assignment.rowId
+  locationId: string;
+  rowBandId: string;
+  colBandId: string;
+  blockId: string;
+  requiredSlots?: number;
+  startTime?: string;
+  endTime?: string;
+  endDayOffset?: number;
+};
+
+type WeeklyTemplateLocation = {
+  locationId: string;
+  rowBands: TemplateRowBand[];
+  colBands: TemplateColBand[];
+  slots: TemplateSlot[];
+};
+
+type WeeklyCalendarTemplate = {
+  version: 4;
+  blocks: TemplateBlock[];
+  locations: WeeklyTemplateLocation[];
+};
+
 type Holiday = { dateISO: string; name: string };
 
 type SolverSettings = {
@@ -306,9 +397,9 @@ type SolverSettings = {
 };
 ```
 
-Shift row IDs
-- Section assignments use shiftRowId: `${classId}::${subShiftId}` (example: `mri::s1`).
-- Pool rows continue using their plain pool IDs.
+Slot IDs
+- Section assignments use TemplateSlot ids (Assignment.rowId = TemplateSlot.id); pool rows continue using their plain pool IDs.
+- Default template generation uses legacy shiftRowId values (`classId::subShiftId`, e.g. `mri::s1`) for slot ids so existing assignments survive.
 - UI uses “section”, but internal ids and RowKind still use `class` for compatibility.
 
 ---
@@ -318,11 +409,14 @@ Shift row IDs
 - Distribution Pool:
   - If “Allow multiple shifts per day” is off: only clinicians with zero section assignments for that day appear.
   - If on: clinicians still appear if they have at least one non-overlapping shift interval left.
+- Distribution Pool hides clinicians who already cover all day columns (only when column times are consistent and allow-multiple is on).
 - Rest Day Pool (pool-rest-day): if on-call rest days are enabled, clinicians assigned to the on-call section are placed into Rest Day on the configured days before/after (fallback to Reserve if Rest Day is missing).
-- Assignments stored in a map (rowId + dateISO -> list of assignments); section rows use shiftRowId.
+- Assignments stored in a map (rowId + dateISO -> list of assignments); section rows use template slot ids.
 - Drag and drop only within the same day; manual overrides are allowed even if they violate solver rules.
-- Clicking a section sub-shift cell increments the per-day slot override for that shiftRowId (adds an "Open Slot"); remove via the minus badge.
+- Clicking a section slot cell increments the per-day slot override for that slot id (adds an "Open Slot"); remove via the minus badge.
+- Day type is `holiday` if the date is in holidays; otherwise it is the weekday. Holiday settings always override weekday settings.
 - Overlap checks use time intervals (start/end + endDayOffset); shift order is not used for overlap decisions. These checks feed solver constraints and UI violation detection.
+- Drag/drop also prevents placing a clinician into overlapping time slots on the same day.
 
 ---
 
@@ -350,8 +444,8 @@ Behavior
   - “Allow multiple shifts per day” off ⇒ at most one assignment per day; on ⇒ multiple only if non-overlapping.
   - “Enforce same location per day” blocks mixing locations on the same day.
   - On-call rest days: if enabled, clinicians assigned to the selected on-call section must be unassigned on the configured days before/after.
-- Targets shiftRowIds for section sub-shifts; priority is section order first, then sub-shift order (objective weights).
-- Qualification + preference checks still use the parent class id (not shiftRowId).
+- Targets template slot ids; order weights follow location order + row band order + column band order.
+- Qualification + preference checks use slot.sectionId (the parent section).
 - Objective:
   - Prioritize coverage by section order (top of section list is highest).
   - Minimize missing required slots.
@@ -386,11 +480,14 @@ Backend stores one JSON blob per user in SQLite:
 }
 ```
 Note: `solverRules` is legacy and not used by the current UI/solver, but remains in state for compatibility.
+`weeklyTemplate` (v4) is stored alongside the state and is the source of truth for schedule rows; `slotOverridesByKey` keys are `slotId__dateISO`.
 State normalization on load
 - Ensures `locations` exists (adds loc-default).
 - Ensures section rows have `locationId` and `subShifts` (defaults to 08:00–16:00, endDayOffset 0).
-- If locations are disabled, section locations are forced to the default location.
-- Migrates section assignments + min slots + slot overrides from classId to shiftRowId (`classId::s1`).
+- `locationsEnabled` is legacy; if false in older data, normalization forces default location usage and sets it back to true.
+- Generates/normalizes `weeklyTemplate` v4; if missing, builds a default template from sections + sub-shifts (slot ids use legacy shiftRowIds).
+- Filters assignments + slot overrides to existing template slot ids (and pool rows).
+- Template slot assignment ids (e.g. `slot-1`) are preserved during normalization in both frontend and backend.
 - Ensures `solverSettings` defaults, clamps on-call rest day values, and fixes invalid on-call class ids.
 - Ensures the Rest Day pool exists (pool-rest-day), inserted after Reserve Pool.
 Table: `app_state` (id = username). Legacy row id `"state"` is migrated to `"jk"`. The table now also has an `updated_at` column which is bumped on every `POST /v1/state` save.
@@ -461,6 +558,11 @@ npm run dev -- --host localhost --port 5173
 Step 5: open the app
 - http://localhost:5173
 
+Codex CLI sandbox note (local dev)
+- You may see `operation not permitted` when binding to ports (8000/5173) if the sandbox disallows it.
+- Fix: rerun the start commands with escalated permissions, or use a Python `subprocess.Popen(..., start_new_session=True)` wrapper to launch in the background.
+- Also avoid `nohup` in this environment; it can trigger permission errors.
+
 If a port is already in use
 - Backend: pick another port, then set `VITE_API_URL` for the frontend:
 ```bash
@@ -502,7 +604,7 @@ Frontend
 - `src/components/schedule/AssignmentPill.tsx`
 - `src/components/schedule/VacationOverviewModal.tsx`
 - `src/api/client.ts`
-- `src/lib/shiftRows.ts` (shiftRowId helpers + state normalization)
+- `src/lib/shiftRows.ts` (weeklyTemplate normalization, legacy shiftRowId helpers)
 - `src/lib/schedule.ts` (rendered assignment map, time intervals, Rest Day pool logic)
 
 Backend

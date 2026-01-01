@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import ScheduleGrid from "../components/schedule/ScheduleGrid";
-import { getState, type Holiday } from "../api/client";
+import { getState, type Holiday, type WeeklyCalendarTemplate } from "../api/client";
 import {
   Assignment,
   buildAssignmentMap,
@@ -14,6 +14,12 @@ import { addDays, startOfWeek, formatRangeLabel } from "../lib/date";
 import { buildRenderedAssignmentMap } from "../lib/schedule";
 import { cx } from "../lib/classNames";
 import { buildScheduleRows, normalizeAppState } from "../lib/shiftRows";
+import {
+  buildCalendarRows,
+  buildColumnTimeMetaByKey,
+  buildDayColumns,
+  buildLocationSeparatorRowIds,
+} from "../lib/calendarView";
 
 type PrintWeekPageProps = {
   theme: "light" | "dark";
@@ -35,6 +41,9 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
   const [assignmentMap, setAssignmentMap] = useState<Map<string, Assignment[]>>(new Map());
   const [minSlotsByRowId, setMinSlotsByRowId] = useState(defaultMinSlotsByRowId);
   const [slotOverridesByKey, setSlotOverridesByKey] = useState<Record<string, number>>({});
+  const [weeklyTemplate, setWeeklyTemplate] = useState<WeeklyCalendarTemplate | undefined>(
+    undefined,
+  );
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [solverSettings, setSolverSettings] = useState(defaultSolverSettings);
   const [loading, setLoading] = useState(true);
@@ -70,8 +79,21 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
 
   const poolsSeparatorId = useMemo(() => rows.find((row) => row.kind === "pool")?.id, [rows]);
   const scheduleRows = useMemo(
-    () => buildScheduleRows(rows, locations, locationsEnabled),
-    [rows, locations, locationsEnabled],
+    () => buildScheduleRows(rows, locations, locationsEnabled, weeklyTemplate),
+    [rows, locations, locationsEnabled, weeklyTemplate],
+  );
+  const calendarRows = useMemo(() => buildCalendarRows(scheduleRows), [scheduleRows]);
+  const locationSeparatorRowIds = useMemo(
+    () => buildLocationSeparatorRowIds(calendarRows),
+    [calendarRows],
+  );
+  const columnTimeMetaByKey = useMemo(
+    () => buildColumnTimeMetaByKey(scheduleRows),
+    [scheduleRows],
+  );
+  const dayColumns = useMemo(
+    () => buildDayColumns(weekDays, weeklyTemplate, holidayDates, columnTimeMetaByKey),
+    [weekDays, weeklyTemplate, holidayDates, columnTimeMetaByKey],
   );
   const rowById = useMemo(() => new Map(scheduleRows.map((row) => [row.id, row])), [scheduleRows]);
 
@@ -86,6 +108,7 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
       buildRenderedAssignmentMap(assignmentMap, clinicians, weekDays, {
         scheduleRows,
         solverSettings,
+        holidayDates,
       }),
     [assignmentMap, clinicians, weekDays, scheduleRows, solverSettings],
   );
@@ -117,6 +140,7 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
         }
         if (normalized.minSlotsByRowId) setMinSlotsByRowId(normalized.minSlotsByRowId);
         if (normalized.slotOverridesByKey) setSlotOverridesByKey(normalized.slotOverridesByKey);
+        if (normalized.weeklyTemplate) setWeeklyTemplate(normalized.weeklyTemplate);
         if (normalized.solverSettings) {
           setSolverSettings({
             ...defaultSolverSettings,
@@ -173,11 +197,13 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
       <ScheduleGrid
         leftHeaderTitle=""
         weekDays={weekDays}
-        rows={scheduleRows}
+        dayColumns={dayColumns}
+        rows={calendarRows}
         assignmentMap={renderAssignmentMap}
         holidayDates={holidayDates}
         holidayNameByDate={holidayNameByDate}
         solverSettings={solverSettings}
+        locationSeparatorRowIds={locationSeparatorRowIds}
         readOnly
         header={
           <div className="flex items-center justify-between">
@@ -197,7 +223,7 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
           const scheduleRow = rowById.get(rowId);
           const classId =
             scheduleRow?.kind === "class"
-              ? scheduleRow.parentId ?? scheduleRow.id
+              ? scheduleRow.sectionId ?? scheduleRow.id
               : rowId;
           const clinician = clinicians.find((item) => item.id === clinicianId);
           return clinician ? clinician.qualifiedClassIds.includes(classId) : false;

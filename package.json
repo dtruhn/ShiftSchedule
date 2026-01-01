@@ -11,7 +11,7 @@
     "check:tailwind": "node scripts/check-tailwind-conflicts.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=mac15-arm64 playwright test"
+    "test:e2e": "rm -rf playwright-report test-results && PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=mac15-arm64 playwright test"
   },
   "dependencies": {
     "react": "^18.3.1",

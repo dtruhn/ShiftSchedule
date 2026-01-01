@@ -257,7 +257,7 @@ export default function AutomatedPlanningPanel({
                 className={cx(
                   "rounded-full border px-3 py-1.5 text-xs font-normal",
                   strategy === "fill"
-                    ? "border-sky-300 bg-sky-50 text-sky-900 dark:border-sky-400/60 dark:bg-sky-900/30 dark:text-sky-100"
+                    ? "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-600 dark:bg-slate-800/60 dark:text-slate-100"
                     : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800",
                   "disabled:cursor-not-allowed disabled:opacity-60",
                 )}
@@ -271,7 +271,7 @@ export default function AutomatedPlanningPanel({
                 className={cx(
                   "rounded-full border px-3 py-1.5 text-xs font-normal",
                   strategy === "distribute"
-                    ? "border-sky-300 bg-sky-50 text-sky-900 dark:border-sky-400/60 dark:bg-sky-900/30 dark:text-sky-100"
+                    ? "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-600 dark:bg-slate-800/60 dark:text-slate-100"
                     : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800",
                   "disabled:cursor-not-allowed disabled:opacity-60",
                 )}

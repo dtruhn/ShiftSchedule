@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Optional
 
-SHIFT_ROW_SEPARATOR = "::"
-
 
 def _escape_text(value: str) -> str:
     return (
@@ -63,23 +61,6 @@ def _fold_lines(lines: Iterable[str]) -> str:
     return "\r\n".join(_fold_ical_line(line) for line in lines) + "\r\n"
 
 
-def _parse_shift_row_id(row_id: str) -> tuple[str, Optional[str]]:
-    if SHIFT_ROW_SEPARATOR not in row_id:
-        return row_id, None
-    class_id, sub_shift_id = row_id.split(SHIFT_ROW_SEPARATOR, 1)
-    return class_id, sub_shift_id or None
-
-
-def _resolve_sub_shift_name(row: Dict[str, Any], sub_shift_id: Optional[str]) -> Optional[str]:
-    sub_shifts = row.get("subShifts") or []
-    if not sub_shift_id:
-        sub_shift_id = "s1"
-    for shift in sub_shifts:
-        if shift.get("id") == sub_shift_id:
-            return shift.get("name") or None
-    return None
-
-
 def generate_ics(
     app_state: Dict[str, Any],
     published_week_start_isos: Optional[list[str]],
@@ -99,6 +80,18 @@ def generate_ics(
         if not row_id:
             continue
         row_by_id[row_id] = row
+    weekly_template = app_state.get("weeklyTemplate") or {}
+    slot_by_id: Dict[str, Dict[str, Any]] = {}
+    block_by_id: Dict[str, Dict[str, Any]] = {}
+    for block in weekly_template.get("blocks") or []:
+        block_id = block.get("id")
+        if block_id:
+            block_by_id[block_id] = block
+    for location in weekly_template.get("locations") or []:
+        for slot in location.get("slots") or []:
+            slot_id = slot.get("id")
+            if slot_id:
+                slot_by_id[slot_id] = slot
 
     clinician_name_by_id: Dict[str, str] = {}
     vacation_ranges_by_clinician: Dict[str, list[tuple[str, str]]] = {}
@@ -131,8 +124,13 @@ def generate_ics(
         row_id = assignment.get("rowId")
         if not row_id:
             continue
-        class_id, sub_shift_id = _parse_shift_row_id(row_id)
-        row = row_by_id.get(class_id)
+        slot = slot_by_id.get(row_id)
+        if not slot:
+            continue
+        block = block_by_id.get(slot.get("blockId"))
+        if not block:
+            continue
+        row = row_by_id.get(block.get("sectionId"))
         if not row or row.get("kind") != "class":
             continue
 
@@ -166,13 +164,13 @@ def generate_ics(
         clinician_name = clinician_name_by_id.get(
             assignment_clinician_id, assignment_clinician_id or "Unknown"
         )
-        row_name = row.get("name") or class_id or "Section"
-        sub_shift_name = _resolve_sub_shift_name(row, sub_shift_id)
+        row_name = row.get("name") or block.get("sectionId") or "Section"
+        slot_label = block.get("label") or None
         assignment_id = assignment.get("id") or f"{date_iso}-{row_id}-{assignment_clinician_id}"
 
         summary = (
-            f"{row_name} ({sub_shift_name}) - {clinician_name}"
-            if sub_shift_name
+            f"{row_name} ({slot_label}) - {clinician_name}"
+            if slot_label
             else f"{row_name} - {clinician_name}"
         )
         start = _iso_to_yyyymmdd(date_iso)

@@ -19,6 +19,42 @@ FRONTEND_BASE_URL = (
 ).strip()
 
 
+def _measure_schedule_dimensions(page, include_all_pages: bool) -> tuple[float, float]:
+    dims = page.evaluate(
+        """(useAll) => {
+            const measure = (root) => {
+                const schedule = root.querySelector(".schedule-grid");
+                const scroll = root.querySelector(".calendar-scroll");
+                const scrollWidth = scroll
+                    ? Math.max(scroll.scrollWidth, scroll.getBoundingClientRect().width)
+                    : 0;
+                const scrollHeight = scroll
+                    ? Math.max(scroll.scrollHeight, scroll.getBoundingClientRect().height)
+                    : 0;
+                const scheduleRect = schedule ? schedule.getBoundingClientRect() : null;
+                return {
+                    width: Math.max(scrollWidth, scheduleRect ? scheduleRect.width : 0),
+                    height: Math.max(scrollHeight, scheduleRect ? scheduleRect.height : 0),
+                };
+            };
+            const pages = Array.from(document.querySelectorAll(".print-page"));
+            const targets = useAll && pages.length ? pages : [document];
+            let maxWidth = 0;
+            let maxHeight = 0;
+            for (const target of targets) {
+                const dims = measure(target);
+                maxWidth = Math.max(maxWidth, dims.width);
+                maxHeight = Math.max(maxHeight, dims.height);
+            }
+            return { width: maxWidth, height: maxHeight };
+        }""",
+        include_all_pages,
+    )
+    width = float(dims.get("width", 0) or 0)
+    height = float(dims.get("height", 0) or 0)
+    return width, height
+
+
 @router.get("/v1/pdf/week")
 def export_week_pdf(
     start: str = Query(..., min_length=8),
@@ -46,33 +82,23 @@ def export_week_pdf(
                 page.goto(print_url, wait_until="networkidle", timeout=20000)
                 page.wait_for_function("window.__PDF_READY__ === true", timeout=20000)
                 page.emulate_media(media="print")
-                dims = page.evaluate(
-                    """() => {
-                        const body = document.body;
-                        const html = document.documentElement;
-                        return {
-                            width: Math.max(body.scrollWidth, html.scrollWidth),
-                            height: Math.max(body.scrollHeight, html.scrollHeight),
-                        };
-                    }"""
-                )
-                width = float(dims.get("width", 0) or 0)
-                height = float(dims.get("height", 0) or 0)
+                width, height = _measure_schedule_dimensions(page, include_all_pages=False)
                 dpi = 96.0
                 a4_width = 11.69 * dpi
                 a4_height = 8.27 * dpi
-                margin = (10 / 25.4) * dpi
+                margin = (6 / 25.4) * dpi
                 usable_width = max(1.0, a4_width - (2 * margin))
                 usable_height = max(1.0, a4_height - (2 * margin))
                 scale = 1.0
                 if width > 0 and height > 0:
                     scale = min(1.0, usable_width / width, usable_height / height)
+                    scale *= 0.98
                 pdf_bytes = page.pdf(
                     format="A4",
                     landscape=True,
                     print_background=True,
                     scale=scale,
-                    margin={"top": "10mm", "right": "10mm", "bottom": "10mm", "left": "10mm"},
+                    margin={"top": "6mm", "right": "6mm", "bottom": "6mm", "left": "6mm"},
                 )
             finally:
                 browser.close()
@@ -117,34 +143,27 @@ def export_weeks_pdf(
                 page.goto(print_url, wait_until="networkidle", timeout=20000)
                 page.wait_for_function("window.__PDF_READY__ === true", timeout=20000)
                 page.emulate_media(media="print")
-                dims = page.evaluate(
-                    """() => {
-                        const body = document.body;
-                        const html = document.documentElement;
-                        return {
-                            width: Math.max(body.scrollWidth, html.scrollWidth),
-                            height: Math.max(body.scrollHeight, html.scrollHeight),
-                        };
-                    }"""
-                )
-                width = float(dims.get("width", 0) or 0)
+                width, height = _measure_schedule_dimensions(page, include_all_pages=True)
                 dpi = 96.0
                 a4_width = 11.69 * dpi
-                margin = (10 / 25.4) * dpi
+                a4_height = 8.27 * dpi
+                margin = (6 / 25.4) * dpi
                 usable_width = max(1.0, a4_width - (2 * margin))
+                usable_height = max(1.0, a4_height - (2 * margin))
                 scale = 1.0
-                if width > 0:
-                    scale = min(1.0, usable_width / width)
+                if width > 0 and height > 0:
+                    scale = min(1.0, usable_width / width, usable_height / height)
+                    scale *= 0.98
                 pdf_bytes = page.pdf(
                     format="A4",
                     landscape=True,
                     print_background=True,
                     scale=scale,
                     margin={
-                        "top": "10mm",
-                        "right": "10mm",
-                        "bottom": "10mm",
-                        "left": "10mm",
+                        "top": "6mm",
+                        "right": "6mm",
+                        "bottom": "6mm",
+                        "left": "6mm",
                     },
                 )
             finally:

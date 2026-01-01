@@ -7,9 +7,9 @@ const baseRow: ScheduleRow = {
   name: "MRI",
   kind: "class",
   dotColorClass: "bg-slate-200",
-  subShiftStartTime: "08:00",
-  subShiftEndTime: "16:00",
-  subShiftEndDayOffset: 0,
+  startTime: "08:00",
+  endTime: "16:00",
+  endDayOffset: 0,
 };
 
 describe("intervalsOverlap", () => {
@@ -30,7 +30,7 @@ describe("buildShiftInterval", () => {
   it("builds an interval with day offset applied", () => {
     const row: ScheduleRow = {
       ...baseRow,
-      subShiftEndDayOffset: 1,
+      endDayOffset: 1,
     };
     expect(buildShiftInterval(row)).toEqual({ start: 480, end: 2400 });
   });
@@ -38,7 +38,7 @@ describe("buildShiftInterval", () => {
   it("returns null when end time is not after start", () => {
     const row: ScheduleRow = {
       ...baseRow,
-      subShiftEndTime: "08:00",
+      endTime: "08:00",
     };
     expect(buildShiftInterval(row)).toBeNull();
   });

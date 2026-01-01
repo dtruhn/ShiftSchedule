@@ -14,6 +14,12 @@ import { addDays, addWeeks, startOfWeek, toISODate } from "../lib/date";
 import { buildRenderedAssignmentMap } from "../lib/schedule";
 import { cx } from "../lib/classNames";
 import { buildScheduleRows, normalizeAppState } from "../lib/shiftRows";
+import {
+  buildCalendarRows,
+  buildColumnTimeMetaByKey,
+  buildDayColumns,
+  buildLocationSeparatorRowIds,
+} from "../lib/calendarView";
 
 type PublicWeekPageProps = {
   token: string;
@@ -91,6 +97,7 @@ export default function PublicWeekPage({ token, theme }: PublicWeekPageProps) {
       assignments: (data.assignments ?? []) as Assignment[],
       minSlotsByRowId: data.minSlotsByRowId ?? {},
       slotOverridesByKey: data.slotOverridesByKey ?? {},
+      weeklyTemplate: data.weeklyTemplate,
       holidays: data.holidays ?? [],
       solverSettings: data.solverSettings ?? defaultSolverSettings,
       publishedWeekStartISOs: [],
@@ -102,8 +109,37 @@ export default function PublicWeekPage({ token, theme }: PublicWeekPageProps) {
   const clinicians = (normalized?.clinicians ?? []) as Clinician[];
   const locationsEnabled = normalized?.locationsEnabled ?? true;
   const scheduleRows = useMemo(
-    () => buildScheduleRows(rows, normalized?.locations ?? defaultLocations, locationsEnabled),
-    [rows, normalized?.locations, locationsEnabled],
+    () =>
+      buildScheduleRows(
+        rows,
+        normalized?.locations ?? defaultLocations,
+        locationsEnabled,
+        normalized?.weeklyTemplate,
+      ),
+    [rows, normalized?.locations, locationsEnabled, normalized?.weeklyTemplate],
+  );
+  const calendarRows = useMemo(() => buildCalendarRows(scheduleRows), [scheduleRows]);
+  const locationSeparatorRowIds = useMemo(
+    () => buildLocationSeparatorRowIds(calendarRows),
+    [calendarRows],
+  );
+  const columnTimeMetaByKey = useMemo(
+    () => buildColumnTimeMetaByKey(scheduleRows),
+    [scheduleRows],
+  );
+  const holidayDates = useMemo(
+    () => new Set((normalized?.holidays ?? []).map((holiday) => holiday.dateISO)),
+    [normalized],
+  );
+  const dayColumns = useMemo(
+    () =>
+      buildDayColumns(
+        weekDays,
+        normalized?.weeklyTemplate,
+        holidayDates,
+        columnTimeMetaByKey,
+      ),
+    [weekDays, normalized?.weeklyTemplate, holidayDates, columnTimeMetaByKey],
   );
   const rowById = useMemo(
     () => new Map(scheduleRows.map((row) => [row.id, row])),
@@ -118,12 +154,16 @@ export default function PublicWeekPage({ token, theme }: PublicWeekPageProps) {
       buildRenderedAssignmentMap(assignmentMap, clinicians, weekDays, {
         scheduleRows,
         solverSettings: normalized?.solverSettings ?? defaultSolverSettings,
+        holidayDates,
       }),
-    [assignmentMap, clinicians, weekDays, scheduleRows, normalized?.solverSettings],
-  );
-  const holidayDates = useMemo(
-    () => new Set((normalized?.holidays ?? []).map((holiday) => holiday.dateISO)),
-    [normalized],
+    [
+      assignmentMap,
+      clinicians,
+      weekDays,
+      scheduleRows,
+      normalized?.solverSettings,
+      holidayDates,
+    ],
   );
   const holidayNameByDate = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -185,11 +225,13 @@ export default function PublicWeekPage({ token, theme }: PublicWeekPageProps) {
         <ScheduleGrid
           leftHeaderTitle=""
           weekDays={weekDays}
-          rows={scheduleRows}
+          dayColumns={dayColumns}
+          rows={calendarRows}
           assignmentMap={renderAssignmentMap}
           holidayDates={holidayDates}
           holidayNameByDate={holidayNameByDate}
           solverSettings={normalized?.solverSettings ?? defaultSolverSettings}
+          locationSeparatorRowIds={locationSeparatorRowIds}
           readOnly
           header={null}
           separatorBeforeRowIds={poolSeparatorId ? [poolSeparatorId] : []}
@@ -204,7 +246,7 @@ export default function PublicWeekPage({ token, theme }: PublicWeekPageProps) {
             const scheduleRow = rowById.get(rowId);
             const classId =
               scheduleRow?.kind === "class"
-                ? scheduleRow.parentId ?? scheduleRow.id
+                ? scheduleRow.sectionId ?? scheduleRow.id
                 : rowId;
             const clinician = clinicians.find((item) => item.id === clinicianId);
             return clinician ? clinician.qualifiedClassIds.includes(classId) : false;

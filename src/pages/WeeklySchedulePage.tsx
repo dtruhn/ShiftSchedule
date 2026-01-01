@@ -29,6 +29,7 @@ import {
   type Holiday,
   type IcalPublishStatus,
   type SolverSettings,
+  type WeeklyCalendarTemplate,
   type WebPublishStatus,
 } from "../api/client";
 import {
@@ -41,11 +42,20 @@ import {
   defaultSolverSettings,
   locationsEnabled as defaultLocationsEnabled,
   locations as defaultLocations,
+  weeklyTemplate as defaultWeeklyTemplate,
   WorkplaceRow,
   workplaceRows,
 } from "../data/mockData";
 import { cx } from "../lib/classNames";
+import { normalizePreferredWorkingTimes } from "../lib/clinicianPreferences";
 import { addDays, addWeeks, startOfWeek, toISODate } from "../lib/date";
+import { getDayType } from "../lib/dayTypes";
+import {
+  buildCalendarRows,
+  buildColumnTimeMetaByKey,
+  buildDayColumns,
+  buildLocationSeparatorRowIds,
+} from "../lib/calendarView";
 import { buildICalendar, type ICalEvent } from "../lib/ical";
 import {
   buildRenderedAssignmentMap,
@@ -63,7 +73,22 @@ import {
   getAvailableSubShiftId,
   normalizeAppState,
   normalizeSubShifts,
+  type ScheduleRow,
 } from "../lib/shiftRows";
+
+const defaultAppState = normalizeAppState({
+  locations: defaultLocations,
+  locationsEnabled: defaultLocationsEnabled,
+  rows: workplaceRows,
+  clinicians: defaultClinicians,
+  assignments,
+  minSlotsByRowId: defaultMinSlotsByRowId,
+  slotOverridesByKey: {},
+  weeklyTemplate: defaultWeeklyTemplate,
+  holidays: [],
+  solverSettings: defaultSolverSettings,
+  solverRules: [],
+}).state;
 
 const CLASS_COLORS = [
   "bg-violet-500",
@@ -76,6 +101,28 @@ const CLASS_COLORS = [
   "bg-sky-500",
   "bg-lime-500",
 ];
+const SECTION_BLOCK_COLORS = [
+  "#FDE2E4",
+  "#FFD9C9",
+  "#FFE8D6",
+  "#FFEFD1",
+  "#FFF4C1",
+  "#EEF6C8",
+  "#E6F7D9",
+  "#DDF6EE",
+  "#D9F0FF",
+  "#DEE8FF",
+  "#E8E1F5",
+];
+
+const splitAssignmentKey = (key: string) => {
+  const parts = key.split("__");
+  if (parts.length < 2) {
+    return { rowId: key, dateISO: "" };
+  }
+  const dateISO = parts.pop() ?? "";
+  return { rowId: parts.join("__"), dateISO };
+};
 
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(() => {
@@ -183,18 +230,21 @@ export default function WeeklySchedulePage({
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [anchorDate, setAnchorDate] = useState<Date>(new Date());
   const [assignmentMap, setAssignmentMap] = useState<Map<string, Assignment[]>>(() =>
-    buildAssignmentMap(assignments),
+    buildAssignmentMap(defaultAppState.assignments ?? []),
   );
   const [minSlotsByRowId, setMinSlotsByRowId] = useState<
     Record<string, { weekday: number; weekend: number }>
-  >(defaultMinSlotsByRowId);
+  >(defaultAppState.minSlotsByRowId ?? defaultMinSlotsByRowId);
   const [slotOverridesByKey, setSlotOverridesByKey] = useState<
     Record<string, number>
-  >({});
+  >(defaultAppState.slotOverridesByKey ?? {});
   const [clinicians, setClinicians] = useState<Clinician[]>(() =>
-    defaultClinicians.map((clinician) => ({
+    (defaultAppState.clinicians ?? defaultClinicians).map((clinician) => ({
       ...clinician,
       preferredClassIds: [...clinician.qualifiedClassIds],
+      preferredWorkingTimes: normalizePreferredWorkingTimes(
+        clinician.preferredWorkingTimes,
+      ),
     })),
   );
   const [editingClinicianId, setEditingClinicianId] = useState<string>("");
@@ -216,15 +266,23 @@ export default function WeeklySchedulePage({
   } | null>(null);
   const [autoPlanError, setAutoPlanError] = useState<string | null>(null);
   const [autoPlanRunning, setAutoPlanRunning] = useState(false);
-  const [holidays, setHolidays] = useState<Holiday[]>([]);
-  const [holidayCountry, setHolidayCountry] = useState("DE");
+  const [holidays, setHolidays] = useState<Holiday[]>(defaultAppState.holidays ?? []);
+  const [holidayCountry, setHolidayCountry] = useState(
+    defaultAppState.holidayCountry ?? "DE",
+  );
   const [holidayYear, setHolidayYear] = useState(currentYear);
   const [publishedWeekStartISOs, setPublishedWeekStartISOs] = useState<string[]>([]);
-  const [solverSettings, setSolverSettings] =
-    useState<SolverSettings>(defaultSolverSettings);
-  const [locationsEnabled, setLocationsEnabled] = useState(defaultLocationsEnabled);
+  const [solverSettings, setSolverSettings] = useState<SolverSettings>(
+    defaultAppState.solverSettings ?? defaultSolverSettings,
+  );
+  const [locationsEnabled, setLocationsEnabled] = useState(
+    defaultAppState.locationsEnabled ?? defaultLocationsEnabled,
+  );
   const [ruleViolationsOpen, setRuleViolationsOpen] = useState(false);
   const [activeRuleViolationId, setActiveRuleViolationId] = useState<string | null>(null);
+  const [hoveredRuleViolationId, setHoveredRuleViolationId] = useState<string | null>(null);
+  const [isRuleViolationsHovered, setIsRuleViolationsHovered] = useState(false);
+  const [isOpenSlotsHovered, setIsOpenSlotsHovered] = useState(false);
   const ruleViolationsRef = useRef<HTMLDivElement | null>(null);
 
   const isMobile = useMediaQuery("(max-width: 640px)");
@@ -259,17 +317,36 @@ export default function WeeklySchedulePage({
     [currentWeekStartISO, publishedWeekStartISOs],
   );
 
-  const [locations, setLocations] = useState(defaultLocations);
-  const [rows, setRows] = useState<WorkplaceRow[]>(workplaceRows);
+  const [locations, setLocations] = useState(defaultAppState.locations ?? defaultLocations);
+  const [rows, setRows] = useState<WorkplaceRow[]>(defaultAppState.rows ?? workplaceRows);
+  const [weeklyTemplate, setWeeklyTemplate] = useState<WeeklyCalendarTemplate | undefined>(
+    defaultAppState.weeklyTemplate,
+  );
   const classRows = useMemo(() => rows.filter((r) => r.kind === "class"), [rows]);
+  const templateSectionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const block of weeklyTemplate?.blocks ?? []) {
+      if (block.sectionId) ids.add(block.sectionId);
+    }
+    return ids;
+  }, [weeklyTemplate]);
+  const eligibleClassRows = useMemo(() => {
+    if (templateSectionIds.size === 0) return classRows;
+    return classRows.filter((row) => templateSectionIds.has(row.id));
+  }, [classRows, templateSectionIds]);
   const poolRows = useMemo(() => rows.filter((r) => r.kind === "pool"), [rows]);
   const scheduleRows = useMemo(
-    () => buildScheduleRows(rows, locations, locationsEnabled),
-    [rows, locations, locationsEnabled],
+    () => buildScheduleRows(rows, locations, locationsEnabled, weeklyTemplate),
+    [rows, locations, locationsEnabled, weeklyTemplate],
   );
   const classShiftRows = useMemo(
     () => scheduleRows.filter((row) => row.kind === "class"),
     [scheduleRows],
+  );
+  const calendarRows = useMemo(() => buildCalendarRows(scheduleRows), [scheduleRows]);
+  const locationSeparatorRowIds = useMemo(
+    () => buildLocationSeparatorRowIds(calendarRows),
+    [calendarRows],
   );
   const classShiftRowIds = useMemo(
     () => classShiftRows.map((row) => row.id),
@@ -305,6 +382,14 @@ export default function WeeklySchedulePage({
     }
     return record;
   }, [holidays]);
+  const columnTimeMetaByKey = useMemo(
+    () => buildColumnTimeMetaByKey(scheduleRows),
+    [scheduleRows],
+  );
+  const dayColumns = useMemo(
+    () => buildDayColumns(displayDays, weeklyTemplate, holidayDates, columnTimeMetaByKey),
+    [displayDays, weeklyTemplate, holidayDates, columnTimeMetaByKey],
+  );
   const isWeekendOrHoliday = (dateISO: string) => {
     const date = new Date(`${dateISO}T00:00:00`);
     const isWeekend = date.getDay() === 0 || date.getDay() === 6;
@@ -372,9 +457,9 @@ export default function WeeklySchedulePage({
         const row = rowById.get(assignment.rowId);
         const clinician = clinicianById.get(assignment.clinicianId);
         if (!row || row.kind !== "class" || !clinician) return null;
-        const className = row.parentName ?? row.name;
-        const shiftName = row.subShiftName;
-        const label = shiftName ? `${className} (${shiftName})` : className;
+        const sectionName = row.sectionName ?? row.name;
+        const slotLabel = row.slotLabel;
+        const label = slotLabel ? `${sectionName} (${slotLabel})` : sectionName;
         const summary = `${label} - ${clinician.name}`;
         const description = options.includeClinicianInSummary
           ? undefined
@@ -602,6 +687,7 @@ export default function WeeklySchedulePage({
       buildRenderedAssignmentMap(assignmentMap, clinicians, displayDays, {
         scheduleRows,
         solverSettings,
+        holidayDates,
       }),
     [assignmentMap, clinicians, displayDays, scheduleRows, solverSettings],
   );
@@ -669,6 +755,24 @@ export default function WeeklySchedulePage({
     setAutoPlanStartedAt(startedAt);
     setAutoPlanProgress({ current: 0, total: dateRange.length });
     try {
+      if (hasLoaded && loadedUserId === currentUser.username) {
+        const { state: normalized } = normalizeAppState({
+          locations,
+          locationsEnabled,
+          rows,
+          clinicians,
+          assignments: toAssignments(),
+          minSlotsByRowId,
+          slotOverridesByKey,
+          holidays,
+          holidayCountry,
+          holidayYear,
+          publishedWeekStartISOs,
+          solverSettings,
+          weeklyTemplate,
+        });
+        await saveState(normalized);
+      }
       const result = await solveWeek(args.startISO, {
         endISO: args.endISO,
         onlyFillRequired: args.onlyFillRequired,
@@ -706,7 +810,7 @@ export default function WeeklySchedulePage({
     setAssignmentMap((prev) => {
       const next = new Map(prev);
       for (const [key, list] of next.entries()) {
-        const [rowId, keyDate] = key.split("__");
+        const { rowId, dateISO: keyDate } = splitAssignmentKey(key);
         if (!rowId || !keyDate) continue;
         if (rowId.startsWith("pool-")) continue;
         if (keyDate < args.startISO || keyDate > args.endISO) continue;
@@ -809,6 +913,12 @@ export default function WeeklySchedulePage({
   };
 
   const getBaseSlotsForDate = (rowId: string, dateISO: string) => {
+    const row = rowById.get(rowId);
+    if (row?.kind === "class") {
+      const dayType = getDayType(dateISO, holidayDates);
+      if (row.dayType && row.dayType !== dayType) return 0;
+      if (typeof row.requiredSlots === "number") return row.requiredSlots;
+    }
     const minSlots = minSlotsByRowId[rowId] ?? { weekday: 0, weekend: 0 };
     return isWeekendOrHoliday(dateISO) ? minSlots.weekend : minSlots.weekday;
   };
@@ -833,13 +943,20 @@ export default function WeeklySchedulePage({
   const openSlotsCount = useMemo(() => {
     const dateISOs = fullWeekDays.map(toISODate);
     let openSlots = 0;
-    for (const rowId of classShiftRowIds) {
-      const minSlots = minSlotsByRowId[rowId] ?? { weekday: 0, weekend: 0 };
+      for (const rowId of classShiftRowIds) {
+        const row = rowById.get(rowId);
+        if (!row || row.kind !== "class") continue;
       for (const d of dateISOs) {
+        const dayType = getDayType(d, holidayDates);
+        const isActive = row.dayType ? row.dayType === dayType : true;
+        if (!isActive) continue;
         const cell = assignmentMap.get(`${rowId}__${d}`) ?? [];
-        const baseRequired = isWeekendOrHoliday(d)
-          ? minSlots.weekend
-          : minSlots.weekday;
+        const baseRequired =
+          typeof row.requiredSlots === "number"
+            ? row.requiredSlots
+            : isWeekendOrHoliday(d)
+              ? (minSlotsByRowId[rowId] ?? { weekday: 0, weekend: 0 }).weekend
+              : (minSlotsByRowId[rowId] ?? { weekday: 0, weekend: 0 }).weekday;
         const override = slotOverridesByKey[`${rowId}__${d}`] ?? 0;
         const required = Math.max(0, baseRequired + override);
         if (required > cell.length) openSlots += required - cell.length;
@@ -853,6 +970,7 @@ export default function WeeklySchedulePage({
     minSlotsByRowId,
     slotOverridesByKey,
     holidayDates,
+    rowById,
   ]);
 
   const ruleAssignmentContext = useMemo(() => {
@@ -861,7 +979,7 @@ export default function WeeklySchedulePage({
     const rowKindById = new Map(scheduleRows.map((row) => [row.id, row.kind]));
     const assignmentsByClinicianDate = new Map<string, Map<string, Set<string>>>();
     for (const [key, list] of assignmentMap.entries()) {
-      const [rowId, dateISO] = key.split("__");
+      const { rowId, dateISO } = splitAssignmentKey(key);
       if (!rowId || !dateISO || !dateSet.has(dateISO)) continue;
       if (rowKindById.get(rowId) !== "class") continue;
       for (const assignment of list) {
@@ -914,7 +1032,7 @@ export default function WeeklySchedulePage({
       scheduleRows
         .filter(
           (row) =>
-            row.kind === "class" && (row.parentId ?? row.id) === onCallClassId,
+            row.kind === "class" && (row.sectionId ?? row.id) === onCallClassId,
         )
         .map((row) => row.id),
     );
@@ -1085,6 +1203,23 @@ export default function WeeklySchedulePage({
     }
     return keys;
   }, [ruleViolations]);
+  const highlightedViolationKeys = useMemo(() => {
+    const activeId = hoveredRuleViolationId ?? activeRuleViolationId;
+    if (activeId) {
+      const match = ruleViolations.find((violation) => violation.id === activeId);
+      return match ? new Set(match.assignmentKeys) : undefined;
+    }
+    if (isRuleViolationsHovered) {
+      return violatingAssignmentKeys.size ? new Set(violatingAssignmentKeys) : undefined;
+    }
+    return undefined;
+  }, [
+    activeRuleViolationId,
+    hoveredRuleViolationId,
+    isRuleViolationsHovered,
+    ruleViolations,
+    violatingAssignmentKeys,
+  ]);
 
   const editingClinician = useMemo(
     () => clinicians.find((clinician) => clinician.id === editingClinicianId),
@@ -1139,6 +1274,9 @@ export default function WeeklySchedulePage({
             normalized.clinicians.map((clinician) => ({
               ...clinician,
               preferredClassIds: [...clinician.qualifiedClassIds],
+              preferredWorkingTimes: normalizePreferredWorkingTimes(
+                clinician.preferredWorkingTimes,
+              ),
             })),
           );
         }
@@ -1152,6 +1290,9 @@ export default function WeeklySchedulePage({
         if (normalized.minSlotsByRowId) setMinSlotsByRowId(normalized.minSlotsByRowId);
         if (normalized.slotOverridesByKey) {
           setSlotOverridesByKey(normalized.slotOverridesByKey);
+        }
+        if (normalized.weeklyTemplate) {
+          setWeeklyTemplate(normalized.weeklyTemplate);
         }
         if (normalized.solverSettings) {
           setSolverSettings(normalized.solverSettings as SolverSettings);
@@ -1190,6 +1331,7 @@ export default function WeeklySchedulePage({
       holidayYear,
       publishedWeekStartISOs,
       solverSettings,
+      weeklyTemplate,
     });
     const handle = window.setTimeout(() => {
       saveState(normalized).catch(() => {
@@ -1210,9 +1352,29 @@ export default function WeeklySchedulePage({
     holidayYear,
     publishedWeekStartISOs,
     solverSettings,
+    weeklyTemplate,
     hasLoaded,
     currentUser.username,
   ]);
+
+  useEffect(() => {
+    if (templateSectionIds.size === 0) return;
+    setClinicians((prev) =>
+      prev.map((clinician) => {
+        const nextQualified = clinician.qualifiedClassIds.filter((id) =>
+          templateSectionIds.has(id),
+        );
+        if (nextQualified.length === clinician.qualifiedClassIds.length) {
+          return clinician;
+        }
+        return {
+          ...clinician,
+          qualifiedClassIds: nextQualified,
+          preferredClassIds: nextQualified,
+        };
+      }),
+    );
+  }, [templateSectionIds]);
 
   const handleLogout = () => {
     if (hasLoaded && loadedUserId === currentUser.username) {
@@ -1229,6 +1391,7 @@ export default function WeeklySchedulePage({
         holidayYear,
         publishedWeekStartISOs,
         solverSettings,
+        weeklyTemplate,
       });
       saveState(normalized).catch(() => {
         /* Backend optional during local-only dev */
@@ -1487,7 +1650,7 @@ export default function WeeklySchedulePage({
       setAssignmentMap((prev) => {
         const next = new Map<string, Assignment[]>();
         for (const [key, list] of prev.entries()) {
-          const [keyRowId, keyDate] = key.split("__");
+          const { rowId: keyRowId, dateISO: keyDate } = splitAssignmentKey(key);
           if (!keyRowId || !keyDate) continue;
           if (!removedShiftRowIds.includes(keyRowId)) {
             next.set(key, list);
@@ -1522,7 +1685,7 @@ export default function WeeklySchedulePage({
     setSlotOverridesByKey((prev) => {
       const next: Record<string, number> = { ...prev };
       for (const key of Object.keys(prev)) {
-        const [keyRowId, keyDate] = key.split("__");
+        const { rowId: keyRowId, dateISO: keyDate } = splitAssignmentKey(key);
         if (!keyRowId || !keyDate) continue;
         if (!removedShiftRowIds.includes(keyRowId)) continue;
         const fallbackKey = `${fallbackShiftRowId}__${keyDate}`;
@@ -1563,7 +1726,7 @@ export default function WeeklySchedulePage({
     setAssignmentMap((prev) => {
       const next = new Map<string, Assignment[]>();
       for (const [key, list] of prev.entries()) {
-        const [keyRowId, keyDate] = key.split("__");
+        const { rowId: keyRowId, dateISO: keyDate } = splitAssignmentKey(key);
         if (!keyRowId || !keyDate) continue;
         if (keyRowId !== removedShiftRowId) {
           next.set(key, list);
@@ -1595,7 +1758,7 @@ export default function WeeklySchedulePage({
     setSlotOverridesByKey((prev) => {
       const next: Record<string, number> = { ...prev };
       for (const key of Object.keys(prev)) {
-        const [keyRowId, keyDate] = key.split("__");
+        const { rowId: keyRowId, dateISO: keyDate } = splitAssignmentKey(key);
         if (!keyRowId || !keyDate) continue;
         if (keyRowId !== removedShiftRowId) continue;
         const fallbackKey = `${fallbackShiftRowId}__${keyDate}`;
@@ -1612,7 +1775,7 @@ export default function WeeklySchedulePage({
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "");
     const id = `loc-${slug || "site"}-${Date.now().toString(36)}`;
-    setLocations((prev) => [...prev, { id, name }]);
+    setLocations((prev) => [{ id, name }, ...prev]);
   };
 
   const handleRenameLocation = (locationId: string, nextName: string) => {
@@ -1624,15 +1787,81 @@ export default function WeeklySchedulePage({
   };
 
   const handleRemoveLocation = (locationId: string) => {
-    if (locationId === DEFAULT_LOCATION_ID) return;
-    setLocations((prev) => prev.filter((location) => location.id !== locationId));
+    setLocations((prev) => {
+      if (prev.length <= 1) return prev;
+      if (locationId !== DEFAULT_LOCATION_ID) {
+        return prev.filter((location) => location.id !== locationId);
+      }
+      const fallback = prev.find((location) => location.id !== DEFAULT_LOCATION_ID);
+      if (!fallback) return prev;
+      return prev
+        .filter((location) => location.id !== locationId)
+        .map((location) =>
+          location.id === fallback.id ? { ...location, id: DEFAULT_LOCATION_ID } : location,
+        );
+    });
+    setWeeklyTemplate((prev) => {
+      if (!prev) return prev;
+      if (locationId !== DEFAULT_LOCATION_ID) {
+        return {
+          ...prev,
+          locations: prev.locations.filter((loc) => loc.locationId !== locationId),
+        };
+      }
+      const fallback = prev.locations.find(
+        (loc) => loc.locationId !== DEFAULT_LOCATION_ID,
+      );
+      if (!fallback) return prev;
+      const nextLocations = prev.locations
+        .filter((loc) => loc.locationId !== locationId)
+        .map((loc) =>
+          loc.locationId === fallback.locationId
+            ? {
+                ...loc,
+                locationId: DEFAULT_LOCATION_ID,
+                slots: loc.slots.map((slot) => ({
+                  ...slot,
+                  locationId: DEFAULT_LOCATION_ID,
+                })),
+              }
+            : loc,
+        );
+      return { ...prev, locations: nextLocations };
+    });
     setRows((prev) =>
-      prev.map((row) =>
-        row.kind === "class" && row.locationId === locationId
+      prev.map((row) => {
+        if (row.kind !== "class") return row;
+        if (locationId === DEFAULT_LOCATION_ID) {
+          const fallback = prev.find((loc) => loc.id !== DEFAULT_LOCATION_ID);
+          if (!fallback) return row;
+          return row.locationId === fallback.id
+            ? { ...row, locationId: DEFAULT_LOCATION_ID }
+            : row;
+        }
+        return row.locationId === locationId
           ? { ...row, locationId: DEFAULT_LOCATION_ID }
-          : row,
-      ),
+          : row;
+      }),
     );
+  };
+
+  const handleReorderLocations = (nextOrder: string[]) => {
+    setLocations((prev) => {
+      const byId = new Map(prev.map((location) => [location.id, location]));
+      const ordered = nextOrder
+        .map((id) => byId.get(id))
+        .filter((location) => location != null);
+      const remaining = prev.filter((location) => !nextOrder.includes(location.id));
+      return [...ordered, ...remaining];
+    });
+    setWeeklyTemplate((prev) => {
+      if (!prev) return prev;
+      const order = new Map(nextOrder.map((id, index) => [id, index]));
+      const nextLocations = [...prev.locations].sort(
+        (a, b) => (order.get(a.locationId) ?? 0) - (order.get(b.locationId) ?? 0),
+      );
+      return { ...prev, locations: nextLocations };
+    });
   };
 
   const handleChangeSolverSettings = (settings: SolverSettings) => {
@@ -1688,6 +1917,8 @@ export default function WeeklySchedulePage({
   };
   const openSlotsBadge = (
     <span
+      onMouseEnter={() => setIsOpenSlotsHovered(true)}
+      onMouseLeave={() => setIsOpenSlotsHovered(false)}
       className={cx(
         "inline-flex items-center self-start rounded-full px-2.5 py-1 text-[11px] font-normal ring-1 ring-inset sm:self-auto sm:px-3",
         openSlotsCount === 0
@@ -1705,6 +1936,8 @@ export default function WeeklySchedulePage({
         <button
           type="button"
           onClick={() => setRuleViolationsOpen((open) => !open)}
+          onMouseEnter={() => setIsRuleViolationsHovered(true)}
+          onMouseLeave={() => setIsRuleViolationsHovered(false)}
           className={cx(
             "inline-flex items-center self-start rounded-full px-2.5 py-1 text-[11px] font-normal ring-1 ring-inset sm:self-auto sm:px-3",
             "bg-amber-50 text-amber-700 ring-amber-200 hover:bg-amber-100 dark:bg-amber-900/40 dark:text-amber-200 dark:ring-amber-500/40",
@@ -1728,6 +1961,8 @@ export default function WeeklySchedulePage({
                       current === violation.id ? null : violation.id,
                     )
                   }
+                  onMouseEnter={() => setHoveredRuleViolationId(violation.id)}
+                  onMouseLeave={() => setHoveredRuleViolationId(null)}
                   className={cx(
                     "w-full rounded-lg border px-2 py-1 text-left transition-colors",
                     activeRuleViolationId === violation.id
@@ -1801,9 +2036,12 @@ export default function WeeklySchedulePage({
           <ScheduleGrid
             leftHeaderTitle=""
             weekDays={displayDays}
-            rows={scheduleRows}
+            dayColumns={dayColumns}
+            rows={calendarRows}
             assignmentMap={renderAssignmentMap}
             violatingAssignmentKeys={violatingAssignmentKeys}
+            highlightedAssignmentKeys={highlightedViolationKeys}
+            highlightOpenSlots={isOpenSlotsHovered}
             holidayDates={holidayDates}
             holidayNameByDate={holidayNameByDate}
             solverSettings={solverSettings}
@@ -1836,6 +2074,7 @@ export default function WeeklySchedulePage({
               </div>
             }
             separatorBeforeRowIds={poolsSeparatorId ? [poolsSeparatorId] : []}
+            locationSeparatorRowIds={locationSeparatorRowIds}
             minSlotsByRowId={minSlotsByRowId}
             getClinicianName={(id) => clinicianNameById.get(id) ?? "Unknown"}
             getHasEligibleClasses={(id) => {
@@ -1843,23 +2082,17 @@ export default function WeeklySchedulePage({
               return clinician ? clinician.qualifiedClassIds.length > 0 : false;
             }}
             getIsQualified={(clinicianId, rowId) => {
-              const scheduleRow = rowById.get(rowId);
-              const classId =
-                scheduleRow?.kind === "class"
-                  ? scheduleRow.parentId ?? scheduleRow.id
+                const scheduleRow = rowById.get(rowId);
+                const classId =
+                  scheduleRow?.kind === "class"
+                  ? scheduleRow.sectionId ?? scheduleRow.id
                   : rowId;
               const clinician = clinicians.find((item) => item.id === clinicianId);
               return clinician ? clinician.qualifiedClassIds.includes(classId) : false;
             }}
             slotOverridesByKey={slotOverridesByKey}
-            onRemoveEmptySlot={({ rowId, dateISO }) => {
-              adjustSlotOverride(rowId, dateISO, -1);
-            }}
+            enableSlotOverrides={false}
             onClinicianClick={(clinicianId) => openClinicianEditor(clinicianId)}
-            onCellClick={({ row, date }) => {
-              if (row.kind !== "class") return;
-              adjustSlotOverride(row.id, toISODate(date), 1);
-            }}
             onMoveWithinDay={({
               dateISO,
               fromRowId,
@@ -1887,7 +2120,7 @@ export default function WeeklySchedulePage({
                   targetDateISO: string,
                 ) => {
                   for (const [key, list] of next.entries()) {
-                    const [, keyDate] = key.split("__");
+                    const { dateISO: keyDate } = splitAssignmentKey(key);
                     if (keyDate !== targetDateISO) continue;
                     const filtered = list.filter(
                       (assignment) => assignment.clinicianId !== targetClinicianId,
@@ -1966,7 +2199,8 @@ export default function WeeklySchedulePage({
                   );
                   if (alreadyInTarget) return prev;
                   const alreadyAssigned = Array.from(next.entries()).some(([key, list]) => {
-                    const [keyRowId, keyDate] = key.split("__");
+                    const { rowId: keyRowId, dateISO: keyDate } =
+                      splitAssignmentKey(key);
                     if (keyDate !== dateISO) return false;
                     const targetRow = rowById.get(keyRowId);
                     if (!targetRow || targetRow.kind !== "class") return false;
@@ -2066,129 +2300,14 @@ export default function WeeklySchedulePage({
       ) : viewMode === "settings" ? (
         <>
           <SettingsView
-            classRows={classRows}
+            classRows={eligibleClassRows}
             poolRows={poolRows}
             locations={locations}
-            locationsEnabled={locationsEnabled}
-            minSlotsByRowId={minSlotsByRowId}
             clinicians={clinicians}
             holidays={holidays}
             holidayCountry={holidayCountry}
             holidayYear={holidayYear}
-            onChangeMinSlots={(rowId, kind, nextValue) => {
-              setMinSlotsByRowId((prev) => ({
-                ...prev,
-                [rowId]: {
-                  ...(prev[rowId] ?? { weekday: 0, weekend: 0 }),
-                  [kind]: Math.max(0, Math.floor(nextValue)),
-                },
-              }));
-            }}
-            onRenameClass={(rowId, nextName) => {
-              setRows((prev) =>
-                prev.map((row) =>
-                  row.id === rowId ? { ...row, name: nextName } : row,
-                ),
-              );
-            }}
-            onRemoveClass={(rowId) => {
-              setRows((prev) => prev.filter((row) => row.id !== rowId));
-              setMinSlotsByRowId((prev) => {
-                const next = { ...prev };
-                for (const key of Object.keys(next)) {
-                  if (key === rowId || key.startsWith(`${rowId}::`)) {
-                    delete next[key];
-                  }
-                }
-                return next;
-              });
-              setSlotOverridesByKey((prev) => {
-                const next: Record<string, number> = {};
-                for (const [key, value] of Object.entries(prev)) {
-                  const [keyRowId] = key.split("__");
-                  if (!keyRowId || keyRowId === rowId) continue;
-                  if (keyRowId.startsWith(`${rowId}::`)) continue;
-                  next[key] = value;
-                }
-                return next;
-              });
-              setClinicians((prev) =>
-                prev.map((clinician) => ({
-                  ...clinician,
-                  qualifiedClassIds: clinician.qualifiedClassIds.filter((id) => id !== rowId),
-                  preferredClassIds: clinician.preferredClassIds.filter((id) => id !== rowId),
-                })),
-              );
-              setAssignmentMap((prev) => {
-                const next = new Map(prev);
-                for (const key of next.keys()) {
-                  const [keyRowId] = key.split("__");
-                  if (!keyRowId || keyRowId === rowId) {
-                    next.delete(key);
-                    continue;
-                  }
-                  if (keyRowId.startsWith(`${rowId}::`)) next.delete(key);
-                }
-                return next;
-              });
-            }}
-            onAddClass={() => {
-              const id = `class-${Date.now().toString(36)}`;
-              setRows((prev) => {
-                const classRows = prev.filter((row) => row.kind === "class");
-                const poolRows = prev.filter((row) => row.kind === "pool");
-                const classCount = classRows.length;
-                const color = CLASS_COLORS[classCount % CLASS_COLORS.length];
-                return [
-                  ...classRows,
-                  {
-                    id,
-                    name: "New Section",
-                    kind: "class",
-                    dotColorClass: color,
-                    locationId: DEFAULT_LOCATION_ID,
-                    subShifts: [
-                      {
-                        id: "s1",
-                        name: "Shift 1",
-                        order: 1,
-                        startTime: "08:00",
-                        endTime: "16:00",
-                        endDayOffset: 0,
-                      },
-                    ],
-                  },
-                  ...poolRows,
-                ];
-              });
-              setMinSlotsByRowId((prev) => ({
-                ...prev,
-                [buildShiftRowId(id, "s1")]: { weekday: 1, weekend: 1 },
-              }));
-            }}
-            onReorderClass={(fromId, toId, position = "above") => {
-              setRows((prev) => {
-                const classRows = prev.filter((row) => row.kind === "class");
-                const poolRows = prev.filter((row) => row.kind === "pool");
-                const fromIndex = classRows.findIndex((row) => row.id === fromId);
-                const toIndex = classRows.findIndex((row) => row.id === toId);
-                if (fromIndex === -1 || toIndex === -1) return prev;
-                const nextClasses = [...classRows];
-                const [moved] = nextClasses.splice(fromIndex, 1);
-                let insertIndex = toIndex + (position === "below" ? 1 : 0);
-                if (insertIndex > nextClasses.length) insertIndex = nextClasses.length;
-                if (fromIndex < insertIndex) insertIndex -= 1;
-                nextClasses.splice(insertIndex, 0, moved);
-                return [...nextClasses, ...poolRows];
-              });
-            }}
-            onChangeClassLocation={handleChangeClassLocation}
-            onSetSubShiftCount={handleSetSubShiftCount}
-            onRenameSubShift={handleRenameSubShift}
-            onRemoveSubShift={handleRemoveSubShift}
-            onUpdateSubShiftStartTime={handleUpdateSubShiftStartTime}
-            onUpdateSubShiftEndTime={handleUpdateSubShiftEndTime}
-            onUpdateSubShiftEndDayOffset={handleUpdateSubShiftEndDayOffset}
+            weeklyTemplate={weeklyTemplate}
             onRenamePool={(rowId, nextName) => {
               setRows((prev) =>
                 prev.map((row) =>
@@ -2199,9 +2318,10 @@ export default function WeeklySchedulePage({
             onAddLocation={handleAddLocation}
             onRenameLocation={handleRenameLocation}
             onRemoveLocation={handleRemoveLocation}
+            onReorderLocations={handleReorderLocations}
             solverSettings={solverSettings}
             onChangeSolverSettings={handleChangeSolverSettings}
-            onToggleLocationsEnabled={handleToggleLocationsEnabled}
+            onChangeWeeklyTemplate={(nextTemplate) => setWeeklyTemplate(nextTemplate)}
             onAddClinician={(name, workingHoursPerWeek) => {
               const slug = name
                 .toLowerCase()
@@ -2216,34 +2336,93 @@ export default function WeeklySchedulePage({
                   qualifiedClassIds: [],
                   preferredClassIds: [],
                   vacations: [],
+                  preferredWorkingTimes: normalizePreferredWorkingTimes(),
                   workingHoursPerWeek,
                 },
               ]);
             }}
-            onEditClinician={(clinicianId) => openClinicianEditor(clinicianId)}
+            onEditClinician={(clinicianId) => {
+              openClinicianEditor(clinicianId);
+            }}
             onRemoveClinician={(clinicianId) => {
-              setClinicians((prev) =>
-                prev.filter((clinician) => clinician.id !== clinicianId),
-              );
+              setClinicians((prev) => prev.filter((clinician) => clinician.id !== clinicianId));
               setAssignmentMap((prev) => {
-                const next = new Map<string, Assignment[]>();
-                for (const [key, list] of prev.entries()) {
-                  const filtered = list.filter(
+                const next = new Map(prev);
+                for (const key of next.keys()) {
+                  const assignments = next.get(key) ?? [];
+                  const filtered = assignments.filter(
                     (assignment) => assignment.clinicianId !== clinicianId,
                   );
-                  if (filtered.length > 0) next.set(key, filtered);
+                  if (filtered.length === 0) {
+                    next.delete(key);
+                  } else {
+                    next.set(key, filtered);
+                  }
                 }
                 return next;
               });
-              if (editingClinicianId === clinicianId) {
-                closeClinicianEditor();
-              }
             }}
             onChangeHolidayCountry={setHolidayCountry}
             onChangeHolidayYear={setHolidayYear}
-            onFetchHolidays={handleFetchHolidays}
-            onAddHoliday={handleAddHoliday}
-            onRemoveHoliday={handleRemoveHoliday}
+            onFetchHolidays={async (countryCode, year) => {
+              await handleFetchHolidays(countryCode, year);
+            }}
+            onAddHoliday={(holiday) => {
+              setHolidays((prev) => [...prev, holiday]);
+            }}
+            onRemoveHoliday={(holiday) => {
+              setHolidays((prev) =>
+                prev.filter((item) => item.dateISO !== holiday.dateISO),
+              );
+            }}
+            onCreateSection={(name) => {
+              const trimmed = name.trim() || "New Section";
+              const id = `class-${Date.now().toString(36)}`;
+              setRows((prev) => {
+                const nextClasses = prev.filter((row) => row.kind === "class");
+                const nextPools = prev.filter((row) => row.kind === "pool");
+                const classCount = nextClasses.length;
+                const color = CLASS_COLORS[classCount % CLASS_COLORS.length];
+                const blockColor =
+                  SECTION_BLOCK_COLORS[classCount % SECTION_BLOCK_COLORS.length];
+                return [
+                  ...nextClasses,
+                  {
+                    id,
+                    name: trimmed,
+                    kind: "class",
+                    dotColorClass: color,
+                    blockColor,
+                    locationId: DEFAULT_LOCATION_ID,
+                    subShifts: [
+                      {
+                        id: "s1",
+                        name: "Shift 1",
+                        order: 1,
+                        startTime: "08:00",
+                        endTime: "16:00",
+                        endDayOffset: 0,
+                      },
+                    ],
+                  },
+                  ...nextPools,
+                ];
+              });
+              setMinSlotsByRowId((prev) => ({
+                ...prev,
+                [buildShiftRowId(id, "s1")]: { weekday: 1, weekend: 1 },
+              }));
+              return id;
+            }}
+            onUpdateSectionColor={(sectionId, color) => {
+              setRows((prev) =>
+                prev.map((row) =>
+                  row.id === sectionId
+                    ? { ...row, blockColor: color ?? undefined }
+                    : row,
+                ),
+              );
+            }}
           />
           <AdminUsersPanel
             isAdmin={currentUser.role === "admin"}
@@ -2264,7 +2443,7 @@ export default function WeeklySchedulePage({
         open={editingClinicianId !== ""}
         onClose={closeClinicianEditor}
         clinician={editingClinician ?? null}
-        classRows={classRows}
+        classRows={eligibleClassRows}
         initialSection={editingClinicianSection ?? undefined}
         onToggleQualification={handleToggleQualification}
         onReorderQualification={handleReorderQualification}
@@ -2276,6 +2455,15 @@ export default function WeeklySchedulePage({
             prev.map((clinician) =>
               clinician.id === clinicianId
                 ? { ...clinician, workingHoursPerWeek }
+                : clinician,
+            ),
+          );
+        }}
+        onUpdatePreferredWorkingTimes={(clinicianId, preferredWorkingTimes) => {
+          setClinicians((prev) =>
+            prev.map((clinician) =>
+              clinician.id === clinicianId
+                ? { ...clinician, preferredWorkingTimes }
                 : clinician,
             ),
           );

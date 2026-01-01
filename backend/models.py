@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 RowKind = Literal["class", "pool"]
 Role = Literal["admin", "user"]
 ThenType = Literal["shiftRow", "off"]
+DayType = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday"]
+WorkingTimeRequirement = Literal["none", "preference", "mandatory"]
 
 
 class UserPublic(BaseModel):
@@ -59,6 +61,7 @@ class WorkplaceRow(BaseModel):
     name: str
     kind: RowKind
     dotColorClass: str
+    blockColor: Optional[str] = None
     locationId: Optional[str] = None
     subShifts: List[SubShift] = Field(default_factory=list)
 
@@ -80,7 +83,16 @@ class Clinician(BaseModel):
     qualifiedClassIds: List[str]
     preferredClassIds: List[str] = []
     vacations: List[VacationRange]
+    preferredWorkingTimes: Dict[str, "PreferredWorkingTime"] = Field(
+        default_factory=dict
+    )
     workingHoursPerWeek: Optional[float] = None
+
+
+class PreferredWorkingTime(BaseModel):
+    startTime: Optional[str] = None
+    endTime: Optional[str] = None
+    requirement: WorkingTimeRequirement = "none"
 
 
 class Assignment(BaseModel):
@@ -95,6 +107,52 @@ class MinSlots(BaseModel):
     weekend: int
 
 
+class TemplateRowBand(BaseModel):
+    id: str
+    order: int
+    label: Optional[str] = None
+
+
+class TemplateColBand(BaseModel):
+    id: str
+    label: Optional[str] = None
+    order: int
+    dayType: DayType
+
+
+class TemplateBlock(BaseModel):
+    id: str
+    sectionId: str
+    label: Optional[str] = None
+    requiredSlots: int = 0
+    color: Optional[str] = None
+
+
+class TemplateSlot(BaseModel):
+    id: str
+    locationId: str
+    rowBandId: str
+    colBandId: str
+    blockId: str
+    requiredSlots: int = 0
+    startTime: Optional[str] = None
+    endTime: Optional[str] = None
+    endDayOffset: Optional[int] = None
+
+
+class WeeklyTemplateLocation(BaseModel):
+    locationId: str
+    rowBands: List[TemplateRowBand] = Field(default_factory=list)
+    colBands: List[TemplateColBand] = Field(default_factory=list)
+    slots: List[TemplateSlot] = Field(default_factory=list)
+
+
+class WeeklyCalendarTemplate(BaseModel):
+    version: int = 4
+    blocks: List[TemplateBlock] = Field(default_factory=list)
+    locations: List[WeeklyTemplateLocation] = Field(default_factory=list)
+
+
 class AppState(BaseModel):
     locations: List[Location] = Field(default_factory=list)
     locationsEnabled: bool = True
@@ -103,6 +161,7 @@ class AppState(BaseModel):
     assignments: List[Assignment]
     minSlotsByRowId: Dict[str, MinSlots]
     slotOverridesByKey: Dict[str, int] = Field(default_factory=dict)
+    weeklyTemplate: Optional[WeeklyCalendarTemplate] = None
     holidayCountry: Optional[str] = None
     holidayYear: Optional[int] = None
     holidays: List[Holiday] = Field(default_factory=list)
@@ -136,6 +195,7 @@ class SolverSettings(BaseModel):
     onCallRestClassId: Optional[str] = None
     onCallRestDaysBefore: int = 1
     onCallRestDaysAfter: int = 1
+    workingHoursToleranceHours: int = 5
 
 
 class SolverRule(BaseModel):

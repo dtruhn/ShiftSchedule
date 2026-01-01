@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cx } from "../../lib/classNames";
+import type { PreferredWorkingTimes } from "../../api/client";
+import { normalizePreferredWorkingTimes } from "../../lib/clinicianPreferences";
 
 type ClinicianEditorProps = {
   clinician: {
@@ -7,9 +9,16 @@ type ClinicianEditorProps = {
     name: string;
     qualifiedClassIds: string[];
     vacations: Array<{ id: string; startISO: string; endISO: string }>;
+    preferredWorkingTimes?: PreferredWorkingTimes;
+    workingHoursPerWeek?: number;
   };
   classRows: Array<{ id: string; name: string }>;
   initialSection?: "vacations";
+  onUpdateWorkingHours?: (clinicianId: string, workingHoursPerWeek?: number) => void;
+  onUpdatePreferredWorkingTimes?: (
+    clinicianId: string,
+    preferredWorkingTimes: PreferredWorkingTimes,
+  ) => void;
   onToggleQualification: (clinicianId: string, classId: string) => void;
   onReorderQualification: (
     clinicianId: string,
@@ -34,6 +43,8 @@ export default function ClinicianEditor({
   onUpdateVacation,
   onRemoveVacation,
   initialSection,
+  onUpdateWorkingHours,
+  onUpdatePreferredWorkingTimes,
 }: ClinicianEditorProps) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -41,6 +52,12 @@ export default function ClinicianEditor({
     {},
   );
   const [showPastVacations, setShowPastVacations] = useState(false);
+  const [preferredWorkingTimes, setPreferredWorkingTimes] = useState(() =>
+    normalizePreferredWorkingTimes(clinician.preferredWorkingTimes),
+  );
+  const [workingHoursPerWeek, setWorkingHoursPerWeek] = useState(
+    clinician.workingHoursPerWeek ?? "",
+  );
   const vacationPanelRef = useRef<HTMLDivElement | null>(null);
   const eligibleIds = clinician.qualifiedClassIds;
   const eligibleRows = eligibleIds
@@ -61,6 +78,15 @@ export default function ClinicianEditor({
   );
   const pastVacations = sortedVacations.filter((v) => v.endISO < todayISO);
   const upcomingVacations = sortedVacations.filter((v) => v.endISO >= todayISO);
+  const preferredWorkingDays = [
+    { id: "mon", label: "Mon" },
+    { id: "tue", label: "Tue" },
+    { id: "wed", label: "Wed" },
+    { id: "thu", label: "Thu" },
+    { id: "fri", label: "Fri" },
+    { id: "sat", label: "Sat" },
+    { id: "sun", label: "Sun" },
+  ] as const;
 
   const formatEuropeanDate = (dateISO: string) => {
     const [year, month, day] = dateISO.split("-");
@@ -137,9 +163,138 @@ export default function ClinicianEditor({
       vacationPanelRef.current.scrollIntoView({ block: "start", behavior: "smooth" });
     }
   }, [initialSection, clinician.id, pastVacations.length]);
+  useEffect(() => {
+    setWorkingHoursPerWeek(clinician.workingHoursPerWeek ?? "");
+  }, [clinician.id, clinician.workingHoursPerWeek]);
+  useEffect(() => {
+    setPreferredWorkingTimes(
+      normalizePreferredWorkingTimes(clinician.preferredWorkingTimes),
+    );
+  }, [clinician.id, clinician.preferredWorkingTimes]);
+
+  const updatePreferredWorkingTimes = (
+    updater: (prev: PreferredWorkingTimes) => PreferredWorkingTimes,
+  ) => {
+    setPreferredWorkingTimes((prev) => {
+      const next = updater(prev);
+      onUpdatePreferredWorkingTimes?.(clinician.id, next);
+      return next;
+    });
+  };
 
   return (
     <div>
+      <div className="relative mt-4 rounded-2xl border-2 border-sky-200 bg-sky-50/60 px-4 py-4 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.8)] dark:border-sky-500/40 dark:bg-sky-900/20">
+        <div className="absolute -top-3 left-4 rounded-full border border-sky-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-sky-600 dark:border-sky-500/40 dark:bg-slate-900 dark:text-sky-200">
+          Eligible Sections
+        </div>
+        <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Drag to set priority, toggle to add or remove.
+        </div>
+        <div className="mt-4 space-y-2">
+          {eligibleRows.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-300">
+              No eligible sections selected yet.
+            </div>
+          ) : (
+            eligibleRows.map((row, index) => (
+              <div
+                key={row.id}
+                className={cx(
+                  "flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200",
+                  dragOverId === row.id && "border-sky-300 bg-sky-50",
+                )}
+                onDragOver={(event) => {
+                  if (!draggingId || draggingId === row.id) return;
+                  event.preventDefault();
+                  setDragOverId(row.id);
+                }}
+                onDragLeave={() => {
+                  setDragOverId((prev) => (prev === row.id ? null : prev));
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const fromId =
+                    draggingId || event.dataTransfer.getData("text/plain");
+                  if (!fromId || fromId === row.id) {
+                    setDragOverId(null);
+                    return;
+                  }
+                  onReorderQualification(clinician.id, fromId, row.id);
+                  setDraggingId(null);
+                  setDragOverId(null);
+                }}
+              >
+                <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">
+                  {index + 1}
+                </span>
+                <button
+                  type="button"
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", row.id);
+                    setDraggingId(row.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingId(null);
+                    setDragOverId(null);
+                  }}
+                  className="cursor-grab rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  aria-label={`Reorder ${row.name}`}
+                >
+                  ≡
+                </button>
+                <span className="flex-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                  {row.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onToggleQualification(clinician.id, row.id)}
+                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Remove
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+        {availableRows.length > 0 ? (
+          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Add section
+            </div>
+            <select
+              value={selectedClassId}
+              onChange={(event) => setSelectedClassId(event.target.value)}
+              className={cx(
+                "rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700",
+                "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200",
+              )}
+            >
+              {availableRows.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                if (!selectedClassId) return;
+                onToggleQualification(clinician.id, selectedClassId);
+              }}
+              className={cx(
+                "rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50",
+                "dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
+              )}
+            >
+              Add
+            </button>
+          </div>
+        ) : null}
+      </div>
+
       <div
         ref={vacationPanelRef}
         className="relative mt-4 rounded-2xl border-2 border-emerald-200 bg-emerald-50/60 px-4 py-4 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.8)] dark:border-emerald-500/40 dark:bg-emerald-900/20"
@@ -353,118 +508,149 @@ export default function ClinicianEditor({
         ) : null}
       </div>
 
-
-      <div className="relative mt-4 rounded-2xl border-2 border-sky-200 bg-sky-50/60 px-4 py-4 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.8)] dark:border-sky-500/40 dark:bg-sky-900/20">
-        <div className="absolute -top-3 left-4 rounded-full border border-sky-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-sky-600 dark:border-sky-500/40 dark:bg-slate-900 dark:text-sky-200">
-          Eligible Sections
+      <div className="relative mt-4 rounded-2xl border-2 border-indigo-200 bg-indigo-50/60 px-4 py-4 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.8)] dark:border-indigo-500/40 dark:bg-indigo-900/20">
+        <div className="absolute -top-3 left-4 rounded-full border border-indigo-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-600 dark:border-indigo-500/40 dark:bg-slate-900 dark:text-indigo-200">
+          Preferred Working Times
         </div>
-        <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Drag to set priority, toggle to add or remove.
+        <div>
+          <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            Optional availability windows per weekday.
+          </div>
+          <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Set a time range for each day and mark it as mandatory or a preference.
+          </div>
         </div>
-        <div className="mt-4 space-y-2">
-          {eligibleRows.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-300">
-              No eligible sections selected yet.
-            </div>
-          ) : (
-            eligibleRows.map((row, index) => (
-              <div
-                key={row.id}
-                className={cx(
-                  "flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200",
-                  dragOverId === row.id && "border-sky-300 bg-sky-50",
-                )}
-                onDragOver={(event) => {
-                  if (!draggingId || draggingId === row.id) return;
-                  event.preventDefault();
-                  setDragOverId(row.id);
-                }}
-                onDragLeave={() => {
-                  setDragOverId((prev) => (prev === row.id ? null : prev));
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  const fromId =
-                    draggingId || event.dataTransfer.getData("text/plain");
-                  if (!fromId || fromId === row.id) {
-                    setDragOverId(null);
-                    return;
-                  }
-                  onReorderQualification(clinician.id, fromId, row.id);
-                  setDraggingId(null);
-                  setDragOverId(null);
-                }}
-              >
-                <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">
-                  {index + 1}
-                </span>
-                <button
-                  type="button"
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", row.id);
-                    setDraggingId(row.id);
-                  }}
-                  onDragEnd={() => {
-                    setDraggingId(null);
-                    setDragOverId(null);
-                  }}
-                  className="cursor-grab rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                  aria-label={`Reorder ${row.name}`}
-                >
-                  ≡
-                </button>
-                <span className="flex-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
-                  {row.name}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onToggleQualification(clinician.id, row.id)}
-                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                  Remove
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-        {availableRows.length > 0 ? (
-          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Add section
-            </div>
-            <select
-              value={selectedClassId}
-              onChange={(event) => setSelectedClassId(event.target.value)}
-              className={cx(
-                "rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700",
-                "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200",
-              )}
-            >
-              {availableRows.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {row.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => {
-                if (!selectedClassId) return;
-                onToggleQualification(clinician.id, selectedClassId);
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Working hours per week
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={workingHoursPerWeek}
+              onChange={(event) => {
+                const value = event.target.value;
+                setWorkingHoursPerWeek(value === "" ? "" : Number(value));
+                if (!onUpdateWorkingHours) return;
+                const trimmed = value.trim();
+                if (!trimmed) {
+                  onUpdateWorkingHours(clinician.id, undefined);
+                  return;
+                }
+                const parsed = Number(trimmed);
+                if (!Number.isFinite(parsed)) return;
+                onUpdateWorkingHours(clinician.id, Math.max(0, parsed));
               }}
               className={cx(
-                "rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50",
-                "dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
+                "w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm font-medium text-slate-900",
+                "focus:border-indigo-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
               )}
-            >
-              Add
-            </button>
+              placeholder="40"
+            />
+            <div className="text-sm text-slate-500 dark:text-slate-400">
+              Optional, can be left blank. Denotes the number of working hours according to the contract.
+            </div>
           </div>
-        ) : null}
+        </div>
+        <div className="mt-4 space-y-2">
+          {preferredWorkingDays.map((day) => {
+            const value = preferredWorkingTimes[day.id];
+            const isInactive = value.requirement === "none";
+            return (
+              <div
+                key={day.id}
+                className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              >
+                <div className="min-w-[56px] text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  {day.label}
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="07:00"
+                    value={value.startTime}
+                    onChange={(event) =>
+                      updatePreferredWorkingTimes((prev) => ({
+                        ...prev,
+                        [day.id]: {
+                          ...prev[day.id],
+                          startTime: event.target.value,
+                        },
+                      }))
+                    }
+                    disabled={isInactive}
+                    className={cx(
+                      "w-16 rounded-lg border border-slate-200 px-1.5 py-1 text-[11px] font-medium text-slate-900",
+                      "focus:border-indigo-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400",
+                      "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-900/60 dark:disabled:text-slate-500",
+                    )}
+                  />
+                  <span className="text-[11px] font-semibold text-slate-400">–</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="17:00"
+                    value={value.endTime}
+                    onChange={(event) =>
+                      updatePreferredWorkingTimes((prev) => ({
+                        ...prev,
+                        [day.id]: {
+                          ...prev[day.id],
+                          endTime: event.target.value,
+                        },
+                      }))
+                    }
+                    disabled={isInactive}
+                    className={cx(
+                      "w-16 rounded-lg border border-slate-200 px-1.5 py-1 text-[11px] font-medium text-slate-900",
+                      "focus:border-indigo-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400",
+                      "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-900/60 dark:disabled:text-slate-500",
+                    )}
+                  />
+                </div>
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  {[
+                    { id: "none", label: "No preference" },
+                    { id: "preference", label: "Preferred" },
+                    { id: "mandatory", label: "Mandatory" },
+                  ].map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() =>
+                        updatePreferredWorkingTimes((prev) => ({
+                          ...prev,
+                          [day.id]: {
+                            ...prev[day.id],
+                            requirement: option.id as
+                              | "none"
+                              | "preference"
+                              | "mandatory",
+                          },
+                        }))
+                      }
+                      className={cx(
+                        "rounded-full border px-2 py-1 text-[11px] font-semibold",
+                        value.requirement === option.id
+                          ? "border-indigo-300 bg-indigo-100 text-indigo-700"
+                          : "border-slate-200 text-slate-600 hover:bg-slate-50",
+                        "dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
+                        value.requirement === option.id &&
+                          "dark:border-indigo-500/60 dark:bg-indigo-500/20 dark:text-indigo-100",
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
-
     </div>
   );
 }

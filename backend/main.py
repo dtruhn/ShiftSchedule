@@ -1,11 +1,12 @@
 import logging
 import os
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .auth import _ensure_admin_user, router as auth_router
+from .auth import _ensure_admin_user, _ensure_test_user, router as auth_router
 from .db import _get_connection
 from .ical_routes import router as ical_router
 from .pdf import router as pdf_router
@@ -13,7 +14,17 @@ from .solver import router as solver_router
 from .state_routes import router as state_router
 from .web import router as web_router
 
-app = FastAPI(title="Weekly Schedule API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    conn = _get_connection()
+    conn.close()
+    _ensure_admin_user()
+    _ensure_test_user()
+    yield
+
+
+app = FastAPI(title="Weekly Schedule API", version="0.1.0", lifespan=lifespan)
 
 LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -69,14 +80,6 @@ async def _log_requests(request, call_next):
         duration_ms,
     )
     return response
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    conn = _get_connection()
-    conn.close()
-    _ensure_admin_user()
-
 
 app.include_router(auth_router)
 app.include_router(state_router)

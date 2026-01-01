@@ -1,197 +1,85 @@
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends
 from ortools.sat.python import cp_model
 
 from .auth import _get_current_user
+from .constants import (
+    DEFAULT_LOCATION_ID,
+    DEFAULT_SUB_SHIFT_MINUTES,
+    DEFAULT_SUB_SHIFT_START_MINUTES,
+)
 from .models import (
     Assignment,
     Holiday,
-    MinSlots,
     SolveDayRequest,
     SolveDayResponse,
     SolveWeekRequest,
     SolveWeekResponse,
     SolverSettings,
-    SubShift,
     UserPublic,
-    WorkplaceRow,
 )
 from .state import _load_state
 
 router = APIRouter()
+PREFERRED_WINDOW_WEIGHT = 5
+WORKING_HOURS_BLOCK_MINUTES = 15
+WORKING_HOURS_PENALTY_WEIGHT = 1
 
 
-@router.post("/v1/solve", response_model=SolveDayResponse)
-def solve_day(payload: SolveDayRequest, current_user: UserPublic = Depends(_get_current_user)):
-    state = _load_state(current_user.username)
-    dateISO = payload.dateISO
+def _get_day_type(date_iso: str, holidays: List[Holiday]) -> str:
+    if any(holiday.dateISO == date_iso for holiday in holidays):
+        return "holiday"
+    dt = datetime.fromisoformat(f"{date_iso}T00:00:00")
+    weekday = dt.weekday()
+    mapping = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    return mapping[weekday]
 
-    rows_by_id = {row.id: row for row in state.rows}
-    class_rows = [row for row in state.rows if row.kind == "class"]
-    ignored_pool_rows = {"pool-not-allocated", "pool-vacation"}
-    shift_rows: List[tuple[WorkplaceRow, SubShift, str, int]] = []
-    shift_row_ids: set[str] = set()
-    parent_by_shift_id: Dict[str, str] = {}
-    for index, row in enumerate(class_rows):
-        for shift in row.subShifts:
-            shift_row_id = f"{row.id}::{shift.id}"
-            shift_rows.append((row, shift, shift_row_id, index))
-            shift_row_ids.add(shift_row_id)
-            parent_by_shift_id[shift_row_id] = row.id
 
-    vacation_ids = set()
-    for clinician in state.clinicians:
-        for vacation in clinician.vacations:
-            if vacation.startISO <= dateISO <= vacation.endISO:
-                vacation_ids.add(clinician.id)
-                break
+def _get_weekday_key(date_iso: str) -> str:
+    dt = datetime.fromisoformat(f"{date_iso}T00:00:00")
+    mapping = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    return mapping[dt.weekday()]
 
-    assigned_ids = set()
-    class_assignments = []
-    for assignment in state.assignments:
-        if assignment.dateISO != dateISO:
-            continue
-        if assignment.rowId in ignored_pool_rows:
-            continue
-        if assignment.clinicianId in vacation_ids:
-            continue
-        assigned_ids.add(assignment.clinicianId)
-        if assignment.rowId in shift_row_ids:
-            class_assignments.append(assignment)
 
-    free_clinicians = [
-        c
-        for c in state.clinicians
-        if c.id not in assigned_ids and c.id not in vacation_ids
-    ]
+def _normalize_window_requirement(value: Any) -> str:
+    if not isinstance(value, str):
+        return "none"
+    trimmed = value.strip().lower()
+    if trimmed == "preferred":
+        return "preference"
+    if trimmed in ("none", "preference", "mandatory"):
+        return trimmed
+    return "none"
 
-    model = cp_model.CpModel()
-    var_map = {}
-    pref_weight: Dict[str, Dict[str, int]] = {}
-    for clinician in free_clinicians:
-        pref_weight[clinician.id] = {}
-        for idx, class_id in enumerate(clinician.preferredClassIds):
-            pref_weight[clinician.id][class_id] = max(1, len(clinician.preferredClassIds) - idx)
-        for row, _shift, shift_row_id, _index in shift_rows:
-            if row.id in clinician.qualifiedClassIds:
-                var_map[(clinician.id, shift_row_id)] = model.NewBoolVar(
-                    f"x_{clinician.id}_{shift_row_id}"
-                )
 
-    for clinician in free_clinicians:
-        vars_for_clinician = [
-            var_map[(clinician.id, shift_row_id)]
-            for _row, _shift, shift_row_id, _index in shift_rows
-            if (clinician.id, shift_row_id) in var_map
-        ]
-        if vars_for_clinician:
-            model.Add(sum(vars_for_clinician) <= 1)
-
-    slack_vars = []
-    coverage_terms = []
-    slack_terms = []
-    class_need: Dict[str, int] = {}
-    class_order_weight: Dict[str, int] = {}
-    total_classes = len(class_rows)
-    for row, shift, shift_row_id, index in shift_rows:
-        required = state.minSlotsByRowId.get(
-            shift_row_id, MinSlots(weekday=0, weekend=0)
-        )
-        is_weekend = _is_weekend_or_holiday(dateISO, state.holidays)
-        base_target = required.weekend if is_weekend else required.weekday
-        override = state.slotOverridesByKey.get(f"{shift_row_id}__{dateISO}", 0)
-        target = max(0, base_target + override)
-        class_need[shift_row_id] = target
-        class_order_weight[shift_row_id] = max(1, total_classes - index) * 10 + (
-            4 - shift.order
-        )
-        already = len([a for a in class_assignments if a.rowId == shift_row_id])
-        missing = max(0, target - already)
-        if missing == 0:
-            if payload.only_fill_required:
-                assigned_vars = [
-                    var_map[(clinician.id, shift_row_id)]
-                    for clinician in free_clinicians
-                    if (clinician.id, shift_row_id) in var_map
-                ]
-                if assigned_vars:
-                    model.Add(sum(assigned_vars) == 0)
-            continue
-        assigned_vars = [
-            var_map[(clinician.id, shift_row_id)]
-            for clinician in free_clinicians
-            if (clinician.id, shift_row_id) in var_map
-        ]
-        if assigned_vars:
-            covered = model.NewBoolVar(f"covered_{shift_row_id}")
-            model.Add(sum(assigned_vars) >= covered)
-            coverage_terms.append(covered * class_order_weight[shift_row_id])
-            if payload.only_fill_required:
-                model.Add(sum(assigned_vars) <= missing)
-        slack = model.NewIntVar(0, missing, f"slack_{shift_row_id}")
-        if assigned_vars:
-            model.Add(sum(assigned_vars) + slack >= missing)
-        else:
-            model.Add(slack >= missing)
-        slack_vars.append(slack)
-        slack_terms.append(slack * class_order_weight[shift_row_id])
-
-    total_slack = sum(slack_terms) if slack_terms else 0
-    total_coverage = sum(coverage_terms) if coverage_terms else 0
-    total_priority = sum(
-        var * class_need.get(rid, 0) for (cid, rid), var in var_map.items()
-    )
-    total_preference = sum(
-        var * pref_weight.get(cid, {}).get(parent_by_shift_id.get(rid, ""), 0)
-        for (cid, rid), var in var_map.items()
-    )
-    if payload.only_fill_required:
-        model.Minimize(-total_coverage * 10000 + total_slack * 100 - total_preference)
+def _get_clinician_time_window(clinician: Any, weekday_key: str) -> Tuple[str, Optional[int], Optional[int]]:
+    raw = getattr(clinician, "preferredWorkingTimes", None)
+    if not isinstance(raw, dict):
+        return "none", None, None
+    entry = raw.get(weekday_key)
+    if not entry:
+        return "none", None, None
+    if isinstance(entry, dict):
+        start_raw = entry.get("startTime")
+        end_raw = entry.get("endTime")
+        requirement_raw = entry.get("requirement", entry.get("mode", entry.get("status")))
     else:
-        model.Minimize(
-            -total_coverage * 10000
-            + total_slack * 100
-            - total_priority * 10
-            - total_preference
-        )
-
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 2.0
-    solver.parameters.num_search_workers = 8
-    result = solver.Solve(model)
-
-    notes: List[str] = []
-    if result not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        return SolveDayResponse(dateISO=dateISO, assignments=[], notes=["No solution"])
-
-    new_assignments: List[Assignment] = []
-    for (clinician_id, row_id), var in var_map.items():
-        if solver.Value(var) == 1:
-            new_assignments.append(
-                Assignment(
-                    id=f"as-{dateISO}-{clinician_id}-{row_id}",
-                    rowId=row_id,
-                    dateISO=dateISO,
-                    clinicianId=clinician_id,
-                )
-            )
-
-    if slack_vars and solver.Value(total_slack) > 0:
-        notes.append("Could not fill all required slots.")
-
-    return SolveDayResponse(dateISO=dateISO, assignments=new_assignments, notes=notes)
-
-
-def _is_weekend_or_holiday(dateISO: str, holidays: List[Holiday]) -> bool:
-    y, m, d = dateISO.split("-")
-    import datetime
-
-    is_weekend = datetime.date(int(y), int(m), int(d)).weekday() >= 5
-    if is_weekend:
-        return True
-    return any(holiday.dateISO == dateISO for holiday in holidays)
+        start_raw = getattr(entry, "startTime", None)
+        end_raw = getattr(entry, "endTime", None)
+        requirement_raw = getattr(entry, "requirement", None)
+    requirement = _normalize_window_requirement(requirement_raw)
+    start_minutes = _parse_time_to_minutes(start_raw)
+    end_minutes = _parse_time_to_minutes(end_raw)
+    if (
+        requirement == "none"
+        or start_minutes is None
+        or end_minutes is None
+        or end_minutes <= start_minutes
+    ):
+        return "none", None, None
+    return requirement, start_minutes, end_minutes
 
 
 def _parse_time_to_minutes(value: Optional[str]) -> Optional[int]:
@@ -210,20 +98,304 @@ def _parse_time_to_minutes(value: Optional[str]) -> Optional[int]:
     return h * 60 + m
 
 
-def _build_shift_intervals(
-    class_rows: List[WorkplaceRow],
-) -> Dict[str, Tuple[int, int, str]]:
-    intervals: Dict[str, Tuple[int, int, str]] = {}
-    for row in class_rows:
-        for shift in row.subShifts:
-            start = _parse_time_to_minutes(shift.startTime) or 0
-            end = _parse_time_to_minutes(shift.endTime) or start
-            offset = shift.endDayOffset if isinstance(shift.endDayOffset, int) else 0
-            total_end = end + max(0, min(3, offset)) * 24 * 60
-            if total_end <= start:
-                total_end = start
-            intervals[f"{row.id}::{shift.id}"] = (start, total_end, row.locationId or "")
-    return intervals
+def _build_slot_interval(slot, location_id: str) -> Tuple[int, int, str]:
+    start = _parse_time_to_minutes(getattr(slot, "startTime", None))
+    if start is None:
+        start = DEFAULT_SUB_SHIFT_START_MINUTES
+    end = _parse_time_to_minutes(getattr(slot, "endTime", None))
+    if end is None:
+        end = start + DEFAULT_SUB_SHIFT_MINUTES
+    offset = (
+        slot.endDayOffset if isinstance(getattr(slot, "endDayOffset", None), int) else 0
+    )
+    total_end = end + max(0, min(3, offset)) * 24 * 60
+    if total_end <= start:
+        total_end = start
+    return start, total_end, location_id
+
+
+def _collect_slot_contexts(state) -> List[Dict[str, Any]]:
+    template = state.weeklyTemplate
+    if not template:
+        return []
+    location_order = {loc.id: idx for idx, loc in enumerate(state.locations)}
+    day_order = {day_type: idx for idx, day_type in enumerate(["mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday"])}
+    block_by_id = {block.id: block for block in template.blocks or []}
+    contexts: List[Dict[str, Any]] = []
+    for template_location in template.locations:
+        row_band_by_id = {band.id: band.order for band in template_location.rowBands}
+        col_band_by_id = {band.id: band for band in template_location.colBands}
+        location_id = (
+            template_location.locationId
+            if state.locationsEnabled
+            else DEFAULT_LOCATION_ID
+        )
+        for slot in template_location.slots:
+            block = block_by_id.get(slot.blockId)
+            if not block:
+                continue
+            col_band = col_band_by_id.get(slot.colBandId)
+            if not col_band:
+                continue
+            contexts.append(
+                {
+                    "slot": slot,
+                    "block": block,
+                    "slot_id": slot.id,
+                    "section_id": block.sectionId,
+                    "location_id": location_id,
+                    "row_order": row_band_by_id.get(slot.rowBandId, 0),
+                    "col_order": col_band.order,
+                    "day_type": col_band.dayType,
+                    "day_order": day_order.get(col_band.dayType, 0),
+                    "location_order": location_order.get(
+                        template_location.locationId, 0
+                    ),
+                }
+            )
+    contexts.sort(
+        key=lambda item: (
+            item["location_order"],
+            item["row_order"],
+            item["day_order"],
+            item["col_order"],
+        )
+    )
+    return contexts
+
+
+@router.post("/v1/solve", response_model=SolveDayResponse)
+def solve_day(payload: SolveDayRequest, current_user: UserPublic = Depends(_get_current_user)):
+    state = _load_state(current_user.username)
+    date_iso = payload.dateISO
+    holidays = state.holidays or []
+    day_type = _get_day_type(date_iso, holidays)
+    weekday_key = _get_weekday_key(date_iso)
+
+    slot_contexts = _collect_slot_contexts(state)
+    slot_ids = {ctx["slot_id"] for ctx in slot_contexts}
+    active_slots = [
+        ctx
+        for ctx in slot_contexts
+        if ctx.get("day_type") == day_type
+    ]
+
+    vacation_ids = set()
+    for clinician in state.clinicians:
+        for vacation in clinician.vacations:
+            if vacation.startISO <= date_iso <= vacation.endISO:
+                vacation_ids.add(clinician.id)
+                break
+
+    manual_assignments: Dict[str, List[str]] = {}
+    for assignment in state.assignments:
+        if assignment.dateISO != date_iso:
+            continue
+        if assignment.rowId not in slot_ids:
+            continue
+        if assignment.clinicianId in vacation_ids:
+            continue
+        manual_assignments.setdefault(assignment.clinicianId, []).append(assignment.rowId)
+
+    solver_settings = SolverSettings.model_validate(state.solverSettings or {})
+
+    model = cp_model.CpModel()
+    var_map: Dict[Tuple[str, str], cp_model.IntVar] = {}
+    pref_weight: Dict[str, Dict[str, int]] = {}
+    time_window_terms: List[cp_model.IntVar] = []
+    section_by_slot_id = {ctx["slot_id"]: ctx["section_id"] for ctx in slot_contexts}
+    slot_intervals: Dict[str, Tuple[int, int, str]] = {}
+    for ctx in slot_contexts:
+        slot_intervals[ctx["slot_id"]] = _build_slot_interval(
+            ctx["slot"], ctx["location_id"]
+        )
+
+    for clinician in state.clinicians:
+        if clinician.id in vacation_ids:
+            continue
+        window_req, window_start, window_end = _get_clinician_time_window(
+            clinician, weekday_key
+        )
+        weights: Dict[str, int] = {}
+        preferred = clinician.preferredClassIds or []
+        for idx, class_id in enumerate(preferred):
+            weights[class_id] = max(1, len(preferred) - idx)
+        pref_weight[clinician.id] = weights
+        for ctx in active_slots:
+            if ctx["section_id"] not in clinician.qualifiedClassIds:
+                continue
+            interval = slot_intervals.get(ctx["slot_id"])
+            if not interval:
+                continue
+            start, end, _loc = interval
+            fits_window = (
+                window_start is not None
+                and window_end is not None
+                and start >= window_start
+                and end <= window_end
+            )
+            if window_req == "mandatory" and not fits_window:
+                continue
+            var = model.NewBoolVar(f"x_{clinician.id}_{ctx['slot_id']}")
+            var_map[(clinician.id, ctx["slot_id"])] = var
+            if window_req == "preference" and fits_window:
+                time_window_terms.append(var)
+
+    if not solver_settings.allowMultipleShiftsPerDay:
+        for clinician in state.clinicians:
+            vars_for_clinician = [
+                var
+                for (cid, _sid), var in var_map.items()
+                if cid == clinician.id
+            ]
+            manual_count = len(manual_assignments.get(clinician.id, []))
+            if manual_count >= 1:
+                if vars_for_clinician:
+                    model.Add(sum(vars_for_clinician) == 0)
+            elif vars_for_clinician:
+                model.Add(sum(vars_for_clinician) <= 1)
+
+    for clinician in state.clinicians:
+        vars_for_clinician: List[Tuple[str, cp_model.IntVar, int, int, str]] = []
+        for (cid, slot_id), var in var_map.items():
+            if cid != clinician.id:
+                continue
+            interval = slot_intervals.get(slot_id)
+            if not interval:
+                continue
+            start, end, loc = interval
+            vars_for_clinician.append((slot_id, var, start, end, loc))
+        for i in range(len(vars_for_clinician)):
+            _sid_i, var_i, start_i, end_i, loc_i = vars_for_clinician[i]
+            for j in range(i + 1, len(vars_for_clinician)):
+                _sid_j, var_j, start_j, end_j, loc_j = vars_for_clinician[j]
+                overlaps = not (end_i <= start_j or end_j <= start_i)
+                if overlaps:
+                    model.Add(var_i + var_j <= 1)
+                if (
+                    solver_settings.enforceSameLocationPerDay
+                    and loc_i
+                    and loc_j
+                    and loc_i != loc_j
+                ):
+                    model.Add(var_i + var_j <= 1)
+
+        manual_entries: List[Tuple[int, int, str]] = []
+        for slot_id in manual_assignments.get(clinician.id, []):
+            interval = slot_intervals.get(slot_id)
+            if not interval:
+                continue
+            start, end, loc = interval
+            manual_entries.append((start, end, loc))
+        for _sid, var, start_i, end_i, loc_i in vars_for_clinician:
+            for start_m, end_m, loc_m in manual_entries:
+                overlaps = not (end_i <= start_m or end_m <= start_i)
+                if overlaps:
+                    model.Add(var <= 0)
+                if (
+                    solver_settings.enforceSameLocationPerDay
+                    and loc_i
+                    and loc_m
+                    and loc_i != loc_m
+                ):
+                    model.Add(var <= 0)
+
+    coverage_terms = []
+    slack_terms = []
+    notes: List[str] = []
+    total_slots = len(slot_contexts)
+    total_required = 0
+    order_weight_by_slot_id: Dict[str, int] = {}
+
+    def get_manual_count(slot_id: str) -> int:
+        return sum(1 for rows in manual_assignments.values() if slot_id in rows)
+
+    for index, ctx in enumerate(active_slots):
+        block = ctx["block"]
+        slot_id = ctx["slot_id"]
+        order_weight = max(1, total_slots - index) * 10
+        order_weight_by_slot_id[slot_id] = order_weight
+        raw_required = getattr(ctx["slot"], "requiredSlots", 0)
+        base_required = raw_required if isinstance(raw_required, int) else 0
+        override = state.slotOverridesByKey.get(f"{slot_id}__{date_iso}", 0)
+        target = max(0, base_required + override)
+        total_required += target
+        already = get_manual_count(slot_id)
+        missing = max(0, target - already)
+        vars_here = [
+            var for (cid, sid), var in var_map.items() if sid == slot_id
+        ]
+        if missing == 0:
+            if payload.only_fill_required and vars_here:
+                model.Add(sum(vars_here) == 0)
+            continue
+        if vars_here:
+            covered = model.NewBoolVar(f"covered_{slot_id}")
+            model.Add(sum(vars_here) + already >= covered)
+            coverage_terms.append(covered * order_weight)
+            if payload.only_fill_required:
+                model.Add(sum(vars_here) <= missing)
+        slack = model.NewIntVar(0, missing, f"slack_{slot_id}")
+        if vars_here:
+            model.Add(sum(vars_here) + slack + already >= missing)
+        else:
+            model.Add(slack + already >= missing)
+        slack_terms.append(slack * order_weight)
+
+    total_slack = sum(slack_terms) if slack_terms else 0
+    total_coverage = sum(coverage_terms) if coverage_terms else 0
+    total_priority = sum(
+        var * order_weight_by_slot_id.get(sid, 0)
+        for (cid, sid), var in var_map.items()
+    )
+    total_preference = sum(
+        var * pref_weight.get(cid, {}).get(section_by_slot_id.get(sid, ""), 0)
+        for (cid, sid), var in var_map.items()
+    )
+    total_time_window_preference = sum(time_window_terms) if time_window_terms else 0
+
+    if payload.only_fill_required:
+        model.Minimize(
+            -total_coverage * 10000
+            + total_slack * 100
+            - total_preference
+            - total_time_window_preference * PREFERRED_WINDOW_WEIGHT
+        )
+    else:
+        model.Minimize(
+            -total_coverage * 10000
+            + total_slack * 100
+            - total_priority * 10
+            - total_preference
+            - total_time_window_preference * PREFERRED_WINDOW_WEIGHT
+        )
+
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = 2.0
+    solver.parameters.num_search_workers = 8
+    result = solver.Solve(model)
+
+    if result not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        return SolveDayResponse(dateISO=date_iso, assignments=[], notes=["No solution"])
+
+    new_assignments: List[Assignment] = []
+    for (clinician_id, slot_id), var in var_map.items():
+        if solver.Value(var) == 1:
+            new_assignments.append(
+                Assignment(
+                    id=f"as-{date_iso}-{clinician_id}-{slot_id}",
+                    rowId=slot_id,
+                    dateISO=date_iso,
+                    clinicianId=clinician_id,
+                )
+            )
+
+    if slack_terms and solver.Value(total_slack) > 0:
+        notes.append("Could not fill all required slots.")
+    if payload.only_fill_required and total_required == 0:
+        notes.append("No required slots detected for the selected day.")
+
+    return SolveDayResponse(dateISO=date_iso, assignments=new_assignments, notes=notes)
 
 
 @router.post("/v1/solve/week", response_model=SolveWeekResponse)
@@ -258,22 +430,18 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
     target_date_set = set(target_day_isos)
     day_index_by_iso = {date_iso: idx for idx, date_iso in enumerate(day_isos)}
 
-    class_rows = [row for row in state.rows if row.kind == "class"]
-    shift_intervals = _build_shift_intervals(class_rows)
-    shift_rows: List[tuple[WorkplaceRow, SubShift, str, int]] = []
-    parent_by_shift_id: Dict[str, str] = {}
-    for index, row in enumerate(class_rows):
-        for shift in row.subShifts:
-            sid = f"{row.id}::{shift.id}"
-            shift_rows.append((row, shift, sid, index))
-            parent_by_shift_id[sid] = row.id
+    slot_contexts = _collect_slot_contexts(state)
+    slot_ids = {ctx["slot_id"] for ctx in slot_contexts}
+    section_by_slot_id = {ctx["slot_id"]: ctx["section_id"] for ctx in slot_contexts}
+    slot_intervals: Dict[str, Tuple[int, int, str]] = {}
+    for ctx in slot_contexts:
+        slot_intervals[ctx["slot_id"]] = _build_slot_interval(
+            ctx["slot"], ctx["location_id"]
+        )
 
     holidays = state.holidays or []
-    weekend_holidays = {h.dateISO for h in holidays}
-    def is_weekend_or_holiday(diso: str) -> bool:
-        y, m, d = diso.split("-")
-        dt = datetime(int(y), int(m), int(d))
-        return dt.weekday() >= 5 or diso in weekend_holidays
+    day_type_by_iso = {iso: _get_day_type(iso, holidays) for iso in day_isos}
+    weekday_by_iso = {iso: _get_weekday_key(iso) for iso in day_isos}
 
     vac_by_clinician: Dict[str, List[Tuple[str, str]]] = {}
     for clinician in state.clinicians:
@@ -285,10 +453,9 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
                 return True
         return False
 
-    shift_row_ids = {sid for _row, _shift, sid, _idx in shift_rows}
     manual_assignments: Dict[Tuple[str, str], List[str]] = {}
     for assignment in state.assignments:
-        if assignment.rowId not in shift_row_ids:
+        if assignment.rowId not in slot_ids:
             continue
         if assignment.dateISO not in day_isos:
             continue
@@ -306,21 +473,62 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
         for idx, class_id in enumerate(preferred):
             weights[class_id] = max(1, len(preferred) - idx)
         pref_weight[clinician.id] = weights
+    working_window_by_clinician_date: Dict[Tuple[str, str], Tuple[str, int, int]] = {}
+    for clinician in state.clinicians:
+        for date_iso in target_day_isos:
+            weekday_key = weekday_by_iso.get(date_iso)
+            if not weekday_key:
+                continue
+            requirement, start_minutes, end_minutes = _get_clinician_time_window(
+                clinician, weekday_key
+            )
+            if requirement == "none" or start_minutes is None or end_minutes is None:
+                continue
+            working_window_by_clinician_date[(clinician.id, date_iso)] = (
+                requirement,
+                start_minutes,
+                end_minutes,
+            )
 
     model = cp_model.CpModel()
     var_map: Dict[Tuple[str, str, str], cp_model.IntVar] = {}
+    time_window_terms: List[cp_model.IntVar] = []
+
+    active_slots_by_date: Dict[str, List[Dict[str, Any]]] = {}
+    for date_iso in target_day_isos:
+        day_type = day_type_by_iso.get(date_iso)
+        active_slots_by_date[date_iso] = [
+            ctx
+            for ctx in slot_contexts
+            if ctx.get("day_type") == day_type
+        ]
 
     # Build vars
     for clinician in state.clinicians:
         for date_iso in target_day_isos:
             if is_on_vac(clinician.id, date_iso):
                 continue
-            for row, shift, shift_row_id, _idx in shift_rows:
-                if row.id not in clinician.qualifiedClassIds:
+            window = working_window_by_clinician_date.get((clinician.id, date_iso))
+            for ctx in active_slots_by_date.get(date_iso, []):
+                if ctx["section_id"] not in clinician.qualifiedClassIds:
                     continue
-                var_map[(clinician.id, date_iso, shift_row_id)] = model.NewBoolVar(
-                    f"x_{clinician.id}_{date_iso}_{shift_row_id}"
-                )
+                slot_id = ctx["slot_id"]
+                interval = slot_intervals.get(slot_id)
+                if not interval:
+                    continue
+                start, end, _loc = interval
+                fits_window = False
+                if window:
+                    requirement, window_start, window_end = window
+                    fits_window = (
+                        start >= window_start and end <= window_end
+                    )
+                    if requirement == "mandatory" and not fits_window:
+                        continue
+                var = model.NewBoolVar(f"x_{clinician.id}_{date_iso}_{slot_id}")
+                var_map[(clinician.id, date_iso, slot_id)] = var
+                if window and window[0] == "preference" and fits_window:
+                    time_window_terms.append(var)
 
     # At most once per day if disabled
     if not solver_settings.allowMultipleShiftsPerDay:
@@ -345,7 +553,7 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
         for (cid, date_iso, sid), var in var_map.items():
             if cid != clinician.id:
                 continue
-            interval = shift_intervals.get(sid)
+            interval = slot_intervals.get(sid)
             day_index = day_index_by_iso.get(date_iso)
             if not interval or day_index is None:
                 continue
@@ -378,7 +586,7 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
             if day_index is None:
                 continue
             for row_id in row_ids:
-                interval = shift_intervals.get(row_id)
+                interval = slot_intervals.get(row_id)
                 if not interval:
                     continue
                 start, end, loc = interval
@@ -404,49 +612,53 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
     coverage_terms = []
     slack_terms = []
     notes: List[str] = []
-    total_classes = len(class_rows)
-    order_weight_by_shift_id: Dict[str, int] = {}
+    total_slots = len(slot_contexts)
+    order_weight_by_slot_id: Dict[str, int] = {}
     BIG = 20
+    total_required = 0
 
-    def get_manual_count(date_iso: str, shift_row_id: str) -> int:
+    def get_manual_count(date_iso: str, slot_id: str) -> int:
         count = 0
-        for cid, diso in manual_assignments:
+        for (cid, diso), row_ids in manual_assignments.items():
             if diso != date_iso:
                 continue
-            for rid in manual_assignments[(cid, diso)]:
-                if rid == shift_row_id:
+            for rid in row_ids:
+                if rid == slot_id:
                     count += 1
         return count
 
-    for row, shift, shift_row_id, index in shift_rows:
-        required = state.minSlotsByRowId.get(
-            shift_row_id, MinSlots(weekday=0, weekend=0)
-        )
-        order_weight = max(1, total_classes - index) * 10 + (4 - shift.order)
-        order_weight_by_shift_id[shift_row_id] = order_weight
+    for index, ctx in enumerate(slot_contexts):
+        block = ctx["block"]
+        slot_id = ctx["slot_id"]
+        order_weight = max(1, total_slots - index) * 10
+        order_weight_by_slot_id[slot_id] = order_weight
         for date_iso in target_day_isos:
-            is_weekend = is_weekend_or_holiday(date_iso)
-            base_target = required.weekend if is_weekend else required.weekday
-            override = state.slotOverridesByKey.get(f"{shift_row_id}__{date_iso}", 0)
+            day_type = day_type_by_iso.get(date_iso)
+            if ctx.get("day_type") != day_type:
+                continue
+            raw_required = getattr(ctx["slot"], "requiredSlots", 0)
+            base_target = raw_required if isinstance(raw_required, int) else 0
+            override = state.slotOverridesByKey.get(f"{slot_id}__{date_iso}", 0)
             target = max(0, base_target + override)
-            already = get_manual_count(date_iso, shift_row_id)
+            total_required += target
+            already = get_manual_count(date_iso, slot_id)
             missing = max(0, target - already)
             vars_here = [
                 var
                 for (cid, d, sid), var in var_map.items()
-                if d == date_iso and sid == shift_row_id
+                if d == date_iso and sid == slot_id
             ]
             if missing == 0:
                 if payload.only_fill_required and vars_here:
                     model.Add(sum(vars_here) == 0)
                 continue
             if vars_here:
-                covered = model.NewBoolVar(f"covered_{shift_row_id}_{date_iso}")
+                covered = model.NewBoolVar(f"covered_{slot_id}_{date_iso}")
                 model.Add(sum(vars_here) + already >= covered)
                 coverage_terms.append(covered * order_weight)
                 if payload.only_fill_required:
                     model.Add(sum(vars_here) <= missing)
-            slack = model.NewIntVar(0, missing, f"slack_{shift_row_id}_{date_iso}")
+            slack = model.NewIntVar(0, missing, f"slack_{slot_id}_{date_iso}")
             if vars_here:
                 model.Add(sum(vars_here) + slack + already >= missing)
             else:
@@ -458,7 +670,9 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
     rest_before = max(0, solver_settings.onCallRestDaysBefore or 0)
     rest_after = max(0, solver_settings.onCallRestDaysAfter or 0)
     rest_shift_row_ids = {
-        sid for row, _shift, sid, _idx in shift_rows if row.id == rest_class_id
+        ctx["slot_id"]
+        for ctx in slot_contexts
+        if ctx["section_id"] == rest_class_id
     }
     if (
         solver_settings.onCallRestEnabled
@@ -519,26 +733,100 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
                 for offset in range(1, rest_after + 1):
                     apply_rest_constraint(day_index + offset)
 
+    hours_penalty_terms: List[cp_model.IntVar] = []
+    tolerance_hours = max(0, solver_settings.workingHoursToleranceHours or 0)
+    total_days = len(target_day_isos)
+    scale = total_days / 7.0 if total_days else 0
+    slot_duration_by_id = {
+        slot_id: max(0, end - start)
+        for slot_id, (start, end, _loc) in slot_intervals.items()
+    }
+    manual_minutes_by_clinician: Dict[str, int] = {c.id: 0 for c in state.clinicians}
+    for (clinician_id, date_iso), row_ids in manual_assignments.items():
+        if date_iso not in target_date_set:
+            continue
+        total_minutes = 0
+        for row_id in row_ids:
+            duration = slot_duration_by_id.get(row_id)
+            if duration is None:
+                continue
+            total_minutes += duration
+        manual_minutes_by_clinician[clinician_id] = (
+            manual_minutes_by_clinician.get(clinician_id, 0) + total_minutes
+        )
+    for clinician in state.clinicians:
+        if not isinstance(clinician.workingHoursPerWeek, (int, float)):
+            continue
+        if clinician.workingHoursPerWeek <= 0:
+            continue
+        target_minutes = int(round(clinician.workingHoursPerWeek * 60 * scale))
+        tol_minutes = int(round(tolerance_hours * 60 * scale))
+        if target_minutes <= 0 and tol_minutes <= 0:
+            continue
+        decision_terms = [
+            var * slot_duration_by_id.get(sid, 0)
+            for (cid, _d, sid), var in var_map.items()
+            if cid == clinician.id
+        ]
+        max_decision_minutes = sum(
+            slot_duration_by_id.get(sid, 0)
+            for (cid, _d, sid) in var_map.keys()
+            if cid == clinician.id
+        )
+        manual_minutes = manual_minutes_by_clinician.get(clinician.id, 0)
+        max_total = manual_minutes + max_decision_minutes
+        target_minus_tol = max(0, target_minutes - tol_minutes)
+        target_plus_tol = target_minutes + tol_minutes
+        total_minutes_expr = manual_minutes + sum(decision_terms)
+        max_under = max(max_total, target_minus_tol)
+        under = model.NewIntVar(0, max_under, f"under_{clinician.id}")
+        over = model.NewIntVar(0, max_total, f"over_{clinician.id}")
+        model.Add(under >= target_minus_tol - total_minutes_expr)
+        model.Add(over >= total_minutes_expr - target_plus_tol)
+        under_blocks = model.NewIntVar(
+            0,
+            max_under // WORKING_HOURS_BLOCK_MINUTES + 1,
+            f"under_blocks_{clinician.id}",
+        )
+        over_blocks = model.NewIntVar(
+            0,
+            max_total // WORKING_HOURS_BLOCK_MINUTES + 1,
+            f"over_blocks_{clinician.id}",
+        )
+        model.AddDivisionEquality(under_blocks, under, WORKING_HOURS_BLOCK_MINUTES)
+        model.AddDivisionEquality(over_blocks, over, WORKING_HOURS_BLOCK_MINUTES)
+        hours_penalty_terms.append(under_blocks + over_blocks)
+
     total_slack = sum(slack_terms) if slack_terms else 0
     total_coverage = sum(coverage_terms) if coverage_terms else 0
 
     total_priority = sum(
-        var * order_weight_by_shift_id.get(sid, 0)
+        var * order_weight_by_slot_id.get(sid, 0)
         for (cid, _d, sid), var in var_map.items()
     )
     total_preference = sum(
-        var * pref_weight.get(cid, {}).get(parent_by_shift_id.get(sid, ""), 0)
+        var * pref_weight.get(cid, {}).get(section_by_slot_id.get(sid, ""), 0)
         for (cid, _d, sid), var in var_map.items()
     )
+    total_time_window_preference = sum(time_window_terms) if time_window_terms else 0
+    total_hours_penalty = sum(hours_penalty_terms) if hours_penalty_terms else 0
 
     if payload.only_fill_required:
-        model.Minimize(-total_coverage * 10000 + total_slack * 100 - total_preference)
+        model.Minimize(
+            -total_coverage * 10000
+            + total_slack * 100
+            - total_preference
+            - total_time_window_preference * PREFERRED_WINDOW_WEIGHT
+            + total_hours_penalty * WORKING_HOURS_PENALTY_WEIGHT
+        )
     else:
         model.Minimize(
             -total_coverage * 10000
             + total_slack * 100
             - total_priority * 10
             - total_preference
+            - total_time_window_preference * PREFERRED_WINDOW_WEIGHT
+            + total_hours_penalty * WORKING_HOURS_PENALTY_WEIGHT
         )
 
     solver = cp_model.CpSolver()
@@ -614,6 +902,8 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
 
     if solver.Value(total_slack) > 0:
         notes.append("Could not fill all required slots.")
+    if payload.only_fill_required and total_required == 0:
+        notes.append("No required slots detected for the selected timeframe.")
 
     return SolveWeekResponse(
         startISO=range_start.isoformat(),

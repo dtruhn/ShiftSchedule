@@ -1,8 +1,8 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 
 const API_BASE = process.env.PLAYWRIGHT_API_URL ?? "http://localhost:8000";
-const USERNAME = process.env.E2E_USERNAME ?? "admin";
-const PASSWORD = process.env.E2E_PASSWORD ?? "change-me";
+const USERNAME = process.env.E2E_USERNAME ?? "testuser";
+const PASSWORD = process.env.E2E_PASSWORD ?? "sdjhfl34-wfsdfwsd2";
 const TOKEN_STORAGE_KEY = "authToken";
 
 export async function fetchAuthToken(request: APIRequestContext) {

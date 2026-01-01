@@ -9,6 +9,12 @@
   border-radius: 0.5rem;
 }
 
+.calendar-scroll {
+  height: auto !important;
+  max-height: none !important;
+  overflow-y: hidden !important;
+}
+
 @media print {
   @page {
     size: A4 landscape;
@@ -20,6 +26,12 @@
     -webkit-print-color-adjust: exact;
     background: #fff !important;
     height: auto !important;
+  }
+  .schedule-grid {
+    max-width: none !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    padding-bottom: 0 !important;
   }
   .schedule-grid {
     padding-bottom: 0 !important;

@@ -1,3 +1,4 @@
+import type { WeeklyCalendarTemplate } from "../api/client";
 import { addDays, startOfWeek, toISODate } from "../lib/date";
 
 export type WorkplaceRow = {
@@ -5,6 +6,7 @@ export type WorkplaceRow = {
   name: string;
   kind: "class" | "pool";
   dotColorClass: string;
+  blockColor?: string;
   locationId?: string;
   subShifts?: SubShift[];
 };
@@ -43,10 +45,19 @@ export type Clinician = {
   qualifiedClassIds: string[];
   preferredClassIds: string[];
   vacations: VacationPeriod[];
+  preferredWorkingTimes?: {
+    mon: { startTime: string; endTime: string; requirement: "none" | "preference" | "mandatory" };
+    tue: { startTime: string; endTime: string; requirement: "none" | "preference" | "mandatory" };
+    wed: { startTime: string; endTime: string; requirement: "none" | "preference" | "mandatory" };
+    thu: { startTime: string; endTime: string; requirement: "none" | "preference" | "mandatory" };
+    fri: { startTime: string; endTime: string; requirement: "none" | "preference" | "mandatory" };
+    sat: { startTime: string; endTime: string; requirement: "none" | "preference" | "mandatory" };
+    sun: { startTime: string; endTime: string; requirement: "none" | "preference" | "mandatory" };
+  };
   workingHoursPerWeek?: number;
 };
 
-export const locations: Location[] = [{ id: "loc-default", name: "Default" }];
+export const locations: Location[] = [{ id: "loc-default", name: "Berlin" }];
 export const locationsEnabled = true;
 
 export const workplaceRows: WorkplaceRow[] = [
@@ -55,74 +66,7 @@ export const workplaceRows: WorkplaceRow[] = [
     name: "MRI",
     kind: "class",
     dotColorClass: "bg-violet-500",
-    locationId: "loc-default",
-    subShifts: [
-      {
-        id: "s1",
-        name: "Shift 1",
-        order: 1,
-        startTime: "08:00",
-        endTime: "16:00",
-        endDayOffset: 0,
-      },
-    ],
-  },
-  {
-    id: "ct",
-    name: "CT",
-    kind: "class",
-    dotColorClass: "bg-cyan-500",
-    locationId: "loc-default",
-    subShifts: [
-      {
-        id: "s1",
-        name: "Shift 1",
-        order: 1,
-        startTime: "08:00",
-        endTime: "16:00",
-        endDayOffset: 0,
-      },
-    ],
-  },
-  {
-    id: "sonography",
-    name: "Sonography",
-    kind: "class",
-    dotColorClass: "bg-fuchsia-500",
-    locationId: "loc-default",
-    subShifts: [
-      {
-        id: "s1",
-        name: "Shift 1",
-        order: 1,
-        startTime: "08:00",
-        endTime: "16:00",
-        endDayOffset: 0,
-      },
-    ],
-  },
-  {
-    id: "conventional",
-    name: "Conventional",
-    kind: "class",
-    dotColorClass: "bg-amber-400",
-    locationId: "loc-default",
-    subShifts: [
-      {
-        id: "s1",
-        name: "Shift 1",
-        order: 1,
-        startTime: "08:00",
-        endTime: "16:00",
-        endDayOffset: 0,
-      },
-    ],
-  },
-  {
-    id: "on-call",
-    name: "On Call",
-    kind: "class",
-    dotColorClass: "bg-blue-600",
+    blockColor: "#E8E1F5",
     locationId: "loc-default",
     subShifts: [
       {
@@ -160,20 +104,17 @@ export const defaultMinSlotsByRowId: Record<
   string,
   { weekday: number; weekend: number }
 > = {
-  "mri::s1": { weekday: 2, weekend: 1 },
-  "ct::s1": { weekday: 2, weekend: 1 },
-  "sonography::s1": { weekday: 2, weekend: 1 },
-  "conventional::s1": { weekday: 2, weekend: 1 },
-  "on-call::s1": { weekday: 1, weekend: 1 },
+  "mri::s1": { weekday: 1, weekend: 1 },
 };
 
 export const defaultSolverSettings = {
   allowMultipleShiftsPerDay: false,
   enforceSameLocationPerDay: false,
   onCallRestEnabled: false,
-  onCallRestClassId: "on-call",
+  onCallRestClassId: "mri",
   onCallRestDaysBefore: 1,
   onCallRestDaysAfter: 1,
+  workingHoursToleranceHours: 5,
 };
 
 export const defaultSolverRules: Array<{
@@ -188,62 +129,63 @@ export const defaultSolverRules: Array<{
 
 export const clinicians: Clinician[] = [
   {
-    id: "sarah-chen",
-    name: "Sarah Chen",
-    qualifiedClassIds: ["mri", "sonography", "conventional"],
-    preferredClassIds: ["sonography", "mri"],
-    vacations: [{ id: "vac-1", startISO: "2025-12-18", endISO: "2025-12-20" }],
+    id: "alex-hartmann",
+    name: "Alex Hartmann",
+    qualifiedClassIds: ["mri"],
+    preferredClassIds: ["mri"],
+    vacations: [],
+    preferredWorkingTimes: {
+      mon: { startTime: "07:00", endTime: "17:00", requirement: "none" },
+      tue: { startTime: "07:00", endTime: "17:00", requirement: "none" },
+      wed: { startTime: "07:00", endTime: "17:00", requirement: "none" },
+      thu: { startTime: "07:00", endTime: "17:00", requirement: "none" },
+      fri: { startTime: "07:00", endTime: "17:00", requirement: "none" },
+      sat: { startTime: "07:00", endTime: "17:00", requirement: "none" },
+      sun: { startTime: "07:00", endTime: "17:00", requirement: "none" },
+    },
     workingHoursPerWeek: 38,
   },
-  {
-    id: "james-wilson",
-    name: "James Wilson",
-    qualifiedClassIds: ["mri", "on-call"],
-    preferredClassIds: ["on-call"],
-    vacations: [],
-    workingHoursPerWeek: 40,
-  },
-  {
-    id: "michael-ross",
-    name: "Michael Ross",
-    qualifiedClassIds: ["ct", "conventional", "on-call"],
-    preferredClassIds: ["ct"],
-    vacations: [],
-    workingHoursPerWeek: 36,
-  },
-  {
-    id: "emily-brooks",
-    name: "Emily Brooks",
-    qualifiedClassIds: ["sonography", "conventional"],
-    preferredClassIds: ["conventional"],
-    vacations: [],
-    workingHoursPerWeek: 32,
-  },
-  {
-    id: "david-kim",
-    name: "David Kim",
-    qualifiedClassIds: ["ct", "sonography"],
-    preferredClassIds: ["ct"],
-    vacations: [],
-    workingHoursPerWeek: 40,
-  },
-  {
-    id: "ava-patel",
-    name: "Ava Patel",
-    qualifiedClassIds: ["ct", "mri"],
-    preferredClassIds: [],
-    vacations: [],
-    workingHoursPerWeek: 28,
-  },
-  {
-    id: "lena-park",
-    name: "Lena Park",
-    qualifiedClassIds: ["conventional"],
-    preferredClassIds: ["conventional"],
-    vacations: [],
-    workingHoursPerWeek: 30,
-  },
 ];
+
+export const weeklyTemplate: WeeklyCalendarTemplate = {
+  version: 4,
+  blocks: [
+    {
+      id: "block-mri-1",
+      sectionId: "mri",
+      requiredSlots: 0,
+    },
+  ],
+  locations: [
+    {
+      locationId: "loc-default",
+      rowBands: [{ id: "row-1", label: "Row 1", order: 1 }],
+      colBands: [
+        { id: "col-mon-1", label: "", order: 1, dayType: "mon" },
+        { id: "col-tue-1", label: "", order: 1, dayType: "tue" },
+        { id: "col-wed-1", label: "", order: 1, dayType: "wed" },
+        { id: "col-thu-1", label: "", order: 1, dayType: "thu" },
+        { id: "col-fri-1", label: "", order: 1, dayType: "fri" },
+        { id: "col-sat-1", label: "", order: 1, dayType: "sat" },
+        { id: "col-sun-1", label: "", order: 1, dayType: "sun" },
+        { id: "col-holiday-1", label: "", order: 1, dayType: "holiday" },
+      ],
+      slots: [
+        {
+          id: "slot-mri-mon-1",
+          locationId: "loc-default",
+          rowBandId: "row-1",
+          colBandId: "col-mon-1",
+          blockId: "block-mri-1",
+          requiredSlots: 1,
+          startTime: "08:00",
+          endTime: "16:00",
+          endDayOffset: 0,
+        },
+      ],
+    },
+  ],
+};
 
 const seedWeekStart = startOfWeek(new Date("2025-12-21T12:00:00"), 1);
 

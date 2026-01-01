@@ -22,7 +22,6 @@ from .state import (
     _normalize_week_start,
     _parse_date_input,
     _parse_iso_datetime,
-    _resolve_shift_row,
 )
 
 router = APIRouter()
@@ -169,14 +168,18 @@ def get_public_web_week(
             headers=headers,
         )
 
-    row_by_id = {row.id: row for row in state.rows}
     clinician_by_id = {clinician.id: clinician for clinician in state.clinicians}
+    slot_ids = {
+        slot.id
+        for location in (state.weeklyTemplate.locations if state.weeklyTemplate else [])
+        for slot in location.slots
+    }
+    pool_row_ids = {row.id for row in state.rows if row.kind == "pool"}
     assignments: List[Dict[str, Any]] = []
     for assignment in state.assignments:
         if assignment.dateISO < week_start_iso or assignment.dateISO > week_end_iso:
             continue
-        row, _sub_shift = _resolve_shift_row(assignment.rowId, row_by_id)
-        if not row:
+        if assignment.rowId not in slot_ids and assignment.rowId not in pool_row_ids:
             continue
         clinician = clinician_by_id.get(assignment.clinicianId)
         if not clinician:
@@ -208,6 +211,9 @@ def get_public_web_week(
             for row_id, min_slots in state.minSlotsByRowId.items()
         },
         "slotOverridesByKey": state.slotOverridesByKey,
+        "weeklyTemplate": state.weeklyTemplate.model_dump()
+        if state.weeklyTemplate
+        else None,
         "holidays": holidays,
         "solverSettings": state.solverSettings,
         "solverRules": state.solverRules,

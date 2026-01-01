@@ -1,7 +1,20 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { attachStepScreenshot } from "./utils/screenshots";
 import { fetchAuthToken, seedAuthToken } from "./utils/auth";
 
 const API_BASE = process.env.PLAYWRIGHT_API_URL ?? "http://localhost:8000";
+const UI_USERNAME = process.env.E2E_USERNAME ?? "testuser";
+const UI_PASSWORD = process.env.E2E_PASSWORD ?? "sdjhfl34-wfsdfwsd2";
+const DAY_TYPES = [
+  "mon",
+  "tue",
+  "wed",
+  "thu",
+  "fri",
+  "sat",
+  "sun",
+  "holiday",
+] as const;
 
 const toISODate = (date: Date) => {
   const y = date.getFullYear();
@@ -17,6 +30,17 @@ const startOfWeek = (date: Date) => {
   d.setDate(d.getDate() - day);
   return d;
 };
+
+const getDayTypeForISO = (dateISO: string) => {
+  const [year, month, day] = dateISO.split("-").map((value) => Number(value));
+  const date = new Date(Date.UTC(year, (month ?? 1) - 1, day ?? 1));
+  const idx = date.getUTCDay();
+  const byIndex = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+  return byIndex[idx] ?? "mon";
+};
+
+const slotRowIdForDate = (baseRowId: string, dateISO: string) =>
+  `${baseRowId}__${getDayTypeForISO(dateISO)}`;
 
 type TestClassRow = {
   id: string;
@@ -143,9 +167,89 @@ const buildTestState = ({
   };
 };
 
+const buildTemplateState = ({
+  dateISO,
+  classRows,
+  blocks,
+  slots,
+  rowBands,
+  columnCounts,
+  solverSettings = {},
+}: {
+  dateISO: string;
+  classRows: TestClassRow[];
+  blocks: Array<{ id: string; sectionId: string; label?: string }>;
+  slots: Array<{
+    id: string;
+    locationId: string;
+    rowBandId: string;
+    colBandId: string;
+    blockId: string;
+    requiredSlots: number;
+    startTime?: string;
+    endTime?: string;
+    endDayOffset?: number;
+  }>;
+  rowBands: Array<{ id: string; label: string; order: number }>;
+  columnCounts?: Partial<Record<(typeof DAY_TYPES)[number], number>>;
+  solverSettings?: Partial<typeof defaultSolverSettings>;
+}) => {
+  const base = buildTestState({ dateISO, classRows, solverSettings });
+  const locationId = base.locations[0]?.id ?? "loc-default";
+  const colBands = DAY_TYPES.flatMap((dayType) => {
+    const count = Math.max(1, columnCounts?.[dayType] ?? 1);
+    return Array.from({ length: count }, (_, index) => ({
+      id: `${locationId}-col-${dayType}-${index + 1}`,
+      label: "",
+      order: index + 1,
+      dayType,
+    }));
+  });
+  return {
+    ...base,
+    weeklyTemplate: {
+      version: 4,
+      blocks: blocks.map((block) => ({
+        id: block.id,
+        sectionId: block.sectionId,
+        label: block.label,
+        requiredSlots: 0,
+      })),
+      locations: [
+        {
+          locationId,
+          rowBands,
+          colBands,
+          slots,
+        },
+      ],
+    },
+  };
+};
+
 const today = new Date();
 const weekStart = startOfWeek(today);
 const testDateISO = toISODate(weekStart);
+const slotRowId = slotRowIdForDate(classRowId, testDateISO);
+const secondarySlotRowId = slotRowIdForDate(secondaryClassRowId, testDateISO);
+
+const loginViaUI = async (
+  page: import("@playwright/test").Page,
+  testInfo?: import("@playwright/test").TestInfo,
+) => {
+  await page.goto("/");
+  if (testInfo) {
+    await attachStepScreenshot(page, testInfo, "login-screen");
+  }
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  await page.fill("#login-username", UI_USERNAME);
+  await page.fill("#login-password", UI_PASSWORD);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.locator('[data-schedule-grid="true"]')).toBeVisible();
+  if (testInfo) {
+    await attachStepScreenshot(page, testInfo, "schedule-after-login");
+  }
+};
 
 test.describe.serial("app flows", () => {
   let token = "";
@@ -178,8 +282,9 @@ test.describe.serial("app flows", () => {
     });
   });
 
-  test("schedule view loads with core panels", async ({ page }) => {
+  test("schedule view loads with core panels", async ({ page }, testInfo) => {
     await page.goto("/");
+    await attachStepScreenshot(page, testInfo, "schedule-core-panels");
     await expect(page.getByText("Automated Shift Planning")).toBeVisible();
     await expect(page.getByRole("button", { name: "Open Export" })).toBeVisible();
     await expect(
@@ -188,52 +293,337 @@ test.describe.serial("app flows", () => {
     await expect(page.locator('[data-schedule-grid="true"]')).toBeVisible();
   });
 
-  test("settings view opens from top bar", async ({ page }) => {
+  test("settings view opens from top bar", async ({ page }, testInfo) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Settings" }).click();
+    await attachStepScreenshot(page, testInfo, "settings-open");
     await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
-    await expect(page.getByText("Sections and Shifts")).toBeVisible();
+    await expect(page.getByText("Weekly Calendar Template")).toBeVisible();
   });
 
-  test("vacation overview modal opens", async ({ page }) => {
+  test("vacation overview modal opens", async ({ page }, testInfo) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Open Vacation Planner" }).click();
+    await attachStepScreenshot(page, testInfo, "vacation-overview-open");
     await expect(page.getByText("Vacation Overview")).toBeVisible();
     await page
       .getByRole("button", { name: "Close" })
       .filter({ hasText: "Close" })
       .click();
+    await attachStepScreenshot(page, testInfo, "vacation-overview-closed");
     await expect(page.getByText("Vacation Overview")).toBeHidden();
   });
 
-  test("dragging a clinician from pool assigns them to a shift", async ({ page }) => {
+  test("dragging a clinician from pool assigns them to a shift", async ({ page }, testInfo) => {
     await page.goto("/");
     const poolCell = page.locator(
       `[data-schedule-cell=\"true\"][data-row-id=\"${poolRowId}\"][data-date-iso=\"${testDateISO}\"]`,
     );
     const shiftCell = page.locator(
-      `[data-schedule-cell=\"true\"][data-row-id=\"${classRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+      `[data-schedule-cell=\"true\"][data-row-id=\"${slotRowId}\"][data-date-iso=\"${testDateISO}\"]`,
     );
     const draggable = poolCell.locator('div[draggable="true"]').first();
     await expect(draggable).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "drag-before");
     await draggable.dragTo(shiftCell);
+    await attachStepScreenshot(page, testInfo, "drag-after");
     await expect(shiftCell.getByText("Dr. Test")).toBeVisible();
   });
 
-  test("solver allocates open slots in the visible week", async ({ page }) => {
+  test("solver allocates open slots in the visible week", async ({ page }, testInfo) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Use visible week" }).click();
+    await attachStepScreenshot(page, testInfo, "solver-before");
     await page.getByRole("button", { name: "Run automated planning" }).click();
     const shiftCell = page.locator(
-      `[data-schedule-cell=\"true\"][data-row-id=\"${classRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+      `[data-schedule-cell=\"true\"][data-row-id=\"${slotRowId}\"][data-date-iso=\"${testDateISO}\"]`,
     );
     await expect(shiftCell.getByText("Dr. Test")).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "solver-after");
+  });
+
+  test("fill open slots only allows multiple shifts per day when enabled", async ({
+    page,
+    request,
+  }, testInfo) => {
+    const locationId = "loc-default";
+    const dayType = getDayTypeForISO(testDateISO);
+    const colBandId = `${locationId}-col-${dayType}-1`;
+    const rowBand1 = `${locationId}-row-1`;
+    const rowBand2 = `${locationId}-row-2`;
+    await request.post(`${API_BASE}/v1/state`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: buildTemplateState({
+        dateISO: testDateISO,
+        classRows: [{ id: primaryClassId, name: "MRI" }],
+        solverSettings: { allowMultipleShiftsPerDay: true },
+        blocks: [{ id: "block-1", sectionId: primaryClassId }],
+        rowBands: [
+          { id: rowBand1, label: "", order: 1 },
+          { id: rowBand2, label: "", order: 2 },
+        ],
+        slots: [
+          {
+            id: "slot-1",
+            locationId,
+            rowBandId: rowBand1,
+            colBandId,
+            blockId: "block-1",
+            requiredSlots: 1,
+            startTime: "08:00",
+            endTime: "12:00",
+            endDayOffset: 0,
+          },
+          {
+            id: "slot-2",
+            locationId,
+            rowBandId: rowBand2,
+            colBandId,
+            blockId: "block-1",
+            requiredSlots: 1,
+            startTime: "12:00",
+            endTime: "16:00",
+            endDayOffset: 0,
+          },
+        ],
+      }),
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Use visible week" }).click();
+    await page.getByRole("button", { name: "Fill open slots only" }).click();
+    await attachStepScreenshot(page, testInfo, "multi-shift-before");
+    await page.getByRole("button", { name: "Run automated planning" }).click();
+    const firstCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"slot-1\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    const secondCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"slot-2\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    await expect(firstCell.getByText("Dr. Test")).toBeVisible();
+    await expect(secondCell.getByText("Dr. Test")).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "multi-shift-after");
+  });
+
+  test("distribution pool hides clinician after all columns are assigned", async ({
+    page,
+    request,
+  }, testInfo) => {
+    const locationId = "loc-default";
+    const dayType = getDayTypeForISO(testDateISO);
+    const colBandId1 = `${locationId}-col-${dayType}-1`;
+    const colBandId2 = `${locationId}-col-${dayType}-2`;
+    const baseState = buildTemplateState({
+      dateISO: testDateISO,
+      classRows: [{ id: primaryClassId, name: "MRI" }],
+      solverSettings: { allowMultipleShiftsPerDay: true },
+      blocks: [{ id: "block-1", sectionId: primaryClassId }],
+      rowBands: [{ id: `${locationId}-row-1`, label: "", order: 1 }],
+      columnCounts: { [dayType]: 2 },
+      slots: [
+        {
+          id: "slot-1",
+          locationId,
+          rowBandId: `${locationId}-row-1`,
+          colBandId: colBandId1,
+          blockId: "block-1",
+          requiredSlots: 1,
+          startTime: "08:00",
+          endTime: "12:00",
+          endDayOffset: 0,
+        },
+        {
+          id: "slot-2",
+          locationId,
+          rowBandId: `${locationId}-row-1`,
+          colBandId: colBandId2,
+          blockId: "block-1",
+          requiredSlots: 1,
+          startTime: "12:00",
+          endTime: "16:00",
+          endDayOffset: 0,
+        },
+      ],
+    });
+    await request.post(`${API_BASE}/v1/state`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        ...(baseState as unknown),
+        assignments: [
+          {
+            id: `assign-${testDateISO}-slot-1`,
+            rowId: "slot-1",
+            dateISO: testDateISO,
+            clinicianId: "clin-1",
+          },
+          {
+            id: `assign-${testDateISO}-slot-2`,
+            rowId: "slot-2",
+            dateISO: testDateISO,
+            clinicianId: "clin-1",
+          },
+        ],
+      },
+    });
+    await page.goto("/");
+    const poolCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"${poolRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    await attachStepScreenshot(page, testInfo, "pool-hidden-before");
+    await expect(poolCell.getByText("Dr. Test")).toHaveCount(0);
+    await attachStepScreenshot(page, testInfo, "pool-hidden-after");
+  });
+
+  test("rest day removes clinician from other columns", async ({ page, request }, testInfo) => {
+    await request.post(`${API_BASE}/v1/state`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: buildTestState({
+        dateISO: testDateISO,
+        assignments: [
+          {
+            id: `assign-${testDateISO}-rest`,
+            rowId: "pool-rest-day",
+            dateISO: testDateISO,
+            clinicianId: "clin-1",
+          },
+        ],
+      }),
+    });
+    await page.goto("/");
+    const restCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"pool-rest-day\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    const poolCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"${poolRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    await attachStepScreenshot(page, testInfo, "rest-day-before");
+    await expect(restCell.getByText("Dr. Test")).toBeVisible();
+    await expect(poolCell.getByText("Dr. Test")).toHaveCount(0);
+    await attachStepScreenshot(page, testInfo, "rest-day-after");
+  });
+
+  test("overlapping shifts block a second drop", async ({ page, request }, testInfo) => {
+    const locationId = "loc-default";
+    const dayType = getDayTypeForISO(testDateISO);
+    const colBandId1 = `${locationId}-col-${dayType}-1`;
+    const colBandId2 = `${locationId}-col-${dayType}-2`;
+    await request.post(`${API_BASE}/v1/state`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: buildTemplateState({
+        dateISO: testDateISO,
+        classRows: [{ id: primaryClassId, name: "MRI" }],
+        solverSettings: { allowMultipleShiftsPerDay: true },
+        blocks: [{ id: "block-1", sectionId: primaryClassId }],
+        rowBands: [
+          { id: `${locationId}-row-1`, label: "", order: 1 },
+          { id: `${locationId}-row-2`, label: "", order: 2 },
+        ],
+        columnCounts: { [dayType]: 2 },
+        slots: [
+          {
+            id: "slot-1",
+            locationId,
+            rowBandId: `${locationId}-row-1`,
+            colBandId: colBandId1,
+            blockId: "block-1",
+            requiredSlots: 1,
+            startTime: "08:00",
+            endTime: "12:00",
+            endDayOffset: 0,
+          },
+          {
+            id: "slot-2",
+            locationId,
+            rowBandId: `${locationId}-row-2`,
+            colBandId: colBandId2,
+            blockId: "block-1",
+            requiredSlots: 1,
+            startTime: "10:00",
+            endTime: "14:00",
+            endDayOffset: 0,
+          },
+        ],
+      }),
+    });
+    await page.goto("/");
+    const poolCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"${poolRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    const firstCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"slot-1\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    const secondCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"slot-2\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    await poolCell.locator('div[draggable="true"]').first().dragTo(firstCell);
+    await attachStepScreenshot(page, testInfo, "overlap-first-drop");
+    await expect(firstCell.getByText("Dr. Test")).toBeVisible();
+    await expect(poolCell.getByText("Dr. Test")).toHaveCount(0);
+    await attachStepScreenshot(page, testInfo, "overlap-after");
+    await expect(secondCell.getByText("Dr. Test")).toHaveCount(0);
+  });
+
+  test("adding a block in settings does not change another slot time", async ({
+    page,
+    request,
+  }, testInfo) => {
+    const locationId = "loc-default";
+    const dayType = getDayTypeForISO(testDateISO);
+    const colBandId = `${locationId}-col-${dayType}-1`;
+    const rowBand1 = `${locationId}-row-1`;
+    const rowBand2 = `${locationId}-row-2`;
+    await request.post(`${API_BASE}/v1/state`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: buildTemplateState({
+        dateISO: testDateISO,
+        classRows: [
+          { id: primaryClassId, name: "MRI Prostate" },
+          { id: secondaryClassId, name: "CT" },
+        ],
+        blocks: [
+          { id: "block-1", sectionId: primaryClassId },
+          { id: "block-2", sectionId: secondaryClassId },
+        ],
+        rowBands: [
+          { id: rowBand1, label: "", order: 1 },
+          { id: rowBand2, label: "", order: 2 },
+        ],
+        slots: [
+          {
+            id: "slot-1",
+            locationId,
+            rowBandId: rowBand1,
+            colBandId,
+            blockId: "block-1",
+            requiredSlots: 1,
+            startTime: "08:00",
+            endTime: "12:00",
+            endDayOffset: 0,
+          },
+        ],
+      }),
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+    const timeTrigger = page.locator('[data-slot-time-trigger="slot-1"]');
+    await expect(timeTrigger).toHaveText(/0?8:00\s*-\s*12:00/);
+    await attachStepScreenshot(page, testInfo, "settings-time-before");
+    const emptyCell = page.locator(
+      `[data-add-block-trigger="true"][data-day-type="${dayType}"][data-col-index="0"]`,
+    );
+    await expect(emptyCell).toHaveCount(1);
+    await emptyCell.click();
+    const addPanel = page.locator("[data-add-block-panel]");
+    await expect(addPanel).toBeVisible();
+    await addPanel.getByRole("button", { name: "CT" }).click();
+    await expect(timeTrigger).toHaveText(/0?8:00\s*-\s*12:00/);
+    await attachStepScreenshot(page, testInfo, "settings-time-after");
   });
 
   test("dragging a clinician back to the pool removes the shift assignment", async ({
     page,
     request,
-  }) => {
+  }, testInfo) => {
     await request.post(`${API_BASE}/v1/state`, {
       headers: { Authorization: `Bearer ${token}` },
       data: buildTestState({
@@ -241,7 +631,7 @@ test.describe.serial("app flows", () => {
         assignments: [
           {
             id: `assign-${testDateISO}-clin-1`,
-            rowId: classRowId,
+            rowId: slotRowId,
             dateISO: testDateISO,
             clinicianId: "clin-1",
           },
@@ -253,11 +643,13 @@ test.describe.serial("app flows", () => {
       `[data-schedule-cell=\"true\"][data-row-id=\"${poolRowId}\"][data-date-iso=\"${testDateISO}\"]`,
     );
     const shiftCell = page.locator(
-      `[data-schedule-cell=\"true\"][data-row-id=\"${classRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+      `[data-schedule-cell=\"true\"][data-row-id=\"${slotRowId}\"][data-date-iso=\"${testDateISO}\"]`,
     );
     const draggable = shiftCell.locator('div[draggable="true"]').first();
     await expect(draggable).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "drag-back-before");
     await draggable.dragTo(poolCell);
+    await attachStepScreenshot(page, testInfo, "drag-back-after");
     await expect(shiftCell.getByText("Dr. Test")).toHaveCount(0);
     await expect(poolCell.getByText("Dr. Test")).toBeVisible();
   });
@@ -265,7 +657,7 @@ test.describe.serial("app flows", () => {
   test("reset to distribution pool clears assignments in range", async ({
     page,
     request,
-  }) => {
+  }, testInfo) => {
     await request.post(`${API_BASE}/v1/state`, {
       headers: { Authorization: `Bearer ${token}` },
       data: buildTestState({
@@ -273,7 +665,7 @@ test.describe.serial("app flows", () => {
         assignments: [
           {
             id: `assign-${testDateISO}-clin-1`,
-            rowId: classRowId,
+            rowId: slotRowId,
             dateISO: testDateISO,
             clinicianId: "clin-1",
           },
@@ -283,18 +675,20 @@ test.describe.serial("app flows", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Use visible week" }).click();
     page.once("dialog", (dialog) => dialog.accept());
+    await attachStepScreenshot(page, testInfo, "reset-before");
     await page.getByRole("button", { name: /Reset to Distribution Pool/i }).click();
     const poolCell = page.locator(
       `[data-schedule-cell=\"true\"][data-row-id=\"${poolRowId}\"][data-date-iso=\"${testDateISO}\"]`,
     );
     const shiftCell = page.locator(
-      `[data-schedule-cell=\"true\"][data-row-id=\"${classRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+      `[data-schedule-cell=\"true\"][data-row-id=\"${slotRowId}\"][data-date-iso=\"${testDateISO}\"]`,
     );
     await expect(shiftCell.getByText("Dr. Test")).toHaveCount(0);
     await expect(poolCell.getByText("Dr. Test")).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "reset-after");
   });
 
-  test("rule violations highlight pills in red", async ({ page, request }) => {
+  test("rule violations highlight pills in red", async ({ page, request }, testInfo) => {
     await request.post(`${API_BASE}/v1/state`, {
       headers: { Authorization: `Bearer ${token}` },
       data: buildTestState({
@@ -306,13 +700,13 @@ test.describe.serial("app flows", () => {
         assignments: [
           {
             id: `assign-${testDateISO}-clin-1-a`,
-            rowId: classRowId,
+            rowId: slotRowId,
             dateISO: testDateISO,
             clinicianId: "clin-1",
           },
           {
             id: `assign-${testDateISO}-clin-1-b`,
-            rowId: secondaryClassRowId,
+            rowId: secondarySlotRowId,
             dateISO: testDateISO,
             clinicianId: "clin-1",
           },
@@ -321,13 +715,14 @@ test.describe.serial("app flows", () => {
     });
     await page.goto("/");
     const firstCell = page.locator(
-      `[data-schedule-cell=\"true\"][data-row-id=\"${classRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+      `[data-schedule-cell=\"true\"][data-row-id=\"${slotRowId}\"][data-date-iso=\"${testDateISO}\"]`,
     );
     const secondCell = page.locator(
-      `[data-schedule-cell=\"true\"][data-row-id=\"${secondaryClassRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+      `[data-schedule-cell=\"true\"][data-row-id=\"${secondarySlotRowId}\"][data-date-iso=\"${testDateISO}\"]`,
     );
     await expect(firstCell.getByText("Dr. Test")).toBeVisible();
     await expect(secondCell.getByText("Dr. Test")).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "rule-violations");
     await expect(
       firstCell.locator('[data-assignment-pill="true"]'),
     ).toHaveClass(/border-rose-300/);
@@ -336,14 +731,183 @@ test.describe.serial("app flows", () => {
     ).toHaveClass(/border-rose-300/);
   });
 
-  test("disabling locations hides per-section location selector", async ({ page }) => {
+  test("weekly template day toggle switches the visible day", async ({ page }, testInfo) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Settings" }).click();
-    const sectionSelects = page.locator('[data-section-panel="true"] select');
-    await expect(sectionSelects.first()).toBeVisible();
-    const locationsPanel = page.getByText("Locations").locator("..").locator("..");
+    await expect(page.getByText("Weekly Calendar Template")).toBeVisible();
+    await page
+      .locator('[data-template-day-toggle="holiday"]')
+      .click();
+    await expect(
+      page.locator('[data-template-day-header="holiday"]'),
+    ).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "settings-day-toggle");
+  });
+});
+
+test.describe.serial("ui login flows", () => {
+  let token = "";
+  let originalState: unknown = null;
+
+  test.beforeAll(async ({ request }) => {
+    token = await fetchAuthToken(request);
+    const stateRes = await request.get(`${API_BASE}/v1/state`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!stateRes.ok()) {
+      throw new Error(`Failed to fetch state: ${stateRes.status()}`);
+    }
+    originalState = await stateRes.json();
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (!token || !originalState) return;
+    await request.post(`${API_BASE}/v1/state`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: originalState,
+    });
+  });
+
+  test.beforeEach(async ({ request }) => {
+    await request.post(`${API_BASE}/v1/state`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: buildTestState({ dateISO: testDateISO }),
+    });
+  });
+
+  test("signs in via UI and loads the schedule view", async ({ page }, testInfo) => {
+    await loginViaUI(page, testInfo);
+    await expect(page.getByText("Automated Shift Planning")).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "ui-login-schedule");
+  });
+
+  test("signs in via UI and opens settings", async ({ page }, testInfo) => {
+    await loginViaUI(page, testInfo);
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+    await expect(page.getByText("Weekly Calendar Template")).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "ui-login-settings");
+  });
+
+  test("signs in via UI and opens vacation overview", async ({ page }, testInfo) => {
+    await loginViaUI(page, testInfo);
+    await page.getByRole("button", { name: "Open Vacation Planner" }).click();
+    await expect(page.getByText("Vacation Overview")).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "ui-login-vacation-open");
+    await page
+      .getByRole("button", { name: "Close" })
+      .filter({ hasText: "Close" })
+      .click();
+    await expect(page.getByText("Vacation Overview")).toBeHidden();
+    await attachStepScreenshot(page, testInfo, "ui-login-vacation-closed");
+  });
+
+  test("signs in via UI and allows dragging from pool to a shift", async ({
+    page,
+  }, testInfo) => {
+    await loginViaUI(page, testInfo);
+    const poolCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"${poolRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    const shiftCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"${slotRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    const draggable = poolCell.locator('div[draggable="true"]').first();
+    await expect(draggable).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "ui-login-drag-before");
+    await draggable.dragTo(shiftCell);
+    await expect(shiftCell.getByText("Dr. Test")).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "ui-login-drag-after");
+  });
+
+  test("signs in via UI and runs automated planning for the visible week", async ({
+    page,
+  }, testInfo) => {
+    await loginViaUI(page, testInfo);
+    await page.getByRole("button", { name: "Use visible week" }).click();
+    await attachStepScreenshot(page, testInfo, "ui-login-solver-before");
+    await page.getByRole("button", { name: "Run automated planning" }).click();
+    const shiftCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"${slotRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    await expect(shiftCell.getByText("Dr. Test")).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "ui-login-solver-after");
+  });
+
+  test("signs in via UI and resets to distribution pool", async ({
+    page,
+    request,
+  }, testInfo) => {
+    await request.post(`${API_BASE}/v1/state`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: buildTestState({
+        dateISO: testDateISO,
+        assignments: [
+          {
+            id: `assign-${testDateISO}-clin-1`,
+            rowId: slotRowId,
+            dateISO: testDateISO,
+            clinicianId: "clin-1",
+          },
+        ],
+      }),
+    });
+    await loginViaUI(page, testInfo);
+    await page.getByRole("button", { name: "Use visible week" }).click();
     page.once("dialog", (dialog) => dialog.accept());
-    await locationsPanel.getByRole("switch").click();
-    await expect(sectionSelects).toHaveCount(0);
+    await attachStepScreenshot(page, testInfo, "ui-login-reset-before");
+    await page.getByRole("button", { name: /Reset to Distribution Pool/i }).click();
+    const poolCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"${poolRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    const shiftCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"${slotRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    await expect(shiftCell.getByText("Dr. Test")).toHaveCount(0);
+    await expect(poolCell.getByText("Dr. Test")).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "ui-login-reset-after");
+  });
+
+  test("signs in via UI and highlights rule violations", async ({ page, request }, testInfo) => {
+    await request.post(`${API_BASE}/v1/state`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: buildTestState({
+        dateISO: testDateISO,
+        classRows: [
+          { id: primaryClassId, name: "On Call" },
+          { id: secondaryClassId, name: "MRI" },
+        ],
+        assignments: [
+          {
+            id: `assign-${testDateISO}-clin-1-a`,
+            rowId: slotRowId,
+            dateISO: testDateISO,
+            clinicianId: "clin-1",
+          },
+          {
+            id: `assign-${testDateISO}-clin-1-b`,
+            rowId: secondarySlotRowId,
+            dateISO: testDateISO,
+            clinicianId: "clin-1",
+          },
+        ],
+      }),
+    });
+    await loginViaUI(page, testInfo);
+    const firstCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"${slotRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    const secondCell = page.locator(
+      `[data-schedule-cell=\"true\"][data-row-id=\"${secondarySlotRowId}\"][data-date-iso=\"${testDateISO}\"]`,
+    );
+    await expect(firstCell.getByText("Dr. Test")).toBeVisible();
+    await expect(secondCell.getByText("Dr. Test")).toBeVisible();
+    await attachStepScreenshot(page, testInfo, "ui-login-rule-violations");
+    await expect(
+      firstCell.locator('[data-assignment-pill="true"]'),
+    ).toHaveClass(/border-rose-300/);
+    await expect(
+      secondCell.locator('[data-assignment-pill="true"]'),
+    ).toHaveClass(/border-rose-300/);
   });
 });

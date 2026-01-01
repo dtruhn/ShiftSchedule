@@ -199,6 +199,20 @@ def _ensure_admin_user() -> None:
     _create_user(normalized, password, "admin", active=True)
 
 
+def _ensure_test_user() -> None:
+    if os.environ.get("ENABLE_E2E_TEST_USER", "1") != "1":
+        return
+    username = "testuser"
+    password = "sdjhfl34-wfsdfwsd2"
+    normalized = username.strip().lower()
+    if not normalized or not password:
+        return
+    existing = _get_user_by_username(normalized)
+    if existing:
+        return
+    _create_user(normalized, password, "user", active=True)
+
+
 @router.post("/auth/login", response_model=TokenResponse)
 def login(payload: LoginRequest):
     username = payload.username.strip().lower()

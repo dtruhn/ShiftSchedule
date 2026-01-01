@@ -20,6 +20,7 @@ export type WorkplaceRow = {
   name: string;
   kind: RowKind;
   dotColorClass: string;
+  blockColor?: string;
   locationId?: string;
   subShifts?: SubShift[];
 };
@@ -29,6 +30,19 @@ export type VacationRange = {
   startISO: string;
   endISO: string;
 };
+
+export type PreferredWorkingTimeRequirement = "none" | "preference" | "mandatory";
+
+export type PreferredWorkingTime = {
+  startTime?: string;
+  endTime?: string;
+  requirement?: PreferredWorkingTimeRequirement;
+};
+
+export type PreferredWorkingTimes = Record<
+  "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun",
+  PreferredWorkingTime
+>;
 
 export type Holiday = {
   dateISO: string;
@@ -41,6 +55,7 @@ export type Clinician = {
   qualifiedClassIds: string[];
   preferredClassIds: string[];
   vacations: VacationRange[];
+  preferredWorkingTimes?: PreferredWorkingTimes;
   workingHoursPerWeek?: number;
 };
 
@@ -53,6 +68,62 @@ export type Assignment = {
 
 export type MinSlots = { weekday: number; weekend: number };
 
+export type DayType =
+  | "mon"
+  | "tue"
+  | "wed"
+  | "thu"
+  | "fri"
+  | "sat"
+  | "sun"
+  | "holiday";
+
+export type TemplateRowBand = {
+  id: string;
+  order: number;
+  label?: string;
+};
+
+export type TemplateColBand = {
+  id: string;
+  label?: string;
+  order: number;
+  dayType: DayType;
+};
+
+export type TemplateBlock = {
+  id: string;
+  sectionId: string;
+  label?: string;
+  requiredSlots: number;
+  color?: string;
+};
+
+export type TemplateSlot = {
+  id: string;
+  locationId: string;
+  rowBandId: string;
+  colBandId: string;
+  blockId: string;
+  requiredSlots?: number;
+  startTime?: string;
+  endTime?: string;
+  endDayOffset?: number;
+};
+
+export type WeeklyTemplateLocation = {
+  locationId: string;
+  rowBands: TemplateRowBand[];
+  colBands: TemplateColBand[];
+  slots: TemplateSlot[];
+};
+
+export type WeeklyCalendarTemplate = {
+  version: 4;
+  blocks: TemplateBlock[];
+  locations: WeeklyTemplateLocation[];
+};
+
 export type SolverSettings = {
   allowMultipleShiftsPerDay: boolean;
   enforceSameLocationPerDay: boolean;
@@ -60,6 +131,7 @@ export type SolverSettings = {
   onCallRestClassId?: string;
   onCallRestDaysBefore: number;
   onCallRestDaysAfter: number;
+  workingHoursToleranceHours?: number;
 };
 
 export type SolverRule = {
@@ -80,6 +152,7 @@ export type AppState = {
   assignments: Assignment[];
   minSlotsByRowId: Record<string, MinSlots>;
   slotOverridesByKey?: Record<string, number>;
+  weeklyTemplate?: WeeklyCalendarTemplate;
   holidayCountry?: string;
   holidayYear?: number;
   holidays?: Holiday[];
@@ -129,6 +202,7 @@ export type PublicWebWeekResponse = {
   assignments?: Assignment[];
   minSlotsByRowId?: Record<string, MinSlots>;
   slotOverridesByKey?: Record<string, number>;
+  weeklyTemplate?: WeeklyCalendarTemplate;
   holidays?: Holiday[];
   solverSettings?: SolverSettings;
   solverRules?: SolverRule[];

@@ -42,3 +42,27 @@ export function ChevronRightIcon({ title, ...props }: IconProps) {
   );
 }
 
+export function CogIcon({ title, ...props }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden={title ? undefined : true}
+      {...props}
+    >
+      {title ? <title>{title}</title> : null}
+      <path
+        d="M11.983 2.25h.034a1 1 0 0 1 .986.854l.153 1.095a7.4 7.4 0 0 1 1.515.874l1.025-.397a1 1 0 0 1 1.258.457l.75 1.299a1 1 0 0 1-.33 1.317l-.892.67a7.3 7.3 0 0 1 0 1.751l.892.67a1 1 0 0 1 .33 1.317l-.75 1.299a1 1 0 0 1-1.258.457l-1.025-.397a7.4 7.4 0 0 1-1.515.874l-.153 1.095a1 1 0 0 1-.986.854h-.034a1 1 0 0 1-.986-.854l-.153-1.095a7.4 7.4 0 0 1-1.515-.874l-1.025.397a1 1 0 0 1-1.258-.457l-.75-1.299a1 1 0 0 1 .33-1.317l.892-.67a7.3 7.3 0 0 1 0-1.751l-.892-.67a1 1 0 0 1-.33-1.317l.75-1.299a1 1 0 0 1 1.258-.457l1.025.397a7.4 7.4 0 0 1 1.515-.874l.153-1.095a1 1 0 0 1 .986-.854Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 8.75a3.25 3.25 0 1 0 0 6.5 3.25 3.25 0 0 0 0-6.5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}

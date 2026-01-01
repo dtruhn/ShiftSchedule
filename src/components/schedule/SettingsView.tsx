@@ -1,61 +1,24 @@
 import { useState } from "react";
 import { cx } from "../../lib/classNames";
 import { Location, WorkplaceRow } from "../../data/mockData";
-import type { Holiday, SolverSettings } from "../../api/client";
-import {
-  buildShiftRowId,
-  DEFAULT_LOCATION_ID,
-  normalizeSubShifts,
-} from "../../lib/shiftRows";
+import type { Holiday, SolverSettings, WeeklyCalendarTemplate } from "../../api/client";
+import WeeklyTemplateBuilder from "./WeeklyTemplateBuilder";
 
 type SettingsViewProps = {
   classRows: WorkplaceRow[];
   poolRows: WorkplaceRow[];
   locations: Location[];
-  locationsEnabled: boolean;
-  minSlotsByRowId: Record<string, { weekday: number; weekend: number }>;
   clinicians: Array<{ id: string; name: string }>;
   holidays: Holiday[];
   holidayCountry: string;
   holidayYear: number;
   solverSettings: SolverSettings;
-  onChangeMinSlots: (
-    rowId: string,
-    kind: "weekday" | "weekend",
-    nextValue: number,
-  ) => void;
-  onRenameClass: (rowId: string, nextName: string) => void;
-  onRemoveClass: (rowId: string) => void;
-  onAddClass: () => void;
-  onReorderClass: (
-    fromId: string,
-    toId: string,
-    position?: "above" | "below",
-  ) => void;
-  onChangeClassLocation: (rowId: string, locationId: string) => void;
-  onSetSubShiftCount: (rowId: string, nextCount: number) => void;
-  onRenameSubShift: (rowId: string, subShiftId: string, nextName: string) => void;
-  onRemoveSubShift: (rowId: string, subShiftId: string) => void;
-  onUpdateSubShiftStartTime: (
-    rowId: string,
-    subShiftId: string,
-    nextStartTime: string,
-  ) => void;
-  onUpdateSubShiftEndTime: (
-    rowId: string,
-    subShiftId: string,
-    nextEndTime: string,
-  ) => void;
-  onUpdateSubShiftEndDayOffset: (
-    rowId: string,
-    subShiftId: string,
-    nextOffset: number,
-  ) => void;
+  weeklyTemplate?: WeeklyCalendarTemplate;
   onRenamePool: (rowId: string, nextName: string) => void;
   onAddLocation: (name: string) => void;
   onRenameLocation: (locationId: string, nextName: string) => void;
   onRemoveLocation: (locationId: string) => void;
-  onToggleLocationsEnabled: () => void;
+  onReorderLocations: (nextOrder: string[]) => void;
   onAddClinician: (name: string, workingHoursPerWeek?: number) => void;
   onEditClinician: (clinicianId: string) => void;
   onRemoveClinician: (clinicianId: string) => void;
@@ -65,36 +28,26 @@ type SettingsViewProps = {
   onAddHoliday: (holiday: Holiday) => void;
   onRemoveHoliday: (holiday: Holiday) => void;
   onChangeSolverSettings: (settings: SolverSettings) => void;
+  onChangeWeeklyTemplate: (template: WeeklyCalendarTemplate) => void;
+  onCreateSection: (name: string) => string;
+  onUpdateSectionColor: (sectionId: string, color: string | null) => void;
 };
 
 export default function SettingsView({
   classRows,
   poolRows,
   locations,
-  locationsEnabled,
-  minSlotsByRowId,
   clinicians,
   holidays,
   holidayCountry,
   holidayYear,
   solverSettings,
-  onChangeMinSlots,
-  onRenameClass,
-  onRemoveClass,
-  onAddClass,
-  onReorderClass,
-  onChangeClassLocation,
-  onSetSubShiftCount,
-  onRenameSubShift,
-  onRemoveSubShift,
-  onUpdateSubShiftStartTime,
-  onUpdateSubShiftEndTime,
-  onUpdateSubShiftEndDayOffset,
+  weeklyTemplate,
   onRenamePool,
   onAddLocation,
   onRenameLocation,
   onRemoveLocation,
-  onToggleLocationsEnabled,
+  onReorderLocations,
   onAddClinician,
   onEditClinician,
   onRemoveClinician,
@@ -104,25 +57,19 @@ export default function SettingsView({
   onAddHoliday,
   onRemoveHoliday,
   onChangeSolverSettings,
+  onChangeWeeklyTemplate,
+  onCreateSection,
+  onUpdateSectionColor,
 }: SettingsViewProps) {
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
-  const [dragOverPosition, setDragOverPosition] = useState<"above" | "below" | null>(
-    null,
-  );
-  const [newLocationName, setNewLocationName] = useState("");
-  const [locationError, setLocationError] = useState<string | null>(null);
   const [newClinicianName, setNewClinicianName] = useState("");
   const [newClinicianHours, setNewClinicianHours] = useState("");
   const [showNewClinician, setShowNewClinician] = useState(false);
-  const [shiftTimeDrafts, setShiftTimeDrafts] = useState<Record<string, string>>({});
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [newHolidayName, setNewHolidayName] = useState("");
   const [showNewHoliday, setShowNewHoliday] = useState(false);
   const [isFetchingHolidays, setIsFetchingHolidays] = useState(false);
   const [holidayError, setHolidayError] = useState<string | null>(null);
   const [holidayInputError, setHolidayInputError] = useState<string | null>(null);
-  const locationPanelDisabled = !locationsEnabled;
   const countryOptions = [
     { code: "FR", label: "France 🇫🇷" },
     { code: "DE", label: "Germany 🇩🇪" },
@@ -145,25 +92,6 @@ export default function SettingsView({
   const holidaysForYear = holidays
     .filter((holiday) => holiday.dateISO.startsWith(holidayYearPrefix))
     .sort((a, b) => a.dateISO.localeCompare(b.dateISO));
-  const makeShiftKey = (rowId: string, shiftId: string, field: "start" | "end") =>
-    `${rowId}__${shiftId}__${field}`;
-  const normalizeTimeInput = (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const match = trimmed.match(/^(\d{1,2}):(\d{1,2})$/);
-    if (!match) return null;
-    const hours = Number(match[1]);
-    const minutes = Number(match[2]);
-    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
-    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-  };
-  const isInvalidTimeDraft = (rowId: string, shiftId: string, field: "start" | "end") => {
-    const key = makeShiftKey(rowId, shiftId, field);
-    const draft = shiftTimeDrafts[key];
-    if (draft === undefined) return false;
-    return !normalizeTimeInput(draft);
-  };
   const parseHolidayDate = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return null;
@@ -242,19 +170,33 @@ export default function SettingsView({
     "pool-vacation":
       "People on vacation. Drag in or out of this row to update vacations.",
   };
+  const solverSectionRows = (() => {
+    const blockSectionIds = new Set(
+      (weeklyTemplate?.blocks ?? [])
+        .map((block) => block.sectionId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    if (blockSectionIds.size === 0) return classRows;
+    return classRows.filter((row) => blockSectionIds.has(row.id));
+  })();
   const onCallRestClassId =
     solverSettings.onCallRestClassId &&
-    classRows.some((row) => row.id === solverSettings.onCallRestClassId)
+    solverSectionRows.some((row) => row.id === solverSettings.onCallRestClassId)
       ? solverSettings.onCallRestClassId
-      : classRows[0]?.id ?? "";
+      : solverSectionRows[0]?.id ?? "";
   const clampRestDays = (value: string) => {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return 0;
     return Math.max(0, Math.min(7, Math.trunc(parsed)));
   };
+  const clampTolerance = (value: string) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 5;
+    return Math.max(0, Math.min(40, Math.trunc(parsed)));
+  };
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10">
+    <div className="mx-auto max-w-7xl px-6 py-10">
       <div className="flex items-start justify-between gap-6">
         <div>
           <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
@@ -270,508 +212,32 @@ export default function SettingsView({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              Locations
+              Weekly Calendar Template
             </div>
             <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-              Manage locations used by each section.
-            </div>
-            {locationPanelDisabled ? (
-              <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                Locations are disabled. All sections use the default location.
-              </div>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Enabled
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={locationsEnabled}
-              onClick={() => {
-                if (locationsEnabled) {
-                  const ok = window.confirm(
-                    "Disable locations? All sections will reset to the default location and must be re-selected when re-enabled.",
-                  );
-                  if (!ok) return;
-                }
-                onToggleLocationsEnabled();
-              }}
-              className={cx(
-                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                locationsEnabled
-                  ? "bg-emerald-500"
-                  : "bg-slate-300 dark:bg-slate-700",
-              )}
-            >
-              <span
-                className={cx(
-                  "inline-block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow transition-transform",
-                  locationsEnabled && "translate-x-[22px]",
-                )}
-              />
-            </button>
-          </div>
-        </div>
-        <div
-          className={cx(
-            "mt-4 flex flex-wrap gap-3",
-            locationPanelDisabled && "opacity-60",
-          )}
-        >
-          <input
-            type="text"
-            value={newLocationName}
-            onChange={(e) => setNewLocationName(e.target.value)}
-            placeholder="New location name"
-            disabled={locationPanelDisabled}
-            className={cx(
-              "w-full max-w-xs rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
-              "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
-              "disabled:cursor-not-allowed disabled:opacity-70",
-            )}
-          />
-          <button
-            type="button"
-            onClick={() => {
-              if (locationPanelDisabled) return;
-              const trimmed = newLocationName.trim();
-              if (!trimmed) return;
-              onAddLocation(trimmed);
-              setNewLocationName("");
-              setLocationError(null);
-            }}
-            disabled={locationPanelDisabled}
-            className={cx(
-              "rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm",
-              "hover:bg-slate-50 active:bg-slate-100",
-              "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
-              "disabled:cursor-not-allowed disabled:opacity-70",
-            )}
-          >
-            Add Location
-          </button>
-        </div>
-        {locationError ? (
-          <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-900/30 dark:text-rose-200">
-            {locationError}
-          </div>
-        ) : null}
-        <div className={cx("mt-4 space-y-3", locationPanelDisabled && "opacity-60")}>
-          {locations.map((location) => (
-            <div key={location.id} className="flex items-center gap-4">
-              <input
-                type="text"
-                value={location.name}
-                onChange={(event) => {
-                  onRenameLocation(location.id, event.target.value);
-                  setLocationError(null);
-                }}
-                disabled={locationPanelDisabled}
-                className={cx(
-                  "w-full max-w-sm rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
-                  "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
-                  "disabled:cursor-not-allowed disabled:opacity-70",
-                )}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (locationPanelDisabled) return;
-                  if (location.id === DEFAULT_LOCATION_ID) {
-                    setLocationError("Default location cannot be deleted.");
-                    return;
-                  }
-                  const usedBy = classRows
-                    .filter((row) => row.locationId === location.id)
-                    .map((row) => row.name);
-                  if (usedBy.length > 0) {
-                    setLocationError(
-                      `Location is still used by: ${usedBy.join(", ")}.`,
-                    );
-                    return;
-                  }
-                  onRemoveLocation(location.id);
-                  setLocationError(null);
-                }}
-                disabled={locationPanelDisabled}
-                className={cx(
-                  "rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600",
-                  "hover:bg-rose-50 hover:text-rose-700",
-                  "dark:border-rose-500/40 dark:text-rose-200 dark:hover:bg-rose-900/30",
-                  "disabled:cursor-not-allowed disabled:opacity-60",
-                )}
-              >
-                Delete
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              Sections and Shifts
-            </div>
-            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-              Set section order, shift details, and required staffing.
+              Build the slot grid per location and day type.
             </div>
           </div>
-        </div>
-        <div className="mt-4 space-y-4">
-          {classRows.map((row, index) => {
-            const subShifts = normalizeSubShifts(row.subShifts);
-            const subShiftCount = subShifts.length;
-            if (draggingId === row.id) {
-              return null;
-            }
-            const showDropAbove =
-              dragOverId === row.id && dragOverPosition === "above";
-            const showDropBelow =
-              dragOverId === row.id && dragOverPosition === "below";
-            return (
-              <div key={row.id}>
-                {showDropAbove ? (
-                  <div className="mx-4 my-1 h-0.5 rounded-full bg-sky-400/80 dark:bg-sky-300/70" />
-                ) : null}
-                <div
-                  data-section-panel="true"
-                  className={cx(
-                    "rounded-2xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/60",
-                    dragOverId === row.id &&
-                      "border-sky-200 bg-sky-50 dark:bg-sky-950/40",
-                  )}
-                  onDragOver={(event) => {
-                    if (!draggingId) return;
-                    if (draggingId === row.id) return;
-                    event.preventDefault();
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    const midpoint = rect.top + rect.height / 2;
-                    setDragOverPosition(event.clientY < midpoint ? "above" : "below");
-                    setDragOverId(row.id);
-                  }}
-                  onDragLeave={() => {
-                    setDragOverId((prev) => (prev === row.id ? null : prev));
-                    setDragOverPosition(null);
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    const fromId =
-                      draggingId || event.dataTransfer.getData("text/plain");
-                    if (!fromId || fromId === row.id) {
-                      setDragOverId(null);
-                      setDragOverPosition(null);
-                      return;
-                    }
-                    onReorderClass(fromId, row.id, dragOverPosition ?? "above");
-                    setDraggingId(null);
-                    setDragOverId(null);
-                    setDragOverPosition(null);
-                  }}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                        {index + 1}
-                      </span>
-                      <button
-                        type="button"
-                        draggable
-                        onDragStart={(event) => {
-                          event.dataTransfer.effectAllowed = "move";
-                          event.dataTransfer.setData("text/plain", row.id);
-                          const panel = event.currentTarget.closest<HTMLElement>(
-                            '[data-section-panel="true"]',
-                          );
-                          if (panel) {
-                            const clone = panel.cloneNode(true) as HTMLElement;
-                            const rect = panel.getBoundingClientRect();
-                            const offsetX = Math.max(
-                              0,
-                              Math.round(event.clientX - rect.left),
-                            );
-                            const offsetY = Math.max(
-                              0,
-                              Math.round(event.clientY - rect.top),
-                            );
-                            clone.style.position = "absolute";
-                            clone.style.top = "-9999px";
-                            clone.style.left = "-9999px";
-                            clone.style.pointerEvents = "none";
-                            clone.style.width = `${panel.offsetWidth}px`;
-                            document.body.appendChild(clone);
-                            event.dataTransfer.setDragImage(clone, offsetX, offsetY);
-                            window.setTimeout(() => clone.remove(), 0);
-                          }
-                          setDraggingId(row.id);
-                        }}
-                        onDragEnd={() => {
-                          setDraggingId(null);
-                          setDragOverId(null);
-                          setDragOverPosition(null);
-                        }}
-                        className="cursor-grab rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                        aria-label={`Reorder ${row.name}`}
-                      >
-                        ≡
-                      </button>
-                      <input
-                        type="text"
-                        value={row.name}
-                        onChange={(e) => onRenameClass(row.id, e.target.value)}
-                        className={cx(
-                          "min-w-[180px] rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
-                          "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
-                        )}
-                      />
-                      {locationsEnabled ? (
-                        <select
-                          value={row.locationId ?? DEFAULT_LOCATION_ID}
-                          onChange={(event) =>
-                            onChangeClassLocation(row.id, event.target.value)
-                          }
-                          className={cx(
-                            "h-9 rounded-xl border border-slate-200 px-3 text-sm font-normal text-slate-700",
-                            "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
-                          )}
-                        >
-                          {locations.map((location) => (
-                            <option key={location.id} value={location.id}>
-                              {location.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => onRemoveClass(row.id)}
-                        className={cx(
-                          "grid h-7 w-7 place-items-center rounded-full border border-rose-200 text-sm font-semibold text-rose-600",
-                          "hover:bg-rose-50 hover:text-rose-700",
-                          "dark:border-rose-500/40 dark:text-rose-200 dark:hover:bg-rose-900/30",
-                        )}
-                        aria-label={`Remove ${row.name}`}
-                      >
-                        −
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
-                    <div className="grid grid-cols-[auto_2fr_1fr_1fr_1fr_1fr_auto] gap-3 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-                      <div>Shift</div>
-                      <div>Name</div>
-                      <div>Start</div>
-                      <div>End</div>
-                      <div>Min Slots (Weekday)</div>
-                      <div>Min Slots (Weekend)</div>
-                      <div />
-                    </div>
-                    <div className="divide-y divide-slate-200 dark:divide-slate-800">
-                      {subShifts.map((shift) => {
-                        const shiftRowId = buildShiftRowId(row.id, shift.id);
-                        return (
-                          <div
-                            key={shift.id}
-                            className="grid grid-cols-[auto_2fr_1fr_1fr_1fr_1fr_auto] items-center gap-3 px-4 py-3 text-sm dark:bg-slate-900/70"
-                          >
-                            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                              {shift.order}
-                            </div>
-                            <input
-                              type="text"
-                              value={shift.name}
-                              onChange={(event) =>
-                                onRenameSubShift(row.id, shift.id, event.target.value)
-                              }
-                              className={cx(
-                                "w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
-                                "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
-                              )}
-                            />
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              placeholder="HH:MM"
-                              value={
-                                shiftTimeDrafts[
-                                  makeShiftKey(row.id, shift.id, "start")
-                                ] ?? shift.startTime
-                              }
-                              onChange={(event) => {
-                                const key = makeShiftKey(row.id, shift.id, "start");
-                                setShiftTimeDrafts((prev) => ({
-                                  ...prev,
-                                  [key]: event.target.value,
-                                }));
-                              }}
-                              onBlur={() => {
-                                const key = makeShiftKey(row.id, shift.id, "start");
-                                const next = shiftTimeDrafts[key];
-                                if (next === undefined) return;
-                                const normalized = normalizeTimeInput(next);
-                                if (normalized) {
-                                  onUpdateSubShiftStartTime(row.id, shift.id, normalized);
-                                }
-                                setShiftTimeDrafts((prev) => {
-                                  const { [key]: _unused, ...rest } = prev;
-                                  return rest;
-                                });
-                              }}
-                              className={cx(
-                                "w-24 rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
-                                "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
-                                isInvalidTimeDraft(row.id, shift.id, "start") &&
-                                  "border-rose-300 text-rose-700 focus:border-rose-400 dark:border-rose-500/60 dark:text-rose-200",
-                              )}
-                            />
-                            <div className="relative w-24">
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                placeholder="HH:MM"
-                                value={
-                                  shiftTimeDrafts[
-                                    makeShiftKey(row.id, shift.id, "end")
-                                  ] ?? shift.endTime
-                                }
-                                onChange={(event) => {
-                                  const key = makeShiftKey(row.id, shift.id, "end");
-                                  setShiftTimeDrafts((prev) => ({
-                                    ...prev,
-                                    [key]: event.target.value,
-                                  }));
-                                }}
-                                onBlur={() => {
-                                  const key = makeShiftKey(row.id, shift.id, "end");
-                                  const next = shiftTimeDrafts[key];
-                                  if (next === undefined) return;
-                                  const normalized = normalizeTimeInput(next);
-                                  if (normalized) {
-                                    onUpdateSubShiftEndTime(row.id, shift.id, normalized);
-                                  }
-                                  setShiftTimeDrafts((prev) => {
-                                    const { [key]: _unused, ...rest } = prev;
-                                    return rest;
-                                  });
-                                }}
-                                className={cx(
-                                  "w-24 rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
-                                  "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
-                                  isInvalidTimeDraft(row.id, shift.id, "end") &&
-                                    "border-rose-300 text-rose-700 focus:border-rose-400 dark:border-rose-500/60 dark:text-rose-200",
-                                )}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const current = shift.endDayOffset ?? 0;
-                                  const next = (current + 1) % 4;
-                                  onUpdateSubShiftEndDayOffset(row.id, shift.id, next);
-                                }}
-                                className={cx(
-                                  "absolute left-2 top-full -mt-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400",
-                                  "hover:text-slate-600",
-                                  "dark:text-slate-500 dark:hover:text-slate-300",
-                                )}
-                              >
-                                +{shift.endDayOffset ?? 0}{" "}
-                                {(shift.endDayOffset ?? 0) <= 1 ? "day" : "days"}
-                              </button>
-                            </div>
-                            <input
-                              type="number"
-                              min={0}
-                              value={minSlotsByRowId[shiftRowId]?.weekday ?? 0}
-                              onChange={(event) => {
-                                const raw = Number(event.target.value);
-                                onChangeMinSlots(
-                                  shiftRowId,
-                                  "weekday",
-                                  Number.isFinite(raw) ? raw : 0,
-                                );
-                              }}
-                              className={cx(
-                                "w-24 rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
-                                "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
-                              )}
-                            />
-                            <input
-                              type="number"
-                              min={0}
-                              value={minSlotsByRowId[shiftRowId]?.weekend ?? 0}
-                              onChange={(event) => {
-                                const raw = Number(event.target.value);
-                                onChangeMinSlots(
-                                  shiftRowId,
-                                  "weekend",
-                                  Number.isFinite(raw) ? raw : 0,
-                                );
-                              }}
-                              className={cx(
-                                "w-24 rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
-                                "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
-                              )}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => onRemoveSubShift(row.id, shift.id)}
-                              disabled={subShiftCount <= 1}
-                              className={cx(
-                                "grid h-7 w-7 place-items-center rounded-full border border-rose-200 text-sm font-semibold text-rose-600",
-                                "hover:bg-rose-50 hover:text-rose-700",
-                                "disabled:cursor-not-allowed disabled:opacity-40",
-                                "dark:border-rose-500/40 dark:text-rose-200 dark:hover:bg-rose-900/30",
-                              )}
-                              aria-label={`Remove ${row.name} shift ${shift.order}`}
-                            >
-                              −
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="mt-3">
-                      <button
-                        type="button"
-                        onClick={() => onSetSubShiftCount(row.id, subShiftCount + 1)}
-                        disabled={subShiftCount >= 3}
-                        className={cx(
-                          "w-full rounded-xl border border-dashed border-slate-300 bg-slate-50/80 px-3 py-2 text-xs font-semibold text-slate-700",
-                          "hover:bg-slate-100 active:bg-slate-200/60",
-                          "disabled:cursor-not-allowed disabled:opacity-50",
-                          "dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-100 dark:hover:bg-slate-800",
-                        )}
-                      >
-                        Add Shift
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                {showDropBelow ? (
-                  <div className="mx-4 my-1 h-0.5 rounded-full bg-sky-400/80 dark:bg-sky-300/70" />
-                ) : null}
-              </div>
-            );
-          })}
         </div>
         <div className="mt-4">
-          <button
-            type="button"
-            onClick={onAddClass}
-            className={cx(
-              "w-full rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 px-4 py-3 text-sm font-semibold text-slate-700",
-              "hover:bg-slate-100 active:bg-slate-200/60",
-              "dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-100 dark:hover:bg-slate-800",
-            )}
-          >
-            Add Section
-          </button>
+          {weeklyTemplate ? (
+            <WeeklyTemplateBuilder
+              template={weeklyTemplate}
+              locations={locations}
+              rows={classRows}
+              onChange={onChangeWeeklyTemplate}
+              onCreateSection={onCreateSection}
+              onUpdateSectionColor={onUpdateSectionColor}
+              onAddLocation={onAddLocation}
+              onRenameLocation={onRenameLocation}
+              onRemoveLocation={onRemoveLocation}
+              onReorderLocations={onReorderLocations}
+            />
+          ) : (
+            <div className="text-sm text-slate-500 dark:text-slate-400">
+              Template is loading...
+            </div>
+          )}
         </div>
       </div>
 
@@ -880,6 +346,30 @@ export default function SettingsView({
                 />
               </button>
             </div>
+            <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+              <div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Working hours tolerance (hours)
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Target contract hours per clinician is respected within ± this tolerance when possible.
+                </div>
+              </div>
+              <input
+                type="number"
+                min={0}
+                max={40}
+                step={1}
+                value={solverSettings.workingHoursToleranceHours ?? 5}
+                onChange={(event) =>
+                  onChangeSolverSettings({
+                    ...solverSettings,
+                    workingHoursToleranceHours: clampTolerance(event.target.value),
+                  })
+                }
+                className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
           </div>
 
           <div className="mt-4 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
@@ -937,7 +427,7 @@ export default function SettingsView({
                   disabled={!solverSettings.onCallRestEnabled}
                   className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-normal text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                 >
-                  {classRows.map((row) => (
+                  {solverSectionRows.map((row) => (
                     <option key={row.id} value={row.id}>
                       {row.name}
                     </option>

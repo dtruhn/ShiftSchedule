@@ -6,17 +6,16 @@ import type { ScheduleRow } from "../../lib/shiftRows";
 import ScheduleGrid from "./ScheduleGrid";
 
 const baseRow: ScheduleRow = {
-  id: "class-1::s1",
+  id: "slot-1",
   name: "MRI",
   kind: "class",
   dotColorClass: "bg-slate-200",
-  parentId: "class-1",
-  parentName: "MRI",
-  subShiftName: "Shift 1",
-  subShiftOrder: 1,
-  subShiftStartTime: "08:00",
-  subShiftEndTime: "16:00",
-  subShiftEndDayOffset: 0,
+  sectionId: "class-1",
+  sectionName: "MRI",
+  slotLabel: "Shift 1",
+  startTime: "08:00",
+  endTime: "16:00",
+  endDayOffset: 0,
 };
 
 const baseSettings: SolverSettings = {
@@ -64,10 +63,10 @@ describe("ScheduleGrid", () => {
     expect(within(pill as HTMLElement).queryByText("08:00 - 16:00")).toBeNull();
   });
 
-  it("shows assignment time labels when multiple shifts per day is enabled", () => {
+  it("keeps assignment time labels hidden when multiple shifts per day is enabled", () => {
     renderGrid({ ...baseSettings, allowMultipleShiftsPerDay: true });
     const pill = screen.getByText("Dr. Alice").closest("[data-assignment-pill=\"true\"]");
     expect(pill).not.toBeNull();
-    expect(within(pill as HTMLElement).getByText("08:00 - 16:00")).toBeInTheDocument();
+    expect(within(pill as HTMLElement).queryByText("08:00 - 16:00")).toBeNull();
   });
 });

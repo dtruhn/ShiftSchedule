@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import type { PreferredWorkingTimes } from "../../api/client";
 import { cx } from "../../lib/classNames";
 import ClinicianEditor from "./ClinicianEditor";
 
@@ -10,6 +11,7 @@ type ClinicianEditModalProps = {
     name: string;
     qualifiedClassIds: string[];
     vacations: Array<{ id: string; startISO: string; endISO: string }>;
+    preferredWorkingTimes?: PreferredWorkingTimes;
     workingHoursPerWeek?: number;
   } | null;
   classRows: Array<{ id: string; name: string }>;
@@ -20,6 +22,10 @@ type ClinicianEditModalProps = {
     toClassId: string,
   ) => void;
   onUpdateWorkingHours: (clinicianId: string, workingHoursPerWeek?: number) => void;
+  onUpdatePreferredWorkingTimes: (
+    clinicianId: string,
+    preferredWorkingTimes: PreferredWorkingTimes,
+  ) => void;
   onAddVacation: (clinicianId: string) => void;
   onUpdateVacation: (
     clinicianId: string,
@@ -38,6 +44,7 @@ export default function ClinicianEditModal({
   onToggleQualification,
   onReorderQualification,
   onUpdateWorkingHours,
+  onUpdatePreferredWorkingTimes,
   onAddVacation,
   onUpdateVacation,
   onRemoveVacation,
@@ -77,42 +84,12 @@ export default function ClinicianEditModal({
             </button>
           </div>
           <div className="min-h-0 overflow-y-auto px-6 py-5">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                Working hours per week
-              </div>
-              <div className="mt-2 flex items-center gap-3">
-                <input
-                  type="number"
-                  min={0}
-                  step={0.5}
-                  value={clinician.workingHoursPerWeek ?? ""}
-                  onChange={(event) => {
-                    const raw = event.target.value.trim();
-                    if (!raw) {
-                      onUpdateWorkingHours(clinician.id, undefined);
-                      return;
-                    }
-                    const parsed = Number(raw);
-                    if (!Number.isFinite(parsed)) return;
-                    onUpdateWorkingHours(clinician.id, Math.max(0, parsed));
-                  }}
-                  placeholder="Hours/week"
-                  className={cx(
-                    "w-36 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900",
-                    "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark]",
-                  )}
-                />
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  Optional, can be left blank. Denotes the number of working hours according to
-                  the contract.
-                </span>
-              </div>
-            </div>
             <ClinicianEditor
               clinician={clinician}
               classRows={classRows}
               initialSection={initialSection}
+              onUpdateWorkingHours={onUpdateWorkingHours}
+              onUpdatePreferredWorkingTimes={onUpdatePreferredWorkingTimes}
               onToggleQualification={onToggleQualification}
               onReorderQualification={onReorderQualification}
               onAddVacation={onAddVacation}
