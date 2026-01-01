@@ -841,7 +841,7 @@ def _normalize_state(state: AppState) -> tuple[AppState, bool]:
     overrides = state.slotOverridesByKey or {}
     next_overrides: Dict[str, int] = {}
     for key, value in overrides.items():
-        row_id, date_iso = key.split("__", 1) if "__" in key else (key, "")
+        row_id, date_iso = key.rsplit("__", 1) if "__" in key else (key, "")
         if not row_id or not date_iso:
             continue
         next_row_id = row_id
@@ -922,7 +922,7 @@ def _normalize_state(state: AppState) -> tuple[AppState, bool]:
 
     next_overrides: Dict[str, int] = {}
     for key, value in (state.slotOverridesByKey or {}).items():
-        row_id, date_iso = key.split("__", 1) if "__" in key else (key, "")
+        row_id, date_iso = key.rsplit("__", 1) if "__" in key else (key, "")
         if not row_id or not date_iso:
             continue
         next_row_id = row_id
