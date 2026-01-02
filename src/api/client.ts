@@ -132,6 +132,8 @@ export type SolverSettings = {
   onCallRestDaysBefore: number;
   onCallRestDaysAfter: number;
   workingHoursToleranceHours?: number;
+  showDistributionPool?: boolean;
+  showReservePool?: boolean;
 };
 
 export type SolverRule = {

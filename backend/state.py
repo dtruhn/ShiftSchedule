@@ -727,6 +727,21 @@ def _normalize_state(state: AppState) -> tuple[AppState, bool]:
     if normalized_clinicians != state.clinicians:
         state.clinicians = normalized_clinicians
 
+    if state.weeklyTemplate is not None and hasattr(state.weeklyTemplate, "blocks"):
+        block_section_ids = {
+            block.sectionId
+            for block in (state.weeklyTemplate.blocks or [])
+            if block.sectionId
+        }
+        next_rows: List[WorkplaceRow] = []
+        for row in state.rows:
+            if row.kind == "class" and row.id not in block_section_ids:
+                changed = True
+                continue
+            next_rows.append(row)
+        if next_rows != state.rows:
+            state.rows = next_rows
+
     class_rows: List[WorkplaceRow] = []
     class_index = 0
     sub_shift_ids_by_class: Dict[str, set[str]] = {}
@@ -823,6 +838,10 @@ def _normalize_state(state: AppState) -> tuple[AppState, bool]:
                 )
                 changed = True
     for key in list(min_slots.keys()):
+        if SHIFT_ROW_SEPARATOR not in key and key not in row_ids and key not in raw_slot_ids:
+            del min_slots[key]
+            changed = True
+            continue
         if SHIFT_ROW_SEPARATOR not in key:
             continue
         class_id, sub_shift_id = _parse_shift_row_id(key)
@@ -973,6 +992,12 @@ def _normalize_state(state: AppState) -> tuple[AppState, bool]:
     )
     merged_settings["onCallRestEnabled"] = bool(
         merged_settings.get("onCallRestEnabled", False)
+    )
+    merged_settings["showDistributionPool"] = bool(
+        merged_settings.get("showDistributionPool", True)
+    )
+    merged_settings["showReservePool"] = bool(
+        merged_settings.get("showReservePool", True)
     )
     on_call_class_id = merged_settings.get("onCallRestClassId")
     if not isinstance(on_call_class_id, str) or on_call_class_id not in class_row_ids:

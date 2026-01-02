@@ -13,6 +13,8 @@ import { getDayType } from "../../lib/dayTypes";
 import AssignmentPill from "./AssignmentPill";
 import EmptySlotPill from "./EmptySlotPill";
 import RowLabel from "./RowLabel";
+import ClinicianPickerPopover from "./ClinicianPickerPopover";
+import type { ClinicianOption } from "./ClinicianPickerPopover";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, MouseEvent as ReactMouseEvent, SetStateAction } from "react";
 import type { ScheduleRow } from "../../lib/shiftRows";
@@ -59,6 +61,16 @@ type ScheduleGridProps = {
   violatingAssignmentKeys?: Set<string>;
   highlightedAssignmentKeys?: Set<string>;
   highlightOpenSlots?: boolean;
+  clinicians?: Array<{
+    id: string;
+    name: string;
+    qualifiedClassIds: string[];
+    vacations: Array<{ startISO: string; endISO: string }>;
+  }>;
+  getIsOnRestDay?: (clinicianId: string, dateISO: string) => boolean;
+  getHasTimeConflict?: (clinicianId: string, dateISO: string, rowId: string) => boolean;
+  onAddAssignment?: (args: { rowId: string; dateISO: string; clinicianId: string }) => void;
+  onRemoveAssignment?: (args: { rowId: string; dateISO: string; assignmentId: string; clinicianId: string }) => void;
 };
 
 export default function ScheduleGrid({
@@ -87,6 +99,11 @@ export default function ScheduleGrid({
   violatingAssignmentKeys,
   highlightedAssignmentKeys,
   highlightOpenSlots = false,
+  clinicians = [],
+  getIsOnRestDay,
+  getHasTimeConflict,
+  onAddAssignment,
+  onRemoveAssignment,
 }: ScheduleGridProps) {
   type DayColumn = NonNullable<ScheduleGridProps["dayColumns"]>[number];
   const columns: DayColumn[] =
@@ -182,6 +199,13 @@ export default function ScheduleGrid({
   const hoveredClassCellRef = useRef<{ rowId: string; dateISO: string } | null>(
     null,
   );
+  const [pickerState, setPickerState] = useState<{
+    open: boolean;
+    rowId: string;
+    dateISO: string;
+    anchorRect: DOMRect | null;
+    rowName: string;
+  }>({ open: false, rowId: "", dateISO: "", anchorRect: null, rowName: "" });
   const todayISO = toISODate(new Date());
   const isSingleDay = uniqueDayCount === 1;
   const dayColumnMin = isSingleDay ? 140 : 120;
@@ -298,6 +322,88 @@ export default function ScheduleGrid({
     setHoveredClassCell(null);
   };
 
+  const getClinicianOptionsForSlot = (rowId: string, dateISO: string): ClinicianOption[] => {
+    const row =
+      rows.find((r) => r.id === rowId) ??
+      rows.flatMap((r) => r.slotRows ?? []).find((sr) => sr.id === rowId);
+    if (!row || row.kind !== "class") return [];
+    const classId = row.sectionId ?? row.id;
+
+    // Get already assigned clinicians for this specific slot
+    const slotKey = `${rowId}__${dateISO}`;
+    const slotAssignments = assignmentMap.get(slotKey) ?? [];
+    const assignedClinicianIds = new Set(slotAssignments.map((a) => a.clinicianId));
+
+    return clinicians.map((clinician) => {
+      // Check qualification
+      const isQualified = clinician.qualifiedClassIds.includes(classId);
+
+      // Check vacation
+      const isOnVacation = clinician.vacations.some((v) => {
+        return dateISO >= v.startISO && dateISO <= v.endISO;
+      });
+
+      // Check rest day
+      const restAssignments = assignmentMap.get(`${REST_DAY_POOL_ID}__${dateISO}`) ?? [];
+      const fallbackRestDay = restAssignments.some(
+        (assignment) => assignment.clinicianId === clinician.id,
+      );
+      const isOnRestDay = getIsOnRestDay?.(clinician.id, dateISO) ?? fallbackRestDay;
+
+      // Check time conflict
+      const assignedIntervals =
+        assignedIntervalsByDate.get(dateISO)?.get(clinician.id) ?? [];
+      const hasUnknownInterval =
+        unknownIntervalsByDate.get(dateISO)?.has(clinician.id) ?? false;
+      const slotInterval = shiftIntervalsByRowId.get(rowId);
+      const computedConflict =
+        slotInterval &&
+        assignedIntervals.some((interval) => intervalsOverlap(interval, slotInterval));
+      const hasAnyAssignment = assignedIntervals.length > 0;
+      const fallbackConflict =
+        hasUnknownInterval ||
+        (solverSettings?.allowMultipleShiftsPerDay
+          ? Boolean(computedConflict)
+          : hasAnyAssignment);
+      const hasTimeConflict =
+        getHasTimeConflict?.(clinician.id, dateISO, rowId) ?? fallbackConflict;
+
+      // Check if already assigned to this slot
+      const alreadyAssigned = assignedClinicianIds.has(clinician.id);
+
+      // If already in this slot, don't report time conflict (it's redundant)
+      const effectiveTimeConflict = alreadyAssigned ? false : hasTimeConflict;
+
+      return {
+        id: clinician.id,
+        name: clinician.name,
+        isQualified,
+        isOnVacation,
+        isOnRestDay,
+        hasTimeConflict: effectiveTimeConflict,
+        alreadyAssigned,
+      };
+    });
+  };
+
+  const handleEmptySlotClick = (
+    event: ReactMouseEvent<HTMLElement>,
+    rowId: string,
+    dateISO: string,
+    rowName: string,
+  ) => {
+    if (readOnly || !onAddAssignment) return;
+    event.stopPropagation();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    setPickerState({
+      open: true,
+      rowId,
+      dateISO,
+      anchorRect: rect,
+      rowName,
+    });
+  };
+
   const handleMouseMove = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (readOnly) return;
     if (dragState.dragging) {
@@ -337,6 +443,11 @@ export default function ScheduleGrid({
       const inGrid = target?.closest?.('[data-schedule-grid="true"]');
       if (inGrid) return;
       event.preventDefault();
+      // Remove assignment when dropped outside grid
+      if (dragState.dragging && onRemoveAssignment) {
+        const { rowId, dateISO, assignmentId, clinicianId } = dragState.dragging;
+        onRemoveAssignment({ rowId, dateISO, assignmentId, clinicianId });
+      }
       setDragState({ dragging: null, dragOverKey: null });
     };
     window.addEventListener("dragover", handleWindowDragOver);
@@ -345,7 +456,7 @@ export default function ScheduleGrid({
       window.removeEventListener("dragover", handleWindowDragOver);
       window.removeEventListener("drop", handleWindowDrop);
     };
-  }, [dragState.dragging]);
+  }, [dragState.dragging, onRemoveAssignment]);
 
   useLayoutEffect(() => {
     const node = dayHeaderRef.current;
@@ -360,6 +471,17 @@ export default function ScheduleGrid({
     observer.observe(node);
     return () => observer.disconnect();
   }, [dayGroups.length]);
+
+  const pickerClinicians = pickerState.open
+    ? getClinicianOptionsForSlot(pickerState.rowId, pickerState.dateISO)
+    : [];
+  const pickerDateLabel = pickerState.dateISO
+    ? (() => {
+        const date = new Date(`${pickerState.dateISO}T00:00:00`);
+        const { weekday, dayOfMonth } = formatDayHeader(date);
+        return `${weekday} ${dayOfMonth}`;
+      })()
+    : "";
 
   return (
     <div className="schedule-grid mx-auto w-full max-w-7xl px-4 pb-8 sm:px-6 sm:pb-10 print:max-w-none print:px-0 print:pb-0">
@@ -384,6 +506,55 @@ export default function ScheduleGrid({
                   className="grid"
                   onMouseMove={readOnly ? undefined : handleMouseMove}
                   onMouseLeave={readOnly ? undefined : clearHoveredCell}
+                  onDragOver={
+                    readOnly
+                      ? undefined
+                      : (e) => {
+                          if (!dragState.dragging) return;
+                          // Allow drop on grid areas not covered by cells
+                          const target = e.target as HTMLElement | null;
+                          const isCell = target?.closest?.('[data-schedule-cell="true"]');
+                          if (isCell) return;
+                          e.preventDefault();
+                          if (e.dataTransfer) {
+                            e.dataTransfer.dropEffect = "move";
+                          }
+                        }
+                  }
+                  onDrop={
+                    readOnly
+                      ? undefined
+                      : (e) => {
+                          // Handle drop on grid areas not covered by cells (remove assignment)
+                          const target = e.target as HTMLElement | null;
+                          const isCell = target?.closest?.('[data-schedule-cell="true"]');
+                          if (isCell) return;
+                          e.preventDefault();
+                          const raw = e.dataTransfer.getData("application/x-schedule-cell");
+                          if (!raw) {
+                            setDragState({ dragging: null, dragOverKey: null });
+                            return;
+                          }
+                          try {
+                            const payload = JSON.parse(raw) as {
+                              rowId: string;
+                              dateISO: string;
+                              assignmentId: string;
+                              clinicianId: string;
+                            };
+                            if (onRemoveAssignment) {
+                              onRemoveAssignment({
+                                rowId: payload.rowId,
+                                dateISO: payload.dateISO,
+                                assignmentId: payload.assignmentId,
+                                clinicianId: payload.clinicianId,
+                              });
+                            }
+                          } finally {
+                            setDragState({ dragging: null, dragOverKey: null });
+                          }
+                        }
+                  }
                   style={{
                     gridTemplateColumns: `${leftColumn} repeat(${Math.max(
                       columns.length,
@@ -527,6 +698,7 @@ export default function ScheduleGrid({
                         onClinicianClick={onClinicianClick}
                         enableSlotOverrides={enableSlotOverrides}
                         onMoveWithinDay={onMoveWithinDay}
+                        onRemoveAssignment={onRemoveAssignment}
                         dragState={dragState}
                         setDragState={setDragState}
                         hoveredClassCell={hoveredClassCell}
@@ -547,6 +719,7 @@ export default function ScheduleGrid({
                         highlightedAssignmentKeys={highlightedAssignmentKeys}
                         highlightOpenSlots={highlightOpenSlots}
                         rowKindById={rowKindById}
+                        onEmptySlotClick={onAddAssignment ? handleEmptySlotClick : undefined}
                       />
                     </Fragment>
                   );
@@ -557,6 +730,25 @@ export default function ScheduleGrid({
           </div>
         </div>
       </div>
+      <ClinicianPickerPopover
+        open={pickerState.open}
+        anchorRect={pickerState.anchorRect}
+        rowName={pickerState.rowName}
+        dateLabel={pickerDateLabel}
+        clinicians={pickerClinicians}
+        onClose={() =>
+          setPickerState((prev) => ({ ...prev, open: false, anchorRect: null }))
+        }
+        onSelect={(clinicianId) => {
+          if (!onAddAssignment) return;
+          onAddAssignment({
+            rowId: pickerState.rowId,
+            dateISO: pickerState.dateISO,
+            clinicianId,
+          });
+          setPickerState((prev) => ({ ...prev, open: false, anchorRect: null }));
+        }}
+      />
     </div>
   );
 }
@@ -573,6 +765,7 @@ function RowSection({
   onClinicianClick,
   enableSlotOverrides,
   onMoveWithinDay,
+  onRemoveAssignment,
   dragState,
   setDragState,
   hoveredClassCell,
@@ -593,6 +786,7 @@ function RowSection({
   highlightedAssignmentKeys,
   highlightOpenSlots,
   rowKindById,
+  onEmptySlotClick,
 }: {
   row: ScheduleRow;
   dayColumns: {
@@ -618,6 +812,12 @@ function RowSection({
     dateISO: string;
     fromRowId: string;
     toRowId: string;
+    assignmentId: string;
+    clinicianId: string;
+  }) => void;
+  onRemoveAssignment?: (args: {
+    rowId: string;
+    dateISO: string;
     assignmentId: string;
     clinicianId: string;
   }) => void;
@@ -659,6 +859,12 @@ function RowSection({
   highlightedAssignmentKeys?: Set<string>;
   highlightOpenSlots?: boolean;
   rowKindById: Map<string, "class" | "pool">;
+  onEmptySlotClick?: (
+    event: ReactMouseEvent<HTMLElement>,
+    rowId: string,
+    dateISO: string,
+    rowName: string,
+  ) => void;
 }) {
   const rowBg =
     row.id === "pool-vacation"
@@ -770,17 +976,6 @@ function RowSection({
     }
     return groups;
   }, [dayColumns]);
-  const restDayByDate = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    for (const [key, list] of assignmentMap.entries()) {
-      const [rowId, dateISO] = key.split("__");
-      if (rowId !== REST_DAY_POOL_ID || !dateISO) continue;
-      const set = map.get(dateISO) ?? new Set<string>();
-      list.forEach((item) => set.add(item.clinicianId));
-      map.set(dateISO, set);
-    }
-    return map;
-  }, [assignmentMap]);
   const canDropAssignment = (
     payload: {
       rowId: string;
@@ -793,8 +988,8 @@ function RowSection({
   ) => {
     const targetKind = rowKindById.get(targetRowId);
     if (targetKind === "pool") return true;
-    const restSet = restDayByDate.get(targetDateISO);
-    if (restSet?.has(payload.clinicianId)) return false;
+    // Note: We allow dropping clinicians on rest day - manual overrides are allowed
+    // and will show a warning. The solver enforces rules but UI allows overrides.
     const assignedIntervals =
       assignedIntervalsByDate
         .get(targetDateISO)
@@ -936,9 +1131,29 @@ function RowSection({
                             assignmentId: string;
                             clinicianId: string;
                           };
-                          if (payload.dateISO !== dateISO) return;
+                          if (payload.dateISO !== dateISO) {
+                            if (onRemoveAssignment) {
+                              onRemoveAssignment({
+                                rowId: payload.rowId,
+                                dateISO: payload.dateISO,
+                                assignmentId: payload.assignmentId,
+                                clinicianId: payload.clinicianId,
+                              });
+                            }
+                            return;
+                          }
                           if (payload.rowId === row.id) return;
-                          if (!canDropAssignment(payload, row.id, dateISO)) return;
+                          if (!canDropAssignment(payload, row.id, dateISO)) {
+                            if (onRemoveAssignment) {
+                              onRemoveAssignment({
+                                rowId: payload.rowId,
+                                dateISO: payload.dateISO,
+                                assignmentId: payload.assignmentId,
+                                clinicianId: payload.clinicianId,
+                              });
+                            }
+                            return;
+                          }
                           onMoveWithinDay({
                             dateISO,
                             fromRowId: payload.rowId,
@@ -1163,13 +1378,21 @@ function RowSection({
           <button
             key={cellKey}
             type="button"
-            onClick={
-              readOnly ||
-              !enableSlotOverrides ||
-              (row.kind === "class" && !isCellActive)
-                ? undefined
-                : () => onCellClick({ row: activeRow, date: column.date })
-            }
+            onClick={(e) => {
+              if (readOnly) return;
+              const target = e.target as HTMLElement;
+              if (target.closest('[data-assignment-pill="true"]')) return;
+              if (row.kind === "class" && isCellActive && onEmptySlotClick) {
+                onEmptySlotClick(e, activeRow.id, dateISO, activeRow.name);
+                return;
+              }
+              if (
+                enableSlotOverrides &&
+                !(row.kind === "class" && !isCellActive)
+              ) {
+                onCellClick({ row: activeRow, date: column.date });
+              }
+            }}
             onDragOver={
               readOnly
                 ? undefined
@@ -1219,19 +1442,65 @@ function RowSection({
                 : (e) => {
                     e.preventDefault();
                     const raw = e.dataTransfer.getData("application/x-schedule-cell");
-                    if (!raw) return;
-                    try {
-                      const payload = JSON.parse(raw) as {
-                        rowId: string;
-                        dateISO: string;
-                        assignmentId: string;
-                        clinicianId: string;
-                      };
-                      if (payload.dateISO !== dateISO) return;
-                      if (payload.rowId === activeRow.id) return;
-                      if (!canDropAssignment(payload, activeRow.id, dateISO)) return;
+                      if (!raw) return;
+                      try {
+                        const payload = JSON.parse(raw) as {
+                          rowId: string;
+                          dateISO: string;
+                          assignmentId: string;
+                          clinicianId: string;
+                        };
+                      if (payload.dateISO !== dateISO) {
+                        if (onRemoveAssignment) {
+                          onRemoveAssignment({
+                            rowId: payload.rowId,
+                            dateISO: payload.dateISO,
+                            assignmentId: payload.assignmentId,
+                            clinicianId: payload.clinicianId,
+                          });
+                        }
+                        setDragState({ dragging: null, dragOverKey: null });
+                        return;
+                      }
+                      if (payload.rowId === activeRow.id) {
+                        setDragState({ dragging: null, dragOverKey: null });
+                        return;
+                      }
+                      // Check for inactive cell first - always remove when dropping on empty cell
                       if (row.kind === "class" && !isCellActive) {
-                        e.dataTransfer.dropEffect = "move";
+                        if (onRemoveAssignment) {
+                          onRemoveAssignment({
+                            rowId: payload.rowId,
+                            dateISO: payload.dateISO,
+                            assignmentId: payload.assignmentId,
+                            clinicianId: payload.clinicianId,
+                          });
+                        }
+                        setDragState({ dragging: null, dragOverKey: null });
+                        return;
+                      }
+                      if (!canDropAssignment(payload, activeRow.id, dateISO)) {
+                        if (onRemoveAssignment) {
+                          onRemoveAssignment({
+                            rowId: payload.rowId,
+                            dateISO: payload.dateISO,
+                            assignmentId: payload.assignmentId,
+                            clinicianId: payload.clinicianId,
+                          });
+                        }
+                        setDragState({ dragging: null, dragOverKey: null });
+                        return;
+                      }
+                      // This check is now redundant but kept for safety
+                      if (row.kind === "class" && !isCellActive) {
+                        if (onRemoveAssignment) {
+                          onRemoveAssignment({
+                            rowId: payload.rowId,
+                            dateISO: payload.dateISO,
+                            assignmentId: payload.assignmentId,
+                            clinicianId: payload.clinicianId,
+                          });
+                        }
                         setDragState({ dragging: null, dragOverKey: null });
                         return;
                       }
@@ -1267,14 +1536,7 @@ function RowSection({
           >
             {(() => {
               const showSlotPanel = row.kind === "class" && isCellActive;
-              const hasHighlightedViolation =
-                showSlotPanel &&
-                !!highlightedAssignmentKeys &&
-                assignments.some((assignment) =>
-                  highlightedAssignmentKeys.has(
-                    `${assignment.rowId}__${assignment.dateISO}__${assignment.clinicianId}`,
-                  ),
-                );
+              const hasHighlightedViolation = false;
               const cellContent = (
                 <>
                   {sortedAssignments.length > 0 ? (
@@ -1304,7 +1566,7 @@ function RowSection({
                           !getIsQualified(assignment.clinicianId, activeRow.id)
                         }
                         isHighlighted={false}
-                        isViolation={violatingAssignmentKeys?.has(violationKey)}
+                        isViolation={highlightedAssignmentKeys?.has(violationKey)}
                         isDragging={isDraggingAssignment}
                         isDragFocus={isDragFocus || isDraggingAssignment}
                         draggable={!readOnly}
@@ -1362,6 +1624,7 @@ function RowSection({
                 ? Array.from({ length: emptySlots }).map((_, idx) => (
                     <EmptySlotPill
                       key={`${cellKey}-empty-${idx}`}
+                      highlighted={highlightOpenSlots}
                       onRemove={
                         !readOnly && onRemoveEmptySlot && row.kind === "class"
                           ? () =>
@@ -1369,11 +1632,6 @@ function RowSection({
                                 rowId: activeRow.id,
                                 dateISO,
                               })
-                          : undefined
-                      }
-                      className={
-                        highlightOpenSlots
-                          ? "border-2 border-rose-500 bg-rose-50 text-rose-700 ring-2 ring-rose-200/80 dark:border-rose-400/80 dark:bg-rose-900/30 dark:text-rose-100 dark:ring-rose-500/40"
                           : undefined
                       }
                     />
@@ -1384,10 +1642,9 @@ function RowSection({
                         key={`${cellKey}-empty-ghost`}
                         variant="ghost"
                         showAddIcon
+                        highlighted={highlightOpenSlots}
                         className={cx(
                           "opacity-0 transition-opacity",
-                          highlightOpenSlots &&
-                            "border-2 border-rose-400 bg-rose-50/70 text-rose-600 ring-2 ring-rose-200/70 dark:border-rose-500/70 dark:bg-rose-900/30 dark:text-rose-200 dark:ring-rose-500/40",
                           hoveredClassCell?.rowId === activeRow.id &&
                             hoveredClassCell?.dateISO === dateISO &&
                             "opacity-100",

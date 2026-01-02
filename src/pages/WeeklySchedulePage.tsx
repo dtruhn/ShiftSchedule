@@ -339,11 +339,25 @@ export default function WeeklySchedulePage({
     () => buildScheduleRows(rows, locations, locationsEnabled, weeklyTemplate),
     [rows, locations, locationsEnabled, weeklyTemplate],
   );
+  const showDistributionPool = solverSettings.showDistributionPool ?? true;
+  const showReservePool = solverSettings.showReservePool ?? true;
+  const visibleScheduleRows = useMemo(
+    () =>
+      scheduleRows.filter((row) => {
+        if (row.id === FREE_POOL_ID) return showDistributionPool;
+        if (row.id === MANUAL_POOL_ID) return showReservePool;
+        return true;
+      }),
+    [scheduleRows, showDistributionPool, showReservePool],
+  );
   const classShiftRows = useMemo(
     () => scheduleRows.filter((row) => row.kind === "class"),
     [scheduleRows],
   );
-  const calendarRows = useMemo(() => buildCalendarRows(scheduleRows), [scheduleRows]);
+  const calendarRows = useMemo(
+    () => buildCalendarRows(visibleScheduleRows),
+    [visibleScheduleRows],
+  );
   const locationSeparatorRowIds = useMemo(
     () => buildLocationSeparatorRowIds(calendarRows),
     [calendarRows],
@@ -352,13 +366,22 @@ export default function WeeklySchedulePage({
     () => classShiftRows.map((row) => row.id),
     [classShiftRows],
   );
-  const poolsSeparatorId = poolRows[0]?.id ?? "";
+  const poolsSeparatorId = calendarRows.find((row) => row.kind === "pool")?.id ?? "";
   const clinicianNameById = useMemo(
     () => new Map(clinicians.map((clinician) => [clinician.id, clinician.name])),
     [clinicians],
   );
   const rowById = useMemo(
-    () => new Map(scheduleRows.map((row) => [row.id, row])),
+    () => {
+      const map = new Map<string, ScheduleRow>();
+      for (const row of scheduleRows) {
+        map.set(row.id, row);
+        row.slotRows?.forEach((slotRow) => {
+          map.set(slotRow.id, slotRow);
+        });
+      }
+      return map;
+    },
     [scheduleRows],
   );
   const clinicianById = useMemo(
@@ -700,6 +723,14 @@ export default function WeeklySchedulePage({
     );
   };
 
+  const isOnRestDay = (clinicianId: string, dateISO: string) => {
+    const restAssignments = renderAssignmentMap.get(
+      `${REST_DAY_POOL_ID}__${dateISO}`,
+    );
+    if (!restAssignments || restAssignments.length === 0) return false;
+    return restAssignments.some((assignment) => assignment.clinicianId === clinicianId);
+  };
+
   const shiftDateISO = (dateISO: string, delta: number) =>
     toISODate(addDays(new Date(`${dateISO}T00:00:00`), delta));
   const formatEuropeanDate = (dateISO: string) => {
@@ -935,6 +966,81 @@ export default function WeeklySchedulePage({
         delete next[key];
       } else {
         next[key] = nextValue;
+      }
+      return next;
+    });
+  };
+
+  const handleAddAssignment = (args: {
+    rowId: string;
+    dateISO: string;
+    clinicianId: string;
+  }) => {
+    const { rowId, dateISO, clinicianId } = args;
+    const targetRow = rowById.get(rowId);
+    if (!targetRow || targetRow.kind !== "class") return;
+    if (isOnVacation(clinicianId, dateISO)) {
+      removeVacationDay(clinicianId, dateISO);
+    }
+    setAssignmentMap((prev) => {
+      const key = `${rowId}__${dateISO}`;
+      const existing = prev.get(key) ?? [];
+      if (existing.some((item) => item.clinicianId === clinicianId)) return prev;
+      const next = new Map(prev);
+      const newAssignment: Assignment = {
+        id: `as-${Date.now().toString(36)}-${clinicianId}`,
+        rowId,
+        dateISO,
+        clinicianId,
+      };
+      next.set(key, [...existing, newAssignment]);
+      for (const poolId of [MANUAL_POOL_ID, REST_DAY_POOL_ID]) {
+        const poolKey = `${poolId}__${dateISO}`;
+        const poolList = next.get(poolKey) ?? [];
+        const filtered = poolList.filter((item) => item.clinicianId !== clinicianId);
+        if (filtered.length === 0) {
+          next.delete(poolKey);
+        } else if (filtered.length !== poolList.length) {
+          next.set(poolKey, filtered);
+        }
+      }
+      return next;
+    });
+  };
+
+  const handleRemoveAssignment = (args: {
+    rowId: string;
+    dateISO: string;
+    assignmentId: string;
+    clinicianId: string;
+  }) => {
+    const { rowId, dateISO, assignmentId, clinicianId } = args;
+    const targetRow = rowById.get(rowId);
+    if (!targetRow || targetRow.kind !== "class") return;
+    setAssignmentMap((prev) => {
+      const key = `${rowId}__${dateISO}`;
+      const existing = prev.get(key) ?? [];
+      const filtered = existing.filter((item) => item.id !== assignmentId);
+      if (filtered.length === existing.length) return prev;
+      const next = new Map(prev);
+      if (filtered.length === 0) next.delete(key);
+      else next.set(key, filtered);
+
+      const poolKey = `${FREE_POOL_ID}__${dateISO}`;
+      const poolList = next.get(poolKey) ?? [];
+      const alreadyInPool = poolList.some(
+        (item) => item.clinicianId === clinicianId,
+      );
+      if (!alreadyInPool) {
+        next.set(poolKey, [
+          ...poolList,
+          {
+            id: `pool-${FREE_POOL_ID}-${clinicianId}-${dateISO}`,
+            rowId: FREE_POOL_ID,
+            dateISO,
+            clinicianId,
+          },
+        ]);
       }
       return next;
     });
@@ -1921,9 +2027,7 @@ export default function WeeklySchedulePage({
       onMouseLeave={() => setIsOpenSlotsHovered(false)}
       className={cx(
         "inline-flex items-center self-start rounded-full px-2.5 py-1 text-[11px] font-normal ring-1 ring-inset sm:self-auto sm:px-3",
-        openSlotsCount === 0
-          ? "bg-emerald-50 text-emerald-600 ring-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:ring-emerald-500/40"
-          : "bg-rose-50 text-rose-600 ring-rose-200 dark:bg-rose-900/40 dark:text-rose-200 dark:ring-rose-500/40",
+        "bg-yellow-50 text-yellow-700 ring-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-200 dark:ring-yellow-500/40",
       )}
     >
       {openSlotsCount} Open Slots
@@ -1940,7 +2044,7 @@ export default function WeeklySchedulePage({
           onMouseLeave={() => setIsRuleViolationsHovered(false)}
           className={cx(
             "inline-flex items-center self-start rounded-full px-2.5 py-1 text-[11px] font-normal ring-1 ring-inset sm:self-auto sm:px-3",
-            "bg-amber-50 text-amber-700 ring-amber-200 hover:bg-amber-100 dark:bg-amber-900/40 dark:text-amber-200 dark:ring-amber-500/40",
+            "bg-red-50 text-red-700 ring-red-200 hover:bg-red-100 dark:bg-red-900/40 dark:text-red-200 dark:ring-red-500/40",
           )}
           aria-expanded={ruleViolationsOpen}
         >
@@ -2090,9 +2194,13 @@ export default function WeeklySchedulePage({
               const clinician = clinicians.find((item) => item.id === clinicianId);
               return clinician ? clinician.qualifiedClassIds.includes(classId) : false;
             }}
+            clinicians={clinicians}
+            getIsOnRestDay={isOnRestDay}
             slotOverridesByKey={slotOverridesByKey}
             enableSlotOverrides={false}
             onClinicianClick={(clinicianId) => openClinicianEditor(clinicianId)}
+            onAddAssignment={handleAddAssignment}
+            onRemoveAssignment={handleRemoveAssignment}
             onMoveWithinDay={({ 
               dateISO,
               fromRowId,
@@ -2414,6 +2522,27 @@ export default function WeeklySchedulePage({
                 [buildShiftRowId(id, "s1")]: { weekday: 1, weekend: 1 },
               }));
               return id;
+            }}
+            onRemoveSection={(sectionId) => {
+              setRows((prev) => prev.filter((row) => row.id !== sectionId));
+              setMinSlotsByRowId((prev) => {
+                const next = { ...prev };
+                for (const key of Object.keys(next)) {
+                  if (key === sectionId || key.startsWith(`${sectionId}::`)) {
+                    delete next[key];
+                  }
+                }
+                return next;
+              });
+              setAssignmentMap((prev) => {
+                const next = new Map(prev);
+                for (const key of next.keys()) {
+                  if (key.startsWith(`${sectionId}__`) || key.startsWith(`${sectionId}::`)) {
+                    next.delete(key);
+                  }
+                }
+                return next;
+              });
             }}
             onUpdateSectionColor={(sectionId, color) => {
               setRows((prev) =>

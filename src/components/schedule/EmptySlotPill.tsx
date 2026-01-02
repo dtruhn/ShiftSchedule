@@ -1,27 +1,37 @@
+import type { MouseEvent } from "react";
 import { cx } from "../../lib/classNames";
 
 type EmptySlotPillProps = {
   label?: string;
   onRemove?: () => void;
+  onClick?: (event: MouseEvent<HTMLDivElement>) => void;
   variant?: "default" | "ghost";
   showAddIcon?: boolean;
+  highlighted?: boolean;
   className?: string;
 };
 
 export default function EmptySlotPill({
   label = "Open Slot",
   onRemove,
+  onClick,
   variant = "default",
   showAddIcon = false,
+  highlighted = false,
   className,
 }: EmptySlotPillProps) {
   return (
     <div
+      role={onClick ? "button" : undefined}
+      onClick={onClick}
       className={cx(
-        "no-print group/empty relative w-full rounded-xl border border-dashed px-2 py-1 text-center text-[11px] font-normal leading-4 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7)]",
-        variant === "ghost"
-          ? "border-slate-200 bg-slate-50/60 text-slate-400 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400"
-          : "border-slate-300 bg-slate-100/70 text-slate-600 dark:border-slate-600 dark:bg-slate-800/70 dark:text-slate-300",
+        "no-print group/empty relative w-full rounded-xl border px-2 py-1 text-center text-[11px] font-normal leading-4 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7)]",
+        highlighted
+          ? "border-2 border-solid border-rose-500 bg-rose-50 text-rose-700 ring-2 ring-rose-200/80 dark:border-rose-400 dark:bg-rose-900/30 dark:text-rose-100 dark:ring-rose-500/40"
+          : variant === "ghost"
+            ? "border-dashed border-slate-200 bg-slate-50/60 text-slate-400 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400"
+            : "border-dashed border-slate-300 bg-slate-100/70 text-slate-600 dark:border-slate-600 dark:bg-slate-800/70 dark:text-slate-300",
+        onClick && "cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700",
         className,
       )}
     >

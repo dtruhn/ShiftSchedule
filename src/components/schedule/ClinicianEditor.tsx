@@ -118,8 +118,8 @@ export default function ClinicianEditor({
       clearTimeWarning(dayId);
       return;
     }
-    const startMinutes = parseTimeToMinutes(value.startTime);
-    const endMinutes = parseTimeToMinutes(value.endTime);
+    const startMinutes = parseTimeToMinutes(value.startTime ?? "");
+    const endMinutes = parseTimeToMinutes(value.endTime ?? "");
     if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
       const defaults = DEFAULT_PREFERRED_WORKING_TIMES[dayId];
       updatePreferredWorkingTimes((prev) => ({
@@ -233,7 +233,8 @@ export default function ClinicianEditor({
       return;
     }
     onUpdatePreferredWorkingTimes?.(clinician.id, preferredWorkingTimes);
-  }, [preferredWorkingTimes, clinician.id, onUpdatePreferredWorkingTimes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preferredWorkingTimes, clinician.id]);
 
   const updatePreferredWorkingTimes = (
     updater: (prev: PreferredWorkingTimes) => PreferredWorkingTimes,

@@ -107,6 +107,8 @@ export const defaultSolverSettings = {
   onCallRestDaysBefore: 1,
   onCallRestDaysAfter: 1,
   workingHoursToleranceHours: 5,
+  showDistributionPool: true,
+  showReservePool: true,
 };
 
 export const defaultSolverRules: Array<{

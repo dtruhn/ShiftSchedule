@@ -11,9 +11,9 @@ import {
   WorkplaceRow,
 } from "../data/mockData";
 import { addDays, addWeeks, formatRangeLabel, startOfWeek } from "../lib/date";
-import { buildRenderedAssignmentMap } from "../lib/schedule";
+import { buildRenderedAssignmentMap, FREE_POOL_ID, MANUAL_POOL_ID } from "../lib/schedule";
 import { cx } from "../lib/classNames";
-import { buildScheduleRows, normalizeAppState } from "../lib/shiftRows";
+import { buildScheduleRows, normalizeAppState, type ScheduleRow } from "../lib/shiftRows";
 import {
   buildCalendarRows,
   buildColumnTimeMetaByKey,
@@ -41,7 +41,7 @@ type PrintableWeekProps = {
   weekIndex: number;
   totalWeeks: number;
   weekDays: Date[];
-  scheduleRows: WorkplaceRow[];
+  scheduleRows: ScheduleRow[];
   calendarRows: ReturnType<typeof buildCalendarRows>;
   assignmentMap: Map<string, Assignment[]>;
   clinicians: Clinician[];
@@ -50,9 +50,9 @@ type PrintableWeekProps = {
   weeklyTemplate?: WeeklyCalendarTemplate;
   solverSettings: typeof defaultSolverSettings;
   locationSeparatorRowIds: string[];
-  minSlotsByRowId: Record<string, number>;
+  minSlotsByRowId: Record<string, { weekday: number; weekend: number }>;
   poolId?: string;
-  rowById: Map<string, WorkplaceRow>;
+  rowById: Map<string, ScheduleRow>;
   slotOverridesByKey: Record<string, number>;
   columnTimeMetaByKey: ReturnType<typeof buildColumnTimeMetaByKey>;
   rangeLabel: string;
@@ -275,7 +275,21 @@ export default function PrintWeeksPage({ theme }: PrintWeeksPageProps) {
     () => buildScheduleRows(rows, locations, locationsEnabled, weeklyTemplate),
     [rows, locations, locationsEnabled, weeklyTemplate],
   );
-  const calendarRows = useMemo(() => buildCalendarRows(scheduleRows), [scheduleRows]);
+  const showDistributionPool = solverSettings.showDistributionPool ?? true;
+  const showReservePool = solverSettings.showReservePool ?? true;
+  const visibleScheduleRows = useMemo(
+    () =>
+      scheduleRows.filter((row) => {
+        if (row.id === FREE_POOL_ID) return showDistributionPool;
+        if (row.id === MANUAL_POOL_ID) return showReservePool;
+        return true;
+      }),
+    [scheduleRows, showDistributionPool, showReservePool],
+  );
+  const calendarRows = useMemo(
+    () => buildCalendarRows(visibleScheduleRows),
+    [visibleScheduleRows],
+  );
   const locationSeparatorRowIds = useMemo(
     () => buildLocationSeparatorRowIds(calendarRows),
     [calendarRows],
@@ -391,7 +405,7 @@ export default function PrintWeeksPage({ theme }: PrintWeeksPageProps) {
   return (
     <div className={cx("bg-white", theme === "dark" && "dark")}>
       {(() => {
-        const poolId = rows.find((row) => row.kind === "pool")?.id;
+        const poolId = calendarRows.find((row) => row.kind === "pool")?.id;
         return Array.from({ length: totalWeeks }, (_, index) => {
           const days = getWeekDays(index);
           const rangeStart = days[0];

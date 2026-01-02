@@ -679,6 +679,20 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
     }
     changed = true;
   }
+  if (Array.isArray(state.weeklyTemplate?.blocks)) {
+    const blockSectionIds = new Set(
+      state.weeklyTemplate.blocks
+        .map((block) => block.sectionId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const nextBaseRows = baseRows.filter(
+      (row) => row.kind !== "class" || blockSectionIds.has(row.id),
+    );
+    if (nextBaseRows.length !== baseRows.length) {
+      baseRows = nextBaseRows;
+      changed = true;
+    }
+  }
   const defaultSolverSettings = {
     allowMultipleShiftsPerDay: false,
     enforceSameLocationPerDay: false,
@@ -687,12 +701,14 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
     onCallRestDaysBefore: 1,
     onCallRestDaysAfter: 1,
     workingHoursToleranceHours: 5,
+    showDistributionPool: true,
+    showReservePool: true,
   };
   const solverSettings = {
     ...defaultSolverSettings,
     ...(state.solverSettings ?? {}),
   };
-  const classIds = (state.rows ?? [])
+  const classIds = baseRows
     .filter((row) => row.kind === "class")
     .map((row) => row.id);
   if (!solverSettings.onCallRestClassId || !classIds.includes(solverSettings.onCallRestClassId)) {
@@ -712,6 +728,20 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
   };
   solverSettings.workingHoursToleranceHours = clampTolerance(
     solverSettings.workingHoursToleranceHours,
+  );
+  const coerceBoolean = (value: unknown, fallback: boolean) => {
+    if (typeof value === "boolean") return value;
+    if (value === "true") return true;
+    if (value === "false") return false;
+    return fallback;
+  };
+  solverSettings.showDistributionPool = coerceBoolean(
+    solverSettings.showDistributionPool,
+    defaultSolverSettings.showDistributionPool,
+  );
+  solverSettings.showReservePool = coerceBoolean(
+    solverSettings.showReservePool,
+    defaultSolverSettings.showReservePool,
   );
   if (JSON.stringify(solverSettings) !== JSON.stringify(state.solverSettings ?? {})) {
     changed = true;

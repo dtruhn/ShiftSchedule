@@ -63,7 +63,7 @@ export default function AssignmentPill({
         : "bg-sky-50 dark:bg-sky-900/40";
   const segmentTakenClass = "bg-white dark:bg-slate-900";
   const toneClass = showViolation
-    ? "border-2 border-rose-300 text-rose-900 dark:border-rose-500/60 dark:text-rose-100"
+    ? "border-2 border-rose-500 text-rose-900 dark:border-rose-400 dark:text-rose-100"
     : showDragFocus
       ? "border-2 border-slate-900 text-slate-900 dark:border-slate-100 dark:text-sky-50"
       : showHighlight
@@ -87,6 +87,8 @@ export default function AssignmentPill({
         "group/pill relative w-full select-none overflow-visible rounded-xl border px-1.5 py-0.5 text-[11px] font-normal leading-4 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7)]",
         "transition-colors hover:z-[500]",
         hasWarning ? "z-[500]" : "z-[1]",
+        showViolation &&
+          "ring-2 ring-rose-200/80 dark:ring-rose-500/40",
         toneClass,
         hasSegments ? "bg-transparent" : toneBgClass,
         !hasSegments &&

@@ -30,6 +30,7 @@ type WeeklyTemplateBuilderProps = {
   onChange: (nextTemplate: WeeklyCalendarTemplate) => void;
   onCreateSection: (name: string) => string;
   onUpdateSectionColor: (sectionId: string, color: string | null) => void;
+  onRemoveSection?: (sectionId: string) => void;
   onAddLocation: (name: string) => void;
   onRenameLocation: (locationId: string, nextName: string) => void;
   onRemoveLocation: (locationId: string) => void;
@@ -99,6 +100,7 @@ export default function WeeklyTemplateBuilder({
   onChange,
   onCreateSection,
   onUpdateSectionColor,
+  onRemoveSection,
   onAddLocation,
   onRenameLocation,
   onRemoveLocation,
@@ -178,6 +180,13 @@ export default function WeeklyTemplateBuilder({
   const [dragOverBlockId, setDragOverBlockId] = useState<string | null>(null);
   const [activeDayType, setActiveDayType] = useState<DayType>("mon");
   const visibleDayTypes = useMemo(() => DAY_TYPES, []);
+
+  // Copy Day modal state
+  const [copyDayModalOpen, setCopyDayModalOpen] = useState(false);
+  const [copySourceDay, setCopySourceDay] = useState<DayType>("mon");
+  const [copyTargetDay, setCopyTargetDay] = useState<DayType>("tue");
+  const [copyConfirmed, setCopyConfirmed] = useState(false);
+  const [copySuccessMessage, setCopySuccessMessage] = useState<string | null>(null);
   const gridScrollRef = useRef<HTMLDivElement | null>(null);
 
   const isInvalidTimeDraft = (key: string) => {
@@ -349,6 +358,90 @@ export default function WeeklyTemplateBuilder({
     return counts;
   }, [template.locations]);
 
+  // Copy Day helper functions
+  const getColumnCountForDay = (dayType: DayType): number => {
+    return sharedColumnCounts.get(dayType) ?? 0;
+  };
+
+  const getSlotCountForDay = (dayType: DayType): number => {
+    return (template.locations ?? []).reduce((sum, location) => {
+      const daySlots = location.slots.filter((slot) => {
+        const colBand = location.colBands.find((cb) => cb.id === slot.colBandId);
+        return colBand?.dayType === dayType;
+      });
+      return sum + daySlots.length;
+    }, 0);
+  };
+
+  const isDayEmpty = (dayType: DayType): boolean => {
+    return getColumnCountForDay(dayType) === 0 && getSlotCountForDay(dayType) === 0;
+  };
+
+  const handleCopyDay = () => {
+    const sourceDay = copySourceDay;
+    const targetDay = copyTargetDay;
+    if (sourceDay === targetDay) return;
+
+    const sourceColCount = sharedColumnCounts.get(sourceDay) ?? 0;
+
+    // For each location, copy colBands and slots
+    const nextLocations = (template.locations ?? []).map((location) => {
+      // Remove target day colBands
+      const filteredColBands = location.colBands.filter(
+        (cb) => cb.dayType !== targetDay
+      );
+
+      // Copy source day colBands with new IDs and target dayType
+      const sourceColBands = sortByOrder(
+        location.colBands.filter((cb) => cb.dayType === sourceDay)
+      );
+      const newColBands = sourceColBands.map((cb) => ({
+        ...cb,
+        id: createId("col"),
+        dayType: targetDay,
+      }));
+
+      // Build colBand ID mapping (old source ID -> new target ID)
+      const colBandIdMap = new Map<string, string>();
+      sourceColBands.forEach((src, i) => {
+        colBandIdMap.set(src.id, newColBands[i].id);
+      });
+
+      // Remove target day slots
+      const filteredSlots = location.slots.filter((slot) => {
+        const colBand = location.colBands.find((cb) => cb.id === slot.colBandId);
+        return colBand?.dayType !== targetDay;
+      });
+
+      // Copy source day slots with new IDs and updated colBandIds
+      const sourceSlots = location.slots.filter((slot) => {
+        const colBand = location.colBands.find((cb) => cb.id === slot.colBandId);
+        return colBand?.dayType === sourceDay;
+      });
+      const newSlots = sourceSlots.map((slot) => ({
+        ...slot,
+        id: createId("slot"),
+        colBandId: colBandIdMap.get(slot.colBandId) ?? slot.colBandId,
+      }));
+
+      return {
+        ...location,
+        colBands: [...filteredColBands, ...newColBands],
+        slots: [...filteredSlots, ...newSlots],
+      };
+    });
+
+    onChange({ ...template, locations: nextLocations });
+    setCopyDayModalOpen(false);
+    setCopyConfirmed(false);
+
+    // Show success message
+    const sourceLabel = DAY_TYPE_LABELS[sourceDay];
+    const targetLabel = DAY_TYPE_LABELS[targetDay];
+    setCopySuccessMessage(`Copied ${sourceLabel} to ${targetLabel} (${sourceColCount} columns)`);
+    setTimeout(() => setCopySuccessMessage(null), 3000);
+  };
+
   useEffect(() => {
     let needsUpdate = false;
     const nextLocations = locations.map((loc) => {
@@ -435,14 +528,22 @@ export default function WeeklyTemplateBuilder({
     ) {
       return;
     }
+    const block = blockById.get(blockId);
+    const nextBlocks = blocks.filter((item) => item.id !== blockId);
     onChange({
       ...template,
-      blocks: blocks.filter((block) => block.id !== blockId),
+      blocks: nextBlocks,
       locations: template.locations.map((location) => ({
         ...location,
         slots: location.slots.filter((slot) => slot.blockId !== blockId),
       })),
     });
+    if (
+      block &&
+      !nextBlocks.some((item) => item.sectionId === block.sectionId)
+    ) {
+      onRemoveSection?.(block.sectionId);
+    }
   };
 
   const findSlot = (
@@ -1047,7 +1148,7 @@ export default function WeeklyTemplateBuilder({
     <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
       <div className="min-w-0 flex-1 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="mb-3 overflow-x-auto">
-          <div className="flex min-w-max gap-2">
+          <div className="flex min-w-max items-center gap-2">
             {DAY_TYPES.map((dayType) => (
               <button
                 key={dayType}
@@ -1078,6 +1179,25 @@ export default function WeeklyTemplateBuilder({
                 {DAY_TYPE_LABELS[dayType]}
               </button>
             ))}
+            <div className="ml-2 h-4 w-px bg-slate-200 dark:bg-slate-700" />
+            <button
+              type="button"
+              onClick={() => {
+                setCopySourceDay(activeDayType);
+                const otherDays = DAY_TYPES.filter((d) => d !== activeDayType);
+                setCopyTargetDay(otherDays[0] ?? "tue");
+                setCopyConfirmed(false);
+                setCopyDayModalOpen(true);
+              }}
+              className="rounded-full border border-dashed border-slate-300 px-3 py-1 text-[10px] font-semibold text-slate-500 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800"
+            >
+              Copy Day
+            </button>
+            {copySuccessMessage && (
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                {copySuccessMessage}
+              </span>
+            )}
           </div>
         </div>
         <div className="overflow-x-auto" ref={gridScrollRef}>
@@ -1860,6 +1980,137 @@ export default function WeeklyTemplateBuilder({
         </div>
       </div>
       {renderAddBlockPanel()}
+
+      {/* Copy Day Modal */}
+      {copyDayModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-slate-900">
+            <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+              Copy Day
+            </h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Copy all columns and slots from one day to another.
+            </p>
+
+            {/* Source/Target dropdowns */}
+            <div className="mt-4 grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Copy from
+                </label>
+                <select
+                  value={copySourceDay}
+                  onChange={(e) => {
+                    const newSource = e.target.value as DayType;
+                    setCopySourceDay(newSource);
+                    if (newSource === copyTargetDay) {
+                      const other = DAY_TYPES.find((d) => d !== newSource);
+                      setCopyTargetDay(other ?? "tue");
+                    }
+                    setCopyConfirmed(false);
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  {DAY_TYPES.map((day) => (
+                    <option key={day} value={day}>
+                      {DAY_TYPE_LABELS[day]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Copy to
+                </label>
+                <select
+                  value={copyTargetDay}
+                  onChange={(e) => {
+                    setCopyTargetDay(e.target.value as DayType);
+                    setCopyConfirmed(false);
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  {DAY_TYPES.filter((d) => d !== copySourceDay).map((day) => (
+                    <option key={day} value={day}>
+                      {DAY_TYPE_LABELS[day]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="mt-4 rounded-lg bg-slate-100 p-3 dark:bg-slate-800">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600 dark:text-slate-300">
+                  {DAY_TYPE_LABELS[copySourceDay]} (source)
+                </span>
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  {getColumnCountForDay(copySourceDay)} columns, {getSlotCountForDay(copySourceDay)} slots
+                </span>
+              </div>
+              <div className="mt-1 flex justify-between text-sm">
+                <span className="text-slate-600 dark:text-slate-300">
+                  {DAY_TYPE_LABELS[copyTargetDay]} (target)
+                </span>
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  {getColumnCountForDay(copyTargetDay)} columns, {getSlotCountForDay(copyTargetDay)} slots
+                </span>
+              </div>
+            </div>
+
+            {/* Warning if target not empty */}
+            {!isDayEmpty(copyTargetDay) && (
+              <div className="mt-4 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/30">
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  The target day has existing content that will be overwritten.
+                </p>
+                <label className="mt-2 flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+                  <input
+                    type="checkbox"
+                    checked={copyConfirmed}
+                    onChange={(e) => setCopyConfirmed(e.target.checked)}
+                    className="rounded border-amber-400"
+                  />
+                  <span>I understand this will overwrite the target day</span>
+                </label>
+              </div>
+            )}
+
+            {/* Same day error */}
+            {copySourceDay === copyTargetDay && (
+              <p className="mt-4 text-sm text-red-500">
+                Source and target must be different days
+              </p>
+            )}
+
+            {/* Buttons */}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setCopyDayModalOpen(false);
+                  setCopyConfirmed(false);
+                }}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyDay}
+                disabled={
+                  copySourceDay === copyTargetDay ||
+                  (!isDayEmpty(copyTargetDay) && !copyConfirmed)
+                }
+                className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:hover:bg-slate-600"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

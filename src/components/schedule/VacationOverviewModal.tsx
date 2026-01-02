@@ -112,10 +112,14 @@ export default function VacationOverviewModal({
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [visibleYear, setVisibleYear] = useState(currentYear);
   const [pendingScrollToToday, setPendingScrollToToday] = useState(false);
-  const [activeSectionIds, setActiveSectionIds] = useState<string[]>([]);
+  const VACATION_BAND_ID = "__vacation__";
+  const DEFAULT_VACATION_COLOR = "#86efac"; // emerald-300 (softer)
+  const [activeSectionIds, setActiveSectionIds] = useState<string[]>([VACATION_BAND_ID]);
   const [sectionColorsById, setSectionColorsById] = useState<Record<string, string>>(
     {},
   );
+  const isVacationActive = activeSectionIds.includes(VACATION_BAND_ID);
+  const vacationColor = sectionColorsById[VACATION_BAND_ID] ?? DEFAULT_VACATION_COLOR;
   const [referencePanelOpen, setReferencePanelOpen] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -371,15 +375,50 @@ export default function VacationOverviewModal({
                 {referencePanelOpen ? (
                   <div className="absolute right-0 top-full z-40 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
                     <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Choose sections
+                      Choose bands
                     </div>
                     <div className="space-y-2">
+                      {/* Vacation band option */}
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActiveSectionIds((prev) =>
+                              prev.includes(VACATION_BAND_ID)
+                                ? prev.filter((id) => id !== VACATION_BAND_ID)
+                                : [...prev, VACATION_BAND_ID],
+                            )
+                          }
+                          className={cx(
+                            "flex flex-1 items-center gap-2 rounded-full border px-2 py-1 text-[11px] font-semibold",
+                            isVacationActive
+                              ? "border-slate-400 bg-slate-900 text-white dark:border-slate-600 dark:bg-slate-100 dark:text-slate-900"
+                              : "border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200",
+                          )}
+                        >
+                          <span
+                            className="h-3 w-3 rounded-full border border-slate-200"
+                            style={{ backgroundColor: vacationColor }}
+                          />
+                          Vacation
+                        </button>
+                        <input
+                          type="color"
+                          value={vacationColor}
+                          onChange={(event) =>
+                            setSectionColorsById((prev) => ({
+                              ...prev,
+                              [VACATION_BAND_ID]: event.target.value,
+                            }))
+                          }
+                          className="h-7 w-7 cursor-pointer rounded border border-slate-200 bg-transparent"
+                          aria-label="Vacation color"
+                        />
+                      </div>
                       {sections.map((section) => {
                         const isActive = activeSectionIds.includes(section.id);
-                        const swatch =
-                          sectionColorsById[section.id] ??
-                          section.color ??
-                          "#D9F0FF";
+                        const defaultColor = section.color ?? "#D9F0FF";
+                        const swatch = sectionColorsById[section.id] ?? defaultColor;
                         return (
                           <div
                             key={section.id}
@@ -500,55 +539,60 @@ export default function VacationOverviewModal({
                 <div className="sticky top-0 z-30 bg-white dark:bg-slate-900">
                   <div className="flex border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                     <div
-                      className="sticky left-0 z-50 border-r border-slate-200 bg-white px-3 py-2 text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"
+                      className="sticky left-0 z-40 border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
                       style={{ width: LEFT_COLUMN_WIDTH }}
-                    >
-                      <div className="text-[10px] uppercase tracking-wide">Year</div>
-                      <div className="text-sm font-semibold text-slate-700 dark:text-slate-100">
-                        {visibleYear}
+                    />
+                    <div className="relative flex" style={{ width: totalWidth }}>
+                      {/* Year labels row - absolutely positioned above months */}
+                      <div className="pointer-events-none absolute left-0 right-0 top-0 flex" style={{ height: 18 }}>
+                        {yearSpans.map((span, yearIdx) => {
+                          // Calculate offset to the start of this year
+                          let yearOffset = 0;
+                          for (let i = 0; i < yearIdx; i++) {
+                            yearOffset += yearSpans[i].days * DAY_WIDTH;
+                          }
+                          const yearWidth = span.days * DAY_WIDTH;
+
+                          return (
+                            <div
+                              key={span.year}
+                              className="absolute top-0 flex"
+                              style={{
+                                left: yearOffset,
+                                width: yearWidth,
+                              }}
+                            >
+                              <div
+                                className="sticky flex items-center"
+                                style={{ left: LEFT_COLUMN_WIDTH + 8 }}
+                              >
+                                <span className="rounded bg-white px-1 text-xs font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                  {span.year}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    </div>
-                    <div
-                      className="flex border-r border-slate-100 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-300"
-                      style={{ width: totalWidth }}
-                    >
-                      {yearSpans.map((span) => (
-                        <div
-                          key={span.year}
-                          className="flex items-center justify-center border-r border-slate-100 dark:border-slate-800"
-                          style={{ width: span.days * DAY_WIDTH }}
-                        >
-                          {span.year}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-                    <div
-                      className="sticky left-0 z-40 border-r border-slate-200 bg-white px-3 py-3 text-xs font-semibold text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"
-                      style={{ width: LEFT_COLUMN_WIDTH }}
-                    >
-                      Clinicians
-                    </div>
-                    <div className="flex" style={{ width: totalWidth }}>
+                      {/* Month labels */}
                       {monthSpans.map((month) => (
                         <div
                           key={`${month.year}-${month.label}`}
-                          className="flex items-center justify-center border-r border-slate-100 text-xs font-semibold text-slate-500 dark:border-slate-800 dark:text-slate-400"
+                          className="flex flex-col items-center justify-end border-r border-slate-100 pt-5 dark:border-slate-800"
                           style={{ width: month.days * DAY_WIDTH }}
                         >
-                          {month.label}
+                          <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                            {month.label}
+                          </div>
                         </div>
                       ))}
                     </div>
                   </div>
                   <div className="flex border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                     <div
-                      className="sticky left-0 z-40 border-r border-slate-200 bg-white px-3 py-2 text-[10px] text-slate-400 dark:border-slate-800 dark:bg-slate-900"
+                      className="sticky left-0 z-40 border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
                       style={{ width: LEFT_COLUMN_WIDTH }}
-                    >
-                      Days
-                    </div>
+                    />
                     <div className="flex" style={{ width: totalWidth }}>
                       {monthSpans.map((month) => (
                         <div key={`${month.year}-${month.label}`} className="flex">
@@ -573,51 +617,48 @@ export default function VacationOverviewModal({
                       vacationSegmentsByClinician.get(clinician.id) ?? [];
                     const sectionSegments =
                       sectionSegmentsByClinician.get(clinician.id) ?? new Map();
-                    const bandCount = 1 + activeSections.length;
+                    const bandCount = (isVacationActive ? 1 : 0) + activeSections.length;
                     const bandGap = 4;
-                    const rowHeight =
+                    const minRowHeight = 44; // Ensure clinician name is always visible
+                    const calculatedHeight =
                       bandCount * BAR_HEIGHT + (bandCount - 1) * bandGap + 8;
+                    const rowHeight = Math.max(minRowHeight, calculatedHeight);
                     return (
                       <div
                         key={clinician.id}
-                        className="flex items-center border-b border-slate-100 dark:border-slate-800"
+                        className="flex border-b border-slate-300 dark:border-slate-700"
                       >
                         <div
-                          className="sticky left-0 z-40 border-r border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-                          style={{ width: LEFT_COLUMN_WIDTH }}
+                          className="sticky left-0 z-50 flex flex-col justify-center border-r border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                          style={{ width: LEFT_COLUMN_WIDTH, minWidth: LEFT_COLUMN_WIDTH, height: rowHeight }}
                         >
                           <span className="block truncate">{clinician.name}</span>
                         </div>
                         <button
                           type="button"
                           onClick={() => onSelectClinician(clinician.id)}
-                          className="relative flex flex-shrink-0 flex-col gap-1 px-2"
+                          className="relative flex flex-shrink-0 flex-col justify-center gap-1 px-2"
                           style={{ width: totalWidth, height: rowHeight }}
                         >
-                          <div
-                            className="relative w-full overflow-visible rounded-full bg-slate-200 dark:bg-slate-800"
-                            style={{ height: BAR_HEIGHT }}
-                          >
+                          {isVacationActive && (
                             <div
-                              className="pointer-events-none sticky h-0 w-0"
-                              style={{ left: LEFT_COLUMN_WIDTH + 6 }}
+                              className="relative w-full overflow-visible rounded-full bg-slate-200 dark:bg-slate-800"
+                              style={{ height: BAR_HEIGHT }}
                             >
-                              <div className="absolute left-0 top-1/2 z-30 -translate-y-1/2 whitespace-nowrap px-2 text-[11px] font-normal text-slate-900">
-                                Vacation
-                              </div>
+                              {segments.map((segment) => (
+                                <div
+                                  key={segment.id}
+                                  className="absolute top-0 rounded-full"
+                                  style={{
+                                    left: segment.left,
+                                    width: segment.width,
+                                    height: BAR_HEIGHT,
+                                    backgroundColor: vacationColor,
+                                  }}
+                                />
+                              ))}
                             </div>
-                            {segments.map((segment) => (
-                              <div
-                                key={segment.id}
-                                className="absolute top-0 rounded-full bg-emerald-400"
-                                style={{
-                                  left: segment.left,
-                                  width: segment.width,
-                                  height: BAR_HEIGHT,
-                                }}
-                              />
-                            ))}
-                          </div>
+                          )}
                           {activeSections.map((section) => {
                             const sectionSegmentRows =
                               sectionSegments.get(section.id) ?? [];
@@ -631,15 +672,7 @@ export default function VacationOverviewModal({
                                 className="relative w-full overflow-visible rounded-full bg-slate-200 dark:bg-slate-800"
                                 style={{ height: BAR_HEIGHT }}
                               >
-                                <div
-                                  className="pointer-events-none sticky h-0 w-0"
-                                  style={{ left: LEFT_COLUMN_WIDTH + 6 }}
-                                >
-                                  <div className="absolute left-0 top-1/2 z-30 -translate-y-1/2 whitespace-nowrap px-2 text-[11px] font-normal text-slate-900">
-                                    {section.name}
-                                  </div>
-                                </div>
-                                {sectionSegmentRows.map((segment) => (
+                                {sectionSegmentRows.map((segment: { id: string; left: number; width: number }) => (
                                   <div
                                     key={segment.id}
                                     className="absolute top-0 rounded-full"
@@ -655,6 +688,38 @@ export default function VacationOverviewModal({
                             );
                           })}
                         </button>
+                        {/* Sticky band labels - positioned after the button to overlay the timeline */}
+                        <div
+                          className="pointer-events-none sticky z-40 flex flex-col justify-center gap-1"
+                          style={{
+                            left: LEFT_COLUMN_WIDTH + 8,
+                            width: 0,
+                            height: rowHeight,
+                            marginLeft: -totalWidth - 8,
+                          }}
+                        >
+                          {isVacationActive && (
+                            <div
+                              className="flex items-center"
+                              style={{ height: BAR_HEIGHT }}
+                            >
+                              <span className="whitespace-nowrap text-[11px] font-normal text-slate-600 dark:text-slate-300">
+                                Vacation
+                              </span>
+                            </div>
+                          )}
+                          {activeSections.map((section) => (
+                            <div
+                              key={`label-${clinician.id}-${section.id}`}
+                              className="flex items-center"
+                              style={{ height: BAR_HEIGHT }}
+                            >
+                              <span className="whitespace-nowrap text-[11px] font-normal text-slate-600 dark:text-slate-300">
+                                {section.name}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     );
                   })}

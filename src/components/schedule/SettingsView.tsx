@@ -31,6 +31,7 @@ type SettingsViewProps = {
   onChangeWeeklyTemplate: (template: WeeklyCalendarTemplate) => void;
   onCreateSection: (name: string) => string;
   onUpdateSectionColor: (sectionId: string, color: string | null) => void;
+  onRemoveSection?: (sectionId: string) => void;
 };
 
 export default function SettingsView({
@@ -60,6 +61,7 @@ export default function SettingsView({
   onChangeWeeklyTemplate,
   onCreateSection,
   onUpdateSectionColor,
+  onRemoveSection,
 }: SettingsViewProps) {
   const [newClinicianName, setNewClinicianName] = useState("");
   const [newClinicianHours, setNewClinicianHours] = useState("");
@@ -180,14 +182,15 @@ export default function SettingsView({
   const sectionBlocks = weeklyTemplate?.blocks ?? [];
   const sectionNameById = new Map(classRows.map((row) => [row.id, row.name]));
   const solverSectionRows = (() => {
+    if (!weeklyTemplate) return classRows;
     const blockSectionIds = new Set(
-      (weeklyTemplate?.blocks ?? [])
+      (weeklyTemplate.blocks ?? [])
         .map((block) => block.sectionId)
         .filter((id): id is string => Boolean(id)),
     );
-    if (blockSectionIds.size === 0) return classRows;
+    if (blockSectionIds.size === 0) return [];
     const blockOrder = new Map<string, number>();
-    (weeklyTemplate?.blocks ?? []).forEach((block, index) => {
+    (weeklyTemplate.blocks ?? []).forEach((block, index) => {
       if (!block.sectionId || blockOrder.has(block.sectionId)) return;
       blockOrder.set(block.sectionId, index);
     });
@@ -256,6 +259,7 @@ export default function SettingsView({
               onChange={onChangeWeeklyTemplate}
               onCreateSection={onCreateSection}
               onUpdateSectionColor={onUpdateSectionColor}
+              onRemoveSection={onRemoveSection}
               onAddLocation={onAddLocation}
               onRenameLocation={onRenameLocation}
               onRemoveLocation={onRemoveLocation}
@@ -291,6 +295,76 @@ export default function SettingsView({
                 </span>
               </div>
             ))}
+          </div>
+          <div className="mt-6 space-y-3">
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+              <div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Show distribution pool
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Hide to remove the distribution pool from the calendar.
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={solverSettings.showDistributionPool ?? true}
+                onClick={() =>
+                  onChangeSolverSettings({
+                    ...solverSettings,
+                    showDistributionPool: !(solverSettings.showDistributionPool ?? true),
+                  })
+                }
+                className={cx(
+                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                  solverSettings.showDistributionPool ?? true
+                    ? "bg-emerald-500"
+                    : "bg-slate-300 dark:bg-slate-700",
+                )}
+              >
+                <span
+                  className={cx(
+                    "inline-block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow transition-transform",
+                    (solverSettings.showDistributionPool ?? true) && "translate-x-[22px]",
+                  )}
+                />
+              </button>
+            </div>
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+              <div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Show reserve pool
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Hide to remove the reserve pool from the calendar.
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={solverSettings.showReservePool ?? true}
+                onClick={() =>
+                  onChangeSolverSettings({
+                    ...solverSettings,
+                    showReservePool: !(solverSettings.showReservePool ?? true),
+                  })
+                }
+                className={cx(
+                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                  solverSettings.showReservePool ?? true
+                    ? "bg-emerald-500"
+                    : "bg-slate-300 dark:bg-slate-700",
+                )}
+              >
+                <span
+                  className={cx(
+                    "inline-block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow transition-transform",
+                    (solverSettings.showReservePool ?? true) && "translate-x-[22px]",
+                  )}
+                />
+              </button>
+            </div>
           </div>
         </div>
 

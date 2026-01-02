@@ -11,7 +11,7 @@ import {
   locations as defaultLocations,
 } from "../data/mockData";
 import { addDays, startOfWeek, formatRangeLabel } from "../lib/date";
-import { buildRenderedAssignmentMap } from "../lib/schedule";
+import { buildRenderedAssignmentMap, FREE_POOL_ID, MANUAL_POOL_ID } from "../lib/schedule";
 import { cx } from "../lib/classNames";
 import { buildScheduleRows, normalizeAppState } from "../lib/shiftRows";
 import {
@@ -98,14 +98,31 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
     return record;
   }, [holidays]);
 
-  const poolsSeparatorId = useMemo(() => rows.find((row) => row.kind === "pool")?.id, [rows]);
   const scheduleRows = useMemo(
     () => buildScheduleRows(rows, locations, locationsEnabled, weeklyTemplate),
     [rows, locations, locationsEnabled, weeklyTemplate],
   );
-  const calendarRows = useMemo(() => buildCalendarRows(scheduleRows), [scheduleRows]);
+  const showDistributionPool = solverSettings.showDistributionPool ?? true;
+  const showReservePool = solverSettings.showReservePool ?? true;
+  const visibleScheduleRows = useMemo(
+    () =>
+      scheduleRows.filter((row) => {
+        if (row.id === FREE_POOL_ID) return showDistributionPool;
+        if (row.id === MANUAL_POOL_ID) return showReservePool;
+        return true;
+      }),
+    [scheduleRows, showDistributionPool, showReservePool],
+  );
+  const calendarRows = useMemo(
+    () => buildCalendarRows(visibleScheduleRows),
+    [visibleScheduleRows],
+  );
   const locationSeparatorRowIds = useMemo(
     () => buildLocationSeparatorRowIds(calendarRows),
+    [calendarRows],
+  );
+  const poolsSeparatorId = useMemo(
+    () => calendarRows.find((row) => row.kind === "pool")?.id ?? "",
     [calendarRows],
   );
   const columnTimeMetaByKey = useMemo(

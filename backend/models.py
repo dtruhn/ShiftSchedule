@@ -196,6 +196,8 @@ class SolverSettings(BaseModel):
     onCallRestDaysBefore: int = 1
     onCallRestDaysAfter: int = 1
     workingHoursToleranceHours: int = 5
+    showDistributionPool: bool = True
+    showReservePool: bool = True
 
 
 class SolverRule(BaseModel):
