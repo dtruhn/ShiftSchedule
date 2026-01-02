@@ -1,9 +1,8 @@
-import type { DayType, SolverSettings } from "../../api/client";
+import type { DayType } from "../../api/client";
 import type { RenderedAssignment, TimeRange } from "../../lib/schedule";
 import { cx } from "../../lib/classNames";
 import { formatDayHeader, toISODate } from "../../lib/date";
 import {
-  FREE_POOL_ID,
   REST_DAY_POOL_ID,
   buildShiftInterval,
   formatTimeRangeLabel,
@@ -39,7 +38,6 @@ type ScheduleGridProps = {
   holidayDates?: Set<string>;
   holidayNameByDate?: Record<string, string>;
   readOnly?: boolean;
-  solverSettings?: SolverSettings;
   getClinicianName: (clinicianId: string) => string;
   getIsQualified: (clinicianId: string, rowId: string) => boolean;
   getHasEligibleClasses: (clinicianId: string) => boolean;
@@ -83,7 +81,6 @@ export default function ScheduleGrid({
   holidayDates,
   holidayNameByDate,
   readOnly = false,
-  solverSettings,
   getClinicianName,
   getIsQualified,
   getHasEligibleClasses,
@@ -224,36 +221,6 @@ export default function ScheduleGrid({
     }
     return map;
   }, [rows]);
-  const columnIntervalsByKey = useMemo(() => {
-    const map = new Map<string, { interval?: TimeRange; mixed: boolean }>();
-    const registerRow = (slotRow: ScheduleRow) => {
-      if (slotRow.kind !== "class") return;
-      if (!slotRow.dayType || !slotRow.colBandOrder) return;
-      const interval = shiftIntervalsByRowId.get(slotRow.id);
-      if (!interval) return;
-      const key = `${slotRow.dayType}-${slotRow.colBandOrder}`;
-      const existing = map.get(key);
-      if (!existing) {
-        map.set(key, { interval, mixed: false });
-        return;
-      }
-      if (!existing.interval) return;
-      if (
-        existing.interval.start !== interval.start ||
-        existing.interval.end !== interval.end
-      ) {
-        map.set(key, { interval: existing.interval, mixed: true });
-      }
-    };
-    for (const row of rows) {
-      if (row.slotRows?.length) {
-        row.slotRows.forEach(registerRow);
-      } else {
-        registerRow(row);
-      }
-    }
-    return map;
-  }, [rows, shiftIntervalsByRowId]);
   const { assignedIntervalsByDate, unknownIntervalsByDate } = useMemo(() => {
     const assignedByDate = new Map<string, Map<string, TimeRange[]>>();
     const unknownByDate = new Map<string, Set<string>>();
@@ -283,33 +250,6 @@ export default function ScheduleGrid({
     }
     return { assignedIntervalsByDate: assignedByDate, unknownIntervalsByDate: unknownByDate };
   }, [assignmentMap, rowKindById, shiftIntervalsByRowId]);
-  const poolSegmentsByDate = useMemo(() => {
-    if (!solverSettings?.allowMultipleShiftsPerDay) {
-      return new Map<string, { interval: TimeRange; label: string }[]>();
-    }
-    const result = new Map<string, { interval: TimeRange; label: string }[]>();
-    for (const group of dayGroups) {
-      if (group.columns.length <= 1) continue;
-      const segments: { interval: TimeRange; label: string }[] = [];
-      let isConsistent = true;
-      for (const column of group.columns) {
-        const key = `${column.dayType}-${column.colOrder}`;
-        const meta = columnIntervalsByKey.get(key);
-        if (!meta || meta.mixed || !meta.interval) {
-          isConsistent = false;
-          break;
-        }
-        const label =
-          column.columnTimeLabel ??
-          formatTimeRangeLabel(meta.interval.start, meta.interval.end);
-        segments.push({ interval: meta.interval, label });
-      }
-      if (isConsistent && segments.length > 1) {
-        result.set(group.dateISO, segments);
-      }
-    }
-    return result;
-  }, [dayGroups, columnIntervalsByKey, solverSettings?.allowMultipleShiftsPerDay]);
   const setHoveredCell = (next: { rowId: string; dateISO: string } | null) => {
     hoveredClassCellRef.current = next;
     setHoveredClassCell(next);
@@ -359,12 +299,8 @@ export default function ScheduleGrid({
       const computedConflict =
         slotInterval &&
         assignedIntervals.some((interval) => intervalsOverlap(interval, slotInterval));
-      const hasAnyAssignment = assignedIntervals.length > 0;
-      const fallbackConflict =
-        hasUnknownInterval ||
-        (solverSettings?.allowMultipleShiftsPerDay
-          ? Boolean(computedConflict)
-          : hasAnyAssignment);
+      // Always allow multiple shifts as long as times don't overlap
+      const fallbackConflict = hasUnknownInterval || Boolean(computedConflict);
       const hasTimeConflict =
         getHasTimeConflict?.(clinician.id, dateISO, rowId) ?? fallbackConflict;
 
@@ -690,7 +626,6 @@ export default function ScheduleGrid({
                         row={row}
                         dayColumns={columns}
                         assignmentMap={assignmentMap}
-                        solverSettings={solverSettings}
                         getClinicianName={getClinicianName}
                         getIsQualified={getIsQualified}
                         getHasEligibleClasses={getHasEligibleClasses}
@@ -712,7 +647,6 @@ export default function ScheduleGrid({
                         showBlockTimes={showBlockTimes}
                         readOnly={readOnly}
                         shiftIntervalsByRowId={shiftIntervalsByRowId}
-                        poolSegmentsByDate={poolSegmentsByDate}
                         assignedIntervalsByDate={assignedIntervalsByDate}
                         unknownIntervalsByDate={unknownIntervalsByDate}
                         violatingAssignmentKeys={violatingAssignmentKeys}
@@ -757,7 +691,6 @@ function RowSection({
   row,
   dayColumns,
   assignmentMap,
-  solverSettings,
   getClinicianName,
   getIsQualified,
   getHasEligibleClasses,
@@ -779,7 +712,6 @@ function RowSection({
   showBlockTimes,
   readOnly = false,
   shiftIntervalsByRowId,
-  poolSegmentsByDate,
   assignedIntervalsByDate,
   unknownIntervalsByDate,
   violatingAssignmentKeys,
@@ -801,7 +733,6 @@ function RowSection({
     columnHasMixedTimes?: boolean;
   }[];
   assignmentMap: Map<string, RenderedAssignment[]>;
-  solverSettings?: SolverSettings;
   getClinicianName: (clinicianId: string) => string;
   getIsQualified: (clinicianId: string, rowId: string) => boolean;
   getHasEligibleClasses: (clinicianId: string) => boolean;
@@ -852,7 +783,6 @@ function RowSection({
   showBlockTimes: boolean;
   readOnly?: boolean;
   shiftIntervalsByRowId: Map<string, TimeRange>;
-  poolSegmentsByDate: Map<string, { interval: TimeRange; label: string }[]>;
   assignedIntervalsByDate: Map<string, Map<string, TimeRange[]>>;
   unknownIntervalsByDate: Map<string, Set<string>>;
   violatingAssignmentKeys?: Set<string>;
@@ -869,11 +799,9 @@ function RowSection({
   const rowBg =
     row.id === "pool-vacation"
       ? "bg-slate-200/80 dark:bg-slate-800/80"
-      : row.id === "pool-manual" || row.id === "pool-rest-day"
+      : row.id === "pool-rest-day"
         ? "bg-slate-50/70 dark:bg-slate-900/70"
         : "bg-white dark:bg-slate-900";
-  const isDistributionPoolRow = row.id === FREE_POOL_ID;
-  const isManualPoolRow = row.id === "pool-manual";
   const isRestDayPoolRow = row.id === "pool-rest-day";
   const hideBottomBorder = row.kind === "class" && hasNextSubShift;
   const borderBottomClass =
@@ -1018,9 +946,7 @@ function RowSection({
         .get(targetDateISO)
         ?.has(payload.clinicianId) ?? false;
     const hasAny = effectiveIntervals.length > 0 || hasUnknown;
-    if (!solverSettings?.allowMultipleShiftsPerDay) {
-      return !hasAny;
-    }
+    // Always allow multiple shifts as long as times don't overlap
     if (!hasAny) return true;
     if (hasUnknown) return false;
     const targetInterval = shiftIntervalsByRowId.get(targetRowId);
@@ -1069,9 +995,6 @@ function RowSection({
             const cellBgClass = isOtherDay
               ? "bg-slate-200/70 text-slate-400 opacity-60"
               : rowBg;
-            const poolSegments = isDistributionPoolRow
-              ? poolSegmentsByDate.get(dateISO)
-              : undefined;
 
             return (
               <button
@@ -1186,99 +1109,82 @@ function RowSection({
               >
                 {sortedAssignments.length > 0 ? (
                   <div className="flex flex-col gap-1">
-                    {sortedAssignments.map((assignment) => {
-                      const isDraggingAssignment =
-                        dragState.dragging?.assignmentId === assignment.id &&
-                        dragState.dragging?.rowId === row.id &&
-                        dragState.dragging?.dateISO === dateISO;
-                      const isDragFocus =
-                        !!dragState.dragging &&
-                        dragState.dragging.dateISO === dateISO &&
-                        dragState.dragging.clinicianId === assignment.clinicianId;
-                      const assignedIntervals =
-                        assignedIntervalsByDate
-                          .get(dateISO)
-                          ?.get(assignment.clinicianId) ?? [];
-                      const hasUnknownInterval =
-                        unknownIntervalsByDate
-                          .get(dateISO)
-                          ?.has(assignment.clinicianId) ?? false;
-                      const showPoolSegments =
-                        !isDragFocus && !isDraggingAssignment;
-                      const timeSegments =
-                        showPoolSegments && poolSegments && poolSegments.length > 1
-                          ? poolSegments.map((segment, index) => ({
-                              label: segment.label || `col-${index + 1}`,
-                              kind:
-                                hasUnknownInterval ||
-                                assignedIntervals.some((interval) =>
-                                  intervalsOverlap(interval, segment.interval),
-                                )
-                                  ? ("taken" as const)
-                                  : ("free" as const),
-                            }))
-                          : undefined;
-                      const violationKey = `${assignment.rowId}__${assignment.dateISO}__${assignment.clinicianId}`;
-                      return (
-                        <AssignmentPill
-                          key={assignment.id}
-                          name={getClinicianName(assignment.clinicianId)}
-                          timeSegments={timeSegments}
-                          showNoEligibilityWarning={
-                            !getHasEligibleClasses(assignment.clinicianId)
-                          }
-                          isViolation={violatingAssignmentKeys?.has(violationKey)}
-                          isDragging={isDraggingAssignment}
-                          isDragFocus={isDragFocus || isDraggingAssignment}
-                          draggable={!readOnly}
-                          onClick={
-                            readOnly || !onClinicianClick
-                              ? undefined
-                              : (e) => {
-                                  e.stopPropagation();
-                                  onClinicianClick(assignment.clinicianId);
-                                }
-                          }
-                          onDragStart={
-                            readOnly
-                              ? undefined
-                              : (e) => {
-                                  e.stopPropagation();
-                                  e.dataTransfer.effectAllowed = "move";
-                                  applyDragImage(e.currentTarget, e);
-                                  e.dataTransfer.setData(
-                                    "application/x-schedule-cell",
-                                    JSON.stringify({
-                                      rowId: row.id,
-                                      dateISO,
-                                      assignmentId: assignment.id,
-                                      clinicianId: assignment.clinicianId,
-                                    }),
-                                  );
-                                  setDragState({
-                                    dragging: {
-                                      rowId: row.id,
-                                      dateISO,
-                                      assignmentId: assignment.id,
-                                      clinicianId: assignment.clinicianId,
-                                    },
-                                    dragOverKey: null,
-                                  });
-                                }
-                          }
-                          onDragEnd={
-                            readOnly
-                              ? undefined
-                              : () =>
-                                  setDragState({ dragging: null, dragOverKey: null })
-                          }
-                          className={cx(
-                            !readOnly && "cursor-grab active:cursor-grabbing",
-                            isDraggingAssignment && "opacity-0",
-                          )}
-                        />
+                    {(() => {
+                      // Compute sibling names for uniqueness check
+                      const siblingNames = sortedAssignments.map((a) =>
+                        getClinicianName(a.clinicianId),
                       );
-                    })}
+                      return sortedAssignments.map((assignment) => {
+                        const isDraggingAssignment =
+                          dragState.dragging?.assignmentId === assignment.id &&
+                          dragState.dragging?.rowId === row.id &&
+                          dragState.dragging?.dateISO === dateISO;
+                        const isDragFocus =
+                          !!dragState.dragging &&
+                          dragState.dragging.dateISO === dateISO &&
+                          dragState.dragging.clinicianId === assignment.clinicianId;
+                        const violationKey = `${assignment.rowId}__${assignment.dateISO}__${assignment.clinicianId}`;
+                        return (
+                          <AssignmentPill
+                            key={assignment.id}
+                            name={getClinicianName(assignment.clinicianId)}
+                            siblingNames={siblingNames}
+                            showNoEligibilityWarning={
+                              !getHasEligibleClasses(assignment.clinicianId)
+                            }
+                            isViolation={violatingAssignmentKeys?.has(violationKey)}
+                            isDragging={isDraggingAssignment}
+                            isDragFocus={isDragFocus || isDraggingAssignment}
+                            draggable={!readOnly}
+                            onClick={
+                              readOnly || !onClinicianClick
+                                ? undefined
+                                : (e) => {
+                                    e.stopPropagation();
+                                    onClinicianClick(assignment.clinicianId);
+                                  }
+                            }
+                            onDragStart={
+                              readOnly
+                                ? undefined
+                                : (e) => {
+                                    e.stopPropagation();
+                                    e.dataTransfer.effectAllowed = "move";
+                                    applyDragImage(e.currentTarget, e);
+                                    e.dataTransfer.setData(
+                                      "application/x-schedule-cell",
+                                      JSON.stringify({
+                                        rowId: row.id,
+                                        dateISO,
+                                        assignmentId: assignment.id,
+                                        clinicianId: assignment.clinicianId,
+                                      }),
+                                    );
+                                    setDragState({
+                                      dragging: {
+                                        rowId: row.id,
+                                        dateISO,
+                                        assignmentId: assignment.id,
+                                        clinicianId: assignment.clinicianId,
+                                      },
+                                      dragOverKey: null,
+                                    });
+                                  }
+                            }
+                            onDragEnd={
+                              readOnly
+                                ? undefined
+                                : () =>
+                                    setDragState({ dragging: null, dragOverKey: null })
+                            }
+                            className={cx(
+                              !readOnly && "cursor-grab active:cursor-grabbing",
+                              isDraggingAssignment && "opacity-0",
+                            )}
+                          />
+                        );
+                      });
+                    })()}
                   </div>
                 ) : null}
               </button>
@@ -1540,86 +1446,89 @@ function RowSection({
               const cellContent = (
                 <>
                   {sortedAssignments.length > 0 ? (
-                    sortedAssignments.map((assignment) => {
-                    const isDraggingAssignment =
-                      dragState.dragging?.assignmentId === assignment.id &&
-                      dragState.dragging?.rowId === activeRow.id &&
-                      dragState.dragging?.dateISO === dateISO;
-                    const isDragFocus =
-                      !!dragState.dragging &&
-                      dragState.dragging.dateISO === dateISO &&
-                      dragState.dragging.clinicianId === assignment.clinicianId;
-                    const timeLabel = undefined;
-                    const timeSegments = undefined;
-                    const violationKey = `${assignment.rowId}__${assignment.dateISO}__${assignment.clinicianId}`;
-                    return (
-                      <AssignmentPill
-                        key={assignment.id}
-                        name={getClinicianName(assignment.clinicianId)}
-                        timeLabel={timeLabel}
-                        timeSegments={timeSegments}
-                        showNoEligibilityWarning={
-                          !getHasEligibleClasses(assignment.clinicianId)
-                        }
-                        showIneligibleWarning={
-                          row.kind === "class" &&
-                          !getIsQualified(assignment.clinicianId, activeRow.id)
-                        }
-                        isHighlighted={false}
-                        isViolation={highlightedAssignmentKeys?.has(violationKey)}
-                        isDragging={isDraggingAssignment}
-                        isDragFocus={isDragFocus || isDraggingAssignment}
-                        draggable={!readOnly}
-                        onDragStart={
-                          readOnly
-                            ? undefined
-                            : (e) => {
-                                e.stopPropagation();
-                                setHoveredCell(null);
-                                e.dataTransfer.effectAllowed = "move";
-                                applyDragImage(e.currentTarget, e);
-                                e.dataTransfer.setData(
-                                  "application/x-schedule-cell",
-                                  JSON.stringify({
-                                    rowId: activeRow.id,
-                                    dateISO,
-                                    assignmentId: assignment.id,
-                                    clinicianId: assignment.clinicianId,
-                                  }),
-                                );
-                                setDragState({
-                                  dragging: {
-                                    rowId: activeRow.id,
-                                    dateISO,
-                                    assignmentId: assignment.id,
-                                    clinicianId: assignment.clinicianId,
-                                  },
-                                  dragOverKey: null,
-                                });
-                              }
-                        }
-                        onClick={
-                          readOnly || !onClinicianClick
-                            ? undefined
-                            : (e) => {
-                                e.stopPropagation();
-                                onClinicianClick(assignment.clinicianId);
-                              }
-                        }
-                        onDragEnd={
-                          readOnly
-                            ? undefined
-                            : () =>
-                                setDragState({ dragging: null, dragOverKey: null })
-                        }
-                        className={cx(
-                          !readOnly && "cursor-grab active:cursor-grabbing",
-                          isDraggingAssignment && "opacity-0",
-                        )}
-                      />
-                    );
-                })
-              ) : null}
+                    (() => {
+                      // Compute sibling names for uniqueness check
+                      const siblingNames = sortedAssignments.map((a) =>
+                        getClinicianName(a.clinicianId),
+                      );
+                      return sortedAssignments.map((assignment) => {
+                        const isDraggingAssignment =
+                          dragState.dragging?.assignmentId === assignment.id &&
+                          dragState.dragging?.rowId === activeRow.id &&
+                          dragState.dragging?.dateISO === dateISO;
+                        const isDragFocus =
+                          !!dragState.dragging &&
+                          dragState.dragging.dateISO === dateISO &&
+                          dragState.dragging.clinicianId === assignment.clinicianId;
+                        const violationKey = `${assignment.rowId}__${assignment.dateISO}__${assignment.clinicianId}`;
+                        return (
+                          <AssignmentPill
+                            key={assignment.id}
+                            name={getClinicianName(assignment.clinicianId)}
+                            siblingNames={siblingNames}
+                            showNoEligibilityWarning={
+                              !getHasEligibleClasses(assignment.clinicianId)
+                            }
+                            showIneligibleWarning={
+                              row.kind === "class" &&
+                              !getIsQualified(assignment.clinicianId, activeRow.id)
+                            }
+                            isHighlighted={false}
+                            isViolation={highlightedAssignmentKeys?.has(violationKey)}
+                            isDragging={isDraggingAssignment}
+                            isDragFocus={isDragFocus || isDraggingAssignment}
+                            draggable={!readOnly}
+                            onDragStart={
+                              readOnly
+                                ? undefined
+                                : (e) => {
+                                    e.stopPropagation();
+                                    setHoveredCell(null);
+                                    e.dataTransfer.effectAllowed = "move";
+                                    applyDragImage(e.currentTarget, e);
+                                    e.dataTransfer.setData(
+                                      "application/x-schedule-cell",
+                                      JSON.stringify({
+                                        rowId: activeRow.id,
+                                        dateISO,
+                                        assignmentId: assignment.id,
+                                        clinicianId: assignment.clinicianId,
+                                      }),
+                                    );
+                                    setDragState({
+                                      dragging: {
+                                        rowId: activeRow.id,
+                                        dateISO,
+                                        assignmentId: assignment.id,
+                                        clinicianId: assignment.clinicianId,
+                                      },
+                                      dragOverKey: null,
+                                    });
+                                  }
+                            }
+                            onClick={
+                              readOnly || !onClinicianClick
+                                ? undefined
+                                : (e) => {
+                                    e.stopPropagation();
+                                    onClinicianClick(assignment.clinicianId);
+                                  }
+                            }
+                            onDragEnd={
+                              readOnly
+                                ? undefined
+                                : () =>
+                                    setDragState({ dragging: null, dragOverKey: null })
+                            }
+                            className={cx(
+                              !readOnly && "cursor-grab active:cursor-grabbing",
+                              isDraggingAssignment && "opacity-0",
+                            )}
+                          />
+                        );
+                      });
+                    })()
+                  ) : null}
                   {emptySlots > 0
                 ? Array.from({ length: emptySlots }).map((_, idx) => (
                     <EmptySlotPill

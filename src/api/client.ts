@@ -125,15 +125,12 @@ export type WeeklyCalendarTemplate = {
 };
 
 export type SolverSettings = {
-  allowMultipleShiftsPerDay: boolean;
   enforceSameLocationPerDay: boolean;
   onCallRestEnabled: boolean;
   onCallRestClassId?: string;
   onCallRestDaysBefore: number;
   onCallRestDaysAfter: number;
   workingHoursToleranceHours?: number;
-  showDistributionPool?: boolean;
-  showReservePool?: boolean;
 };
 
 export type SolverRule = {

@@ -8,12 +8,13 @@ This repo is a doctors/clinicians scheduling system with a React frontend and a 
 Where to look first
 - UI logic + state: `src/pages/WeeklySchedulePage.tsx`
 - Grid rendering + drag/drop: `src/components/schedule/ScheduleGrid.tsx`
+- Template builder (Settings → Weekly Calendar Template): `src/components/schedule/WeeklyTemplateBuilder.tsx`
 - Shared calendar layout helpers (main/public/print): `src/lib/calendarView.ts`
 - Slot/template normalization + row building: `src/lib/shiftRows.ts`
 - Rendered assignment map + pool logic + overlaps: `src/lib/schedule.ts`
 - Backend normalization + persistence: `backend/state.py`, `backend/db.py`
 - Solver: `backend/solver.py`
-- E2E tests + diagnostics: `e2e/fixtures.ts`, `e2e/app.spec.ts`
+- E2E tests + diagnostics: `e2e/fixtures.ts`, `e2e/app.spec.ts`, `e2e/colband-explosion.spec.ts`
 - API client: `src/api/client.ts`
 - Settings UI: `src/components/schedule/SettingsView.tsx`
 
@@ -77,7 +78,9 @@ Cells
 - Empty slots shown as gray dashed pills based on the template required count per day type (fallback to legacy min slots); plus/minus badges are gray; label is not bold.
 - Drag and drop is same-day only; invalid drops (wrong day or outside the grid) snap back instantly.
 - Drag/drop does not block rule-violating placements (same-day location mix, multiple shifts); solver enforces rules but manual overrides are allowed and shown in red. Overlap within the same day is blocked by drag/drop (uses time intervals).
+- Drag-to-remove: dragging a clinician pill outside the grid removes the assignment.
 - Dragging into or out of Vacation updates the clinician vacation ranges.
+- Clinician Picker: clicking an open slot shows a popover with eligible clinicians; warnings show "Already in slot" (priority) or "Not qualified".
 - Eligible target cells for a dragged clinician use a pale green background (consistent with the green "Open Slots" badge when count is 0).
 - Ineligible manual assignment is allowed, with a yellow warning icon.
 - No eligible sections shows a red warning icon.
@@ -86,6 +89,7 @@ Cells
 
 Pills
 - Compact blue pill, normal font weight; eligible hover highlight uses green background + green border (no extra thickness).
+- Name abbreviation: if a clinician's name doesn't fit, it is progressively abbreviated ("First Last" → "F. Last" → "F. L." → "FL"); full name shown on hover. Disambiguates when siblings would collide (e.g., "Da. Truhn" vs "D. Turner").
 - Warning icons are small circular badges at top-right of the pill.
 - Drag preview uses the normal pill style (highlight removed).
 - Assignment pills show only the name; time is shown in the section block header or the column header (when consistent).
@@ -113,6 +117,7 @@ Weekly Calendar Template
 - Slots define time range, end-day offset, and required slots (single value); blocks carry only the section reference.
 - Holiday day type always overrides weekdays at runtime (no fallback).
 - Settings views that use section dropdowns (solver on-call rest, clinician eligible sections) are filtered to sections that exist as current template blocks.
+- Copy Day: button in template builder copies all columns and slots from one day type to another; requires confirmation checkbox if target has existing content.
 
 Locations
 - Manage locations inside the calendar template (top-left "+ Location" button).
@@ -127,8 +132,12 @@ Pools
 
 Slots / Template integrity
 - Invalid slot assignments are repaired on load:
-  - If a slot references a block/section that no longer exists or the slot dayType does not match the assignment date’s dayType, the assignment is moved to the Distribution Pool.
+  - If a slot references a block/section that no longer exists or the slot dayType does not match the assignment date's dayType, the assignment is moved to the Distribution Pool.
   - This is enforced in both frontend normalization (`src/lib/shiftRows.ts`) and backend normalization (`backend/state.py`).
+- ColBand explosion safeguard: max 50 colBands per day type (MAX_COLBANDS_PER_DAY). If exceeded, extra colBands are blocked and logged. Safeguard is enforced in:
+  - `src/lib/shiftRows.ts` (normalizeTemplateColBands)
+  - `src/components/schedule/WeeklyTemplateBuilder.tsx` (sanitizeLocations)
+  - `src/pages/WeeklySchedulePage.tsx` (setWeeklyTemplate wrapper blocks saves over 500 total colBands)
 
 Clinicians
 - List with Add Clinician and Edit buttons (Add uses a dashed, full-width button below the list).
@@ -155,12 +164,13 @@ Holidays
 - Holidays behave like weekends in solver + min slot logic and show in the calendar header.
 
 Solver Settings
-- Toggles: Allow multiple shifts per day; Enforce same location per day.
+- Toggle: Enforce same location per day.
+- Multiple shifts per day are always allowed (removed setting); only actual time overlaps are blocked.
 - On-call rest days: toggle + section selector + days before/after. When enabled, solver enforces rest days and the UI places clinicians into the Rest Day pool.
 - On-call rest days dropdown only shows sections that exist as current template section blocks.
 - Working hours tolerance (hours) is stored as `solverSettings.workingHoursToleranceHours` (default 5).
 - Rule violations are evaluated for the current week and surfaced in the header badge; affected pills are shown in red.
-- Violations include: rest-day conflicts, multiple shifts per day (when disabled), same-day location mismatches (when enforced), and overlapping shift times.
+- Violations include: rest-day conflicts, same-day location mismatches (when enforced), and overlapping shift times.
 - Automated planning runs the week solver over the selected date range in one call and shows an ETA based on the last run's per-day duration.
 
 Testing
@@ -177,6 +187,7 @@ Testing
   - Diagnostics on failure: console, page errors, failed requests, >=400 responses, screenshot, HTML snapshot, and trace (see `e2e/fixtures.ts`).
   - PDF export test calls `/v1/pdf/week` and asserts the generated PDF has exactly one page.
   - Print layout test opens `/print/week` in print media and asserts the scaled schedule fits within one A4 page (portrait or landscape) and fills at least 70% of one dimension.
+  - ColBand explosion tests (`e2e/colband-explosion.spec.ts`): verify colBand counts stay stable through settings, Copy Day, column operations, and solver runs; checks for console explosion errors.
 
 Dev server restart
 - Kill existing servers via `lsof -nP -iTCP:8000 -sTCP:LISTEN` and `lsof -nP -iTCP:5173 -sTCP:LISTEN`, then `kill <pid>`.
@@ -214,8 +225,8 @@ PDF export (server-side, Playwright)
   - `GET /v1/pdf/weeks?start=YYYY-MM-DD&weeks=N` (combined PDF)
 - PDF render specifics:
   - Always A4 landscape with background colors.
-  - Auto-scale to fit the full table on the page using `.calendar-scroll`/`.schedule-grid` measurements.
-  - Adds a small safety scale (2%) to avoid overflow/page breaks.
+  - Content is top-aligned and horizontally centered within the printable area.
+  - Auto-scale to fit the full table on the page (never scales up above 1x).
   - Margins are 6mm on all sides.
   - Multi-week export uses the max width/height across all `.print-page` grids.
   - Open Slots badge, Publish toggle, and Open Slot pills are hidden in PDF.
@@ -306,6 +317,10 @@ Hover stuck after drag (local/remote)
 Drag preview styling
 - Drag image uses a cloned pill; if it was highlighted, the clone kept emerald classes.
 - Fix: strip all emerald classes on clone and re-apply the normal blue classes during drag start.
+
+Slot override key parsing
+- `slotOverridesByKey` keys are `slotId__dateISO` (e.g., `slot-1__2026-01-05`).
+- Backend validates date portion; malformed keys with day types instead of dates (e.g., `slot-1__mon`) are skipped.
 
 ---
 
@@ -401,12 +416,12 @@ type WeeklyCalendarTemplate = {
 type Holiday = { dateISO: string; name: string };
 
 type SolverSettings = {
-  allowMultipleShiftsPerDay: boolean;
   enforceSameLocationPerDay: boolean;
   onCallRestEnabled: boolean;
   onCallRestClassId?: string;
   onCallRestDaysBefore: number;
   onCallRestDaysAfter: number;
+  workingHoursToleranceHours?: number;
 };
 ```
 
@@ -419,10 +434,7 @@ Slot IDs
 
 ## 5) Scheduling Logic (Frontend)
 - Vacation override: for each date, if clinician is on vacation, they appear in Vacation pool and their section assignment is suppressed.
-- Distribution Pool:
-  - If “Allow multiple shifts per day” is off: only clinicians with zero section assignments for that day appear.
-  - If on: clinicians still appear if they have at least one non-overlapping shift interval left.
-- Distribution Pool hides clinicians who already cover all day columns (only when column times are consistent and allow-multiple is on).
+- Multiple shifts per day are always allowed; time overlap detection prevents assigning the same clinician to overlapping shift intervals.
 - Rest Day Pool (pool-rest-day): if on-call rest days are enabled, clinicians assigned to the on-call section are placed into Rest Day on the configured days before/after (fallback to Reserve if Rest Day is missing).
 - Assignments stored in a map (rowId + dateISO -> list of assignments); section rows use template slot ids.
 - Drag and drop only within the same day; manual overrides are allowed even if they violate solver rules.
@@ -454,8 +466,8 @@ Behavior
   - Vacation overrides assignment.
   - Manual assignments remain in place; solver adds additional assignments as needed.
   - Overlap checks use time intervals (start/end + endDayOffset), not shift order.
-  - “Allow multiple shifts per day” off ⇒ at most one assignment per day; on ⇒ multiple only if non-overlapping.
-  - “Enforce same location per day” blocks mixing locations on the same day.
+  - Multiple shifts per day are allowed as long as they don't overlap in time.
+  - "Enforce same location per day" blocks mixing locations on the same day.
   - On-call rest days: if enabled, clinicians assigned to the selected on-call section must be unassigned on the configured days before/after.
 - Targets template slot ids; order weights follow location order + row band order + column band order.
 - Qualification + preference checks use slot.sectionId (the parent section).
@@ -478,12 +490,12 @@ Backend stores one JSON blob per user in SQLite:
   "assignments": [...],
   "minSlotsByRowId": {...},
   "solverSettings": {
-    "allowMultipleShiftsPerDay": false,
     "enforceSameLocationPerDay": false,
     "onCallRestEnabled": false,
     "onCallRestClassId": "on-call",
     "onCallRestDaysBefore": 1,
-    "onCallRestDaysAfter": 1
+    "onCallRestDaysAfter": 1,
+    "workingHoursToleranceHours": 5
   },
   "solverRules": [],
   "publishedWeekStartISOs": ["2025-12-22"],
@@ -613,11 +625,13 @@ Frontend
 - `src/components/schedule/ClinicianEditor.tsx`
 - `src/components/schedule/ClinicianEditModal.tsx`
 - `src/components/schedule/SettingsView.tsx`
+- `src/components/schedule/WeeklyTemplateBuilder.tsx` (template grid, Copy Day, colBand safeguards)
+- `src/components/schedule/ClinicianPickerPopover.tsx` (open slot click → clinician selection)
 - `src/components/schedule/RowLabel.tsx`
 - `src/components/schedule/AssignmentPill.tsx`
 - `src/components/schedule/VacationOverviewModal.tsx`
 - `src/api/client.ts`
-- `src/lib/shiftRows.ts` (weeklyTemplate normalization, legacy shiftRowId helpers)
+- `src/lib/shiftRows.ts` (weeklyTemplate normalization, colBand safeguards, legacy shiftRowId helpers)
 - `src/lib/schedule.ts` (rendered assignment map, time intervals, Rest Day pool logic)
 
 Backend

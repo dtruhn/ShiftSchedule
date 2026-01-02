@@ -44,6 +44,91 @@ const createId = (prefix: string) => {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 };
 
+// Maximum colBands allowed per dayType to prevent infinite loop explosions
+const MAX_COLBANDS_PER_DAY = 50;
+
+// Debug logging for colBand mutations
+const logColBandChange = (
+  source: string,
+  locations: WeeklyTemplateLocation[],
+  prevLocations?: WeeklyTemplateLocation[],
+) => {
+  const countByDay = new Map<string, number>();
+  let total = 0;
+  for (const loc of locations) {
+    for (const cb of loc.colBands ?? []) {
+      const key = cb.dayType ?? "unknown";
+      countByDay.set(key, (countByDay.get(key) ?? 0) + 1);
+      total += 1;
+    }
+  }
+  const prevTotal = prevLocations
+    ? prevLocations.reduce((sum, loc) => sum + (loc.colBands?.length ?? 0), 0)
+    : 0;
+
+  if (total > 100 || (prevLocations && total > prevTotal * 2)) {
+    console.error(
+      `[WeeklyTemplateBuilder] COLBAND EXPLOSION DETECTED in ${source}!`,
+      {
+        total,
+        prevTotal,
+        byDay: Object.fromEntries(countByDay),
+        stack: new Error().stack,
+      }
+    );
+  } else if (prevLocations && total !== prevTotal) {
+    console.log(
+      `[WeeklyTemplateBuilder] colBand change in ${source}:`,
+      { prev: prevTotal, next: total, byDay: Object.fromEntries(countByDay) }
+    );
+  }
+  return { total, countByDay };
+};
+
+// Safeguard: limit colBands per dayType
+const sanitizeLocations = (
+  locations: WeeklyTemplateLocation[],
+  source: string,
+): WeeklyTemplateLocation[] => {
+  let needsSanitization = false;
+
+  // Check if any dayType exceeds the limit
+  for (const loc of locations) {
+    const countByDay = new Map<string, number>();
+    for (const cb of loc.colBands ?? []) {
+      const day = cb.dayType ?? "unknown";
+      countByDay.set(day, (countByDay.get(day) ?? 0) + 1);
+    }
+    for (const [day, count] of countByDay) {
+      if (count > MAX_COLBANDS_PER_DAY) {
+        console.error(
+          `[WeeklyTemplateBuilder] BLOCKING colBand explosion in ${source}! ` +
+          `Location ${loc.locationId} has ${count} colBands for ${day} (max: ${MAX_COLBANDS_PER_DAY})`,
+          { stack: new Error().stack }
+        );
+        needsSanitization = true;
+        break;
+      }
+    }
+    if (needsSanitization) break;
+  }
+
+  if (!needsSanitization) return locations;
+
+  // Sanitize: keep only first MAX_COLBANDS_PER_DAY per dayType
+  return locations.map((loc) => {
+    const countByDay = new Map<string, number>();
+    const filteredColBands = loc.colBands.filter((cb) => {
+      const day = cb.dayType ?? "unknown";
+      const current = countByDay.get(day) ?? 0;
+      if (current >= MAX_COLBANDS_PER_DAY) return false;
+      countByDay.set(day, current + 1);
+      return true;
+    });
+    return { ...loc, colBands: filteredColBands };
+  });
+};
+
 const normalizeTimeInput = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -106,6 +191,28 @@ export default function WeeklyTemplateBuilder({
   onRemoveLocation,
   onReorderLocations,
 }: WeeklyTemplateBuilderProps) {
+  // Track previous locations for logging (using ref to avoid dependency issues)
+  const prevLocationsRef = useRef<WeeklyTemplateLocation[]>(template.locations ?? []);
+  useEffect(() => {
+    prevLocationsRef.current = template.locations ?? [];
+  }, [template.locations]);
+
+  // Wrap onChange to add logging and sanitization
+  // IMPORTANT: This must NOT depend on template.locations to avoid infinite loops
+  const safeOnChange = useMemo(() => {
+    return (nextTemplate: WeeklyCalendarTemplate, source: string) => {
+      let nextLocations = nextTemplate.locations ?? [];
+
+      // Log the change (using ref for prev to avoid dependency)
+      logColBandChange(source, nextLocations, prevLocationsRef.current);
+
+      // Sanitize to prevent explosion
+      nextLocations = sanitizeLocations(nextLocations, source);
+
+      onChange({ ...nextTemplate, locations: nextLocations });
+    };
+  }, [onChange]);
+
   const classRows = useMemo(
     () => rows.filter((row) => row.kind === "class"),
     [rows],
@@ -210,7 +317,7 @@ export default function WeeklyTemplateBuilder({
     ].sort(
       (a, b) => (order.get(a.locationId) ?? 0) - (order.get(b.locationId) ?? 0),
     );
-    onChange({ ...template, locations: nextLocations });
+    safeOnChange({ ...template, locations: nextLocations }, "updateTemplateLocation");
   };
 
   useEffect(() => {
@@ -329,6 +436,7 @@ export default function WeeklyTemplateBuilder({
 
   const updateAllLocations = (
     updater: (location: WeeklyTemplateLocation) => WeeklyTemplateLocation,
+    source: string = "updateAllLocations",
   ) => {
     const order = new Map(locations.map((loc, index) => [loc.id, index]));
     const nextLocations = locations.map((loc) => {
@@ -341,7 +449,7 @@ export default function WeeklyTemplateBuilder({
     nextLocations.sort(
       (a, b) => (order.get(a.locationId) ?? 0) - (order.get(b.locationId) ?? 0),
     );
-    onChange({ ...template, locations: nextLocations });
+    safeOnChange({ ...template, locations: nextLocations }, source);
   };
 
   const sharedColumnCounts = useMemo(() => {
@@ -431,7 +539,7 @@ export default function WeeklyTemplateBuilder({
       };
     });
 
-    onChange({ ...template, locations: nextLocations });
+    safeOnChange({ ...template, locations: nextLocations }, "handleCopyDay");
     setCopyDayModalOpen(false);
     setCopyConfirmed(false);
 
@@ -442,44 +550,99 @@ export default function WeeklyTemplateBuilder({
     setTimeout(() => setCopySuccessMessage(null), 3000);
   };
 
+  // Sync locations: ensure each location in the locations array has a corresponding
+  // template location with at least 1 colBand per dayType. This effect should NOT
+  // depend on sharedColumnCounts to avoid infinite loops - it only ensures minimum
+  // structure exists, not column count synchronization across locations.
+  //
+  // CRITICAL: This effect MUST NOT trigger itself. We use onChange directly (not
+  // safeOnChange) and carefully check if an update is actually needed.
   useEffect(() => {
+    // First pass: check if any updates are needed at all
     let needsUpdate = false;
-    const nextLocations = locations.map((loc) => {
-      const existing = template.locations.find((item) => item.locationId === loc.id);
-      const base = existing ?? emptyTemplateLocation(loc.id);
-      let nextColBands = base.colBands;
-      for (const dayType of DAY_TYPES) {
-        const dayBands = sortByOrder(
-          nextColBands.filter((band) => band.dayType === dayType),
-        );
-        const targetCount = sharedColumnCounts.get(dayType) ?? dayBands.length;
-        if (dayBands.length < targetCount) {
-          const additions: TemplateColBand[] = [];
-          for (let i = dayBands.length; i < targetCount; i += 1) {
-            additions.push({
-              id: createId("col"),
-              label: "",
-              order: i + 1,
-              dayType,
-            });
-          }
-          nextColBands = [...nextColBands, ...additions];
-          needsUpdate = true;
-        }
+    const templateLocationIds = new Set(
+      (template.locations ?? []).map((loc) => loc.locationId),
+    );
+
+    // Check if any location is missing from template
+    for (const loc of locations) {
+      if (!templateLocationIds.has(loc.id)) {
+        needsUpdate = true;
+        break;
       }
-      return needsUpdate ? { ...base, colBands: nextColBands } : base;
-    });
+    }
+
+    // Check if any location needs minimum colBands (at least 1 per dayType)
+    if (!needsUpdate) {
+      for (const loc of locations) {
+        const existing = template.locations.find((item) => item.locationId === loc.id);
+        if (!existing) {
+          needsUpdate = true;
+          break;
+        }
+        for (const dayType of DAY_TYPES) {
+          const dayBands = existing.colBands.filter((band) => band.dayType === dayType);
+          if (dayBands.length === 0) {
+            needsUpdate = true;
+            break;
+          }
+        }
+        if (needsUpdate) break;
+      }
+    }
+
+    // CRITICAL: Exit early if no update needed to prevent infinite loops
     if (!needsUpdate) return;
+
+    console.log("[WeeklyTemplateBuilder] syncLocationsUseEffect: update needed");
+
+    // Second pass: build the updated locations
+    const nextLocations: WeeklyTemplateLocation[] = [];
+    for (const loc of locations) {
+      const existing = template.locations.find((item) => item.locationId === loc.id);
+      if (existing) {
+        // Check if this specific location needs colBands added
+        const missingDayTypes: DayType[] = [];
+        for (const dayType of DAY_TYPES) {
+          if (!existing.colBands.some((band) => band.dayType === dayType)) {
+            missingDayTypes.push(dayType);
+          }
+        }
+        if (missingDayTypes.length > 0) {
+          const newColBands = missingDayTypes.map((dayType) => ({
+            id: createId("col"),
+            label: "",
+            order: 1,
+            dayType,
+          }));
+          nextLocations.push({
+            ...existing,
+            colBands: [...existing.colBands, ...newColBands],
+          });
+        } else {
+          // No changes needed for this location - keep the SAME object reference
+          nextLocations.push(existing);
+        }
+      } else {
+        // New location - create with default colBands
+        nextLocations.push(emptyTemplateLocation(loc.id));
+      }
+    }
+
     const order = new Map(locations.map((loc, index) => [loc.id, index]));
     nextLocations.sort(
       (a, b) => (order.get(a.locationId) ?? 0) - (order.get(b.locationId) ?? 0),
     );
+
+    // Use onChange directly (not safeOnChange) to avoid dependency loop
+    // The sanitization is still applied by safeOnChange wrapper in parent
     onChange({ ...template, locations: nextLocations });
-  }, [locations, sharedColumnCounts, template, onChange]);
+  }, [locations, template, onChange]);
 
   const updateBlocks = (updater: (blocks: TemplateBlock[]) => TemplateBlock[]) => {
     const nextBlocks = updater(blocks);
     if (nextBlocks === blocks) return;
+    // updateBlocks doesn't modify locations, so we can use onChange directly
     onChange({ ...template, blocks: nextBlocks });
   };
 
@@ -530,14 +693,14 @@ export default function WeeklyTemplateBuilder({
     }
     const block = blockById.get(blockId);
     const nextBlocks = blocks.filter((item) => item.id !== blockId);
-    onChange({
+    safeOnChange({
       ...template,
       blocks: nextBlocks,
       locations: template.locations.map((location) => ({
         ...location,
         slots: location.slots.filter((slot) => slot.blockId !== blockId),
       })),
-    });
+    }, "handleDeleteBlock");
     if (
       block &&
       !nextBlocks.some((item) => item.sectionId === block.sectionId)
@@ -680,7 +843,7 @@ export default function WeeklyTemplateBuilder({
         };
       }
       return location;
-    });
+    }, "handleSlotDrop");
   };
 
   const handleDeleteSlot = (locationId: string, slotId: string) => {
@@ -763,7 +926,7 @@ export default function WeeklyTemplateBuilder({
         dayType,
       };
       return { ...location, colBands: [...location.colBands, next] };
-    });
+    }, "handleAddColBand");
   };
 
   const handleDeleteColBand = (dayType: DayType, bandIndex: number) => {
@@ -783,7 +946,7 @@ export default function WeeklyTemplateBuilder({
         colBands: [...otherBands, ...normalizedDay],
         slots: location.slots.filter((slot) => slot.colBandId !== target.id),
       };
-    });
+    }, "handleDeleteColBand");
   };
 
 

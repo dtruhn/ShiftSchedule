@@ -296,76 +296,6 @@ export default function SettingsView({
               </div>
             ))}
           </div>
-          <div className="mt-6 space-y-3">
-            <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
-              <div>
-                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Show distribution pool
-                </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Hide to remove the distribution pool from the calendar.
-                </div>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={solverSettings.showDistributionPool ?? true}
-                onClick={() =>
-                  onChangeSolverSettings({
-                    ...solverSettings,
-                    showDistributionPool: !(solverSettings.showDistributionPool ?? true),
-                  })
-                }
-                className={cx(
-                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                  solverSettings.showDistributionPool ?? true
-                    ? "bg-emerald-500"
-                    : "bg-slate-300 dark:bg-slate-700",
-                )}
-              >
-                <span
-                  className={cx(
-                    "inline-block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow transition-transform",
-                    (solverSettings.showDistributionPool ?? true) && "translate-x-[22px]",
-                  )}
-                />
-              </button>
-            </div>
-            <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
-              <div>
-                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Show reserve pool
-                </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Hide to remove the reserve pool from the calendar.
-                </div>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={solverSettings.showReservePool ?? true}
-                onClick={() =>
-                  onChangeSolverSettings({
-                    ...solverSettings,
-                    showReservePool: !(solverSettings.showReservePool ?? true),
-                  })
-                }
-                className={cx(
-                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                  solverSettings.showReservePool ?? true
-                    ? "bg-emerald-500"
-                    : "bg-slate-300 dark:bg-slate-700",
-                )}
-              >
-                <span
-                  className={cx(
-                    "inline-block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow transition-transform",
-                    (solverSettings.showReservePool ?? true) && "translate-x-[22px]",
-                  )}
-                />
-              </button>
-            </div>
-          </div>
         </div>
 
       <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
@@ -380,40 +310,6 @@ export default function SettingsView({
             </div>
           </div>
           <div className="mt-4 space-y-4">
-            <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
-              <div>
-                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Allow multiple shifts per day
-                </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Off = one assignment per day; On = multiple if times don’t overlap.
-                </div>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={solverSettings.allowMultipleShiftsPerDay}
-                onClick={() =>
-                  onChangeSolverSettings({
-                    ...solverSettings,
-                    allowMultipleShiftsPerDay: !solverSettings.allowMultipleShiftsPerDay,
-                  })
-                }
-                className={cx(
-                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                  solverSettings.allowMultipleShiftsPerDay
-                    ? "bg-emerald-500"
-                    : "bg-slate-300 dark:bg-slate-700",
-                )}
-              >
-                <span
-                  className={cx(
-                    "inline-block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow transition-transform",
-                    solverSettings.allowMultipleShiftsPerDay && "translate-x-[22px]",
-                  )}
-                />
-              </button>
-            </div>
             <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
               <div>
                 <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">

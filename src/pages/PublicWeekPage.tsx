@@ -11,7 +11,7 @@ import {
   locations as defaultLocations,
 } from "../data/mockData";
 import { addDays, addWeeks, startOfWeek, toISODate } from "../lib/date";
-import { buildRenderedAssignmentMap, FREE_POOL_ID, MANUAL_POOL_ID } from "../lib/schedule";
+import { buildRenderedAssignmentMap } from "../lib/schedule";
 import { cx } from "../lib/classNames";
 import { buildScheduleRows, normalizeAppState } from "../lib/shiftRows";
 import {
@@ -118,17 +118,7 @@ export default function PublicWeekPage({ token, theme }: PublicWeekPageProps) {
       ),
     [rows, normalized?.locations, locationsEnabled, normalized?.weeklyTemplate],
   );
-  const showDistributionPool = normalized?.solverSettings?.showDistributionPool ?? true;
-  const showReservePool = normalized?.solverSettings?.showReservePool ?? true;
-  const visibleScheduleRows = useMemo(
-    () =>
-      scheduleRows.filter((row) => {
-        if (row.id === FREE_POOL_ID) return showDistributionPool;
-        if (row.id === MANUAL_POOL_ID) return showReservePool;
-        return true;
-      }),
-    [scheduleRows, showDistributionPool, showReservePool],
-  );
+  const visibleScheduleRows = scheduleRows;
   const calendarRows = useMemo(
     () => buildCalendarRows(visibleScheduleRows),
     [visibleScheduleRows],
@@ -244,7 +234,6 @@ export default function PublicWeekPage({ token, theme }: PublicWeekPageProps) {
           assignmentMap={renderAssignmentMap}
           holidayDates={holidayDates}
           holidayNameByDate={holidayNameByDate}
-          solverSettings={normalized?.solverSettings ?? defaultSolverSettings}
           locationSeparatorRowIds={locationSeparatorRowIds}
           readOnly
           header={null}

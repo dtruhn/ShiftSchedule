@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ClinicianEditModal from "../components/schedule/ClinicianEditModal";
 import AutomatedPlanningPanel from "../components/schedule/AutomatedPlanningPanel";
 import HelpView from "../components/schedule/HelpView";
@@ -60,9 +60,7 @@ import { buildICalendar, type ICalEvent } from "../lib/ical";
 import {
   buildRenderedAssignmentMap,
   buildShiftInterval,
-  FREE_POOL_ID,
   intervalsOverlap,
-  MANUAL_POOL_ID,
   REST_DAY_POOL_ID,
   VACATION_POOL_ID,
 } from "../lib/schedule";
@@ -319,9 +317,67 @@ export default function WeeklySchedulePage({
 
   const [locations, setLocations] = useState(defaultAppState.locations ?? defaultLocations);
   const [rows, setRows] = useState<WorkplaceRow[]>(defaultAppState.rows ?? workplaceRows);
-  const [weeklyTemplate, setWeeklyTemplate] = useState<WeeklyCalendarTemplate | undefined>(
+  const [weeklyTemplate, setWeeklyTemplateRaw] = useState<WeeklyCalendarTemplate | undefined>(
     defaultAppState.weeklyTemplate,
   );
+
+  // Safeguard wrapper to prevent colBand explosion (max 50 per dayType)
+  const setWeeklyTemplate = useCallback((update: React.SetStateAction<WeeklyCalendarTemplate | undefined>) => {
+    setWeeklyTemplateRaw((prev) => {
+      const next = typeof update === "function" ? update(prev) : update;
+      if (!next?.locations) return next;
+
+      // Log every update for debugging
+      const prevTotal = prev?.locations?.reduce((s, l) => s + (l.colBands?.length ?? 0), 0) ?? 0;
+      const nextTotal = next.locations.reduce((s, l) => s + (l.colBands?.length ?? 0), 0);
+      if (nextTotal !== prevTotal) {
+        console.log(`[setWeeklyTemplate] colBands: ${prevTotal} -> ${nextTotal}`, {
+          stack: new Error().stack?.split('\n').slice(2, 6).join('\n')
+        });
+      }
+
+      // Check for colBand explosion
+      let needsSanitization = false;
+      for (const loc of next.locations) {
+        const countByDay = new Map<string, number>();
+        for (const cb of loc.colBands ?? []) {
+          const day = cb.dayType ?? "unknown";
+          countByDay.set(day, (countByDay.get(day) ?? 0) + 1);
+        }
+        for (const [day, count] of countByDay) {
+          if (count > 50) {
+            console.error(
+              `[WeeklySchedulePage] BLOCKING colBand explosion! ` +
+              `Location ${loc.locationId} has ${count} colBands for ${day}`,
+              { stack: new Error().stack }
+            );
+            needsSanitization = true;
+            break;
+          }
+        }
+        if (needsSanitization) break;
+      }
+
+      if (!needsSanitization) return next;
+
+      // Sanitize: keep only first 50 colBands per dayType
+      return {
+        ...next,
+        locations: next.locations.map((loc) => {
+          const countByDay = new Map<string, number>();
+          const filteredColBands = loc.colBands.filter((cb) => {
+            const day = cb.dayType ?? "unknown";
+            const current = countByDay.get(day) ?? 0;
+            if (current >= 50) return false;
+            countByDay.set(day, current + 1);
+            return true;
+          });
+          return { ...loc, colBands: filteredColBands };
+        }),
+      };
+    });
+  }, []);
+
   const classRows = useMemo(() => rows.filter((r) => r.kind === "class"), [rows]);
   const templateSectionIds = useMemo(() => {
     const ids = new Set<string>();
@@ -339,17 +395,7 @@ export default function WeeklySchedulePage({
     () => buildScheduleRows(rows, locations, locationsEnabled, weeklyTemplate),
     [rows, locations, locationsEnabled, weeklyTemplate],
   );
-  const showDistributionPool = solverSettings.showDistributionPool ?? true;
-  const showReservePool = solverSettings.showReservePool ?? true;
-  const visibleScheduleRows = useMemo(
-    () =>
-      scheduleRows.filter((row) => {
-        if (row.id === FREE_POOL_ID) return showDistributionPool;
-        if (row.id === MANUAL_POOL_ID) return showReservePool;
-        return true;
-      }),
-    [scheduleRows, showDistributionPool, showReservePool],
-  );
+  const visibleScheduleRows = useMemo(() => scheduleRows, [scheduleRows]);
   const classShiftRows = useMemo(
     () => scheduleRows.filter((row) => row.kind === "class"),
     [scheduleRows],
@@ -994,15 +1040,14 @@ export default function WeeklySchedulePage({
         clinicianId,
       };
       next.set(key, [...existing, newAssignment]);
-      for (const poolId of [MANUAL_POOL_ID, REST_DAY_POOL_ID]) {
-        const poolKey = `${poolId}__${dateISO}`;
-        const poolList = next.get(poolKey) ?? [];
-        const filtered = poolList.filter((item) => item.clinicianId !== clinicianId);
-        if (filtered.length === 0) {
-          next.delete(poolKey);
-        } else if (filtered.length !== poolList.length) {
-          next.set(poolKey, filtered);
-        }
+      // Remove clinician from Rest Day pool if they're being assigned
+      const restDayPoolKey = `${REST_DAY_POOL_ID}__${dateISO}`;
+      const restDayPoolList = next.get(restDayPoolKey) ?? [];
+      const filteredRestDay = restDayPoolList.filter((item) => item.clinicianId !== clinicianId);
+      if (filteredRestDay.length === 0) {
+        next.delete(restDayPoolKey);
+      } else if (filteredRestDay.length !== restDayPoolList.length) {
+        next.set(restDayPoolKey, filteredRestDay);
       }
       return next;
     });
@@ -1014,7 +1059,7 @@ export default function WeeklySchedulePage({
     assignmentId: string;
     clinicianId: string;
   }) => {
-    const { rowId, dateISO, assignmentId, clinicianId } = args;
+    const { rowId, dateISO, assignmentId } = args;
     const targetRow = rowById.get(rowId);
     if (!targetRow || targetRow.kind !== "class") return;
     setAssignmentMap((prev) => {
@@ -1025,23 +1070,7 @@ export default function WeeklySchedulePage({
       const next = new Map(prev);
       if (filtered.length === 0) next.delete(key);
       else next.set(key, filtered);
-
-      const poolKey = `${FREE_POOL_ID}__${dateISO}`;
-      const poolList = next.get(poolKey) ?? [];
-      const alreadyInPool = poolList.some(
-        (item) => item.clinicianId === clinicianId,
-      );
-      if (!alreadyInPool) {
-        next.set(poolKey, [
-          ...poolList,
-          {
-            id: `pool-${FREE_POOL_ID}-${clinicianId}-${dateISO}`,
-            rowId: FREE_POOL_ID,
-            dateISO,
-            clinicianId,
-          },
-        ]);
-      }
+      // Note: No longer adding clinician back to Distribution Pool (removed)
       return next;
     });
   };
@@ -1205,26 +1234,8 @@ export default function WeeklySchedulePage({
       }
     }
 
-    if (!solverSettings.allowMultipleShiftsPerDay) {
-      for (const clinician of clinicians) {
-        const clinicianDates = assignmentsByClinicianDate.get(clinician.id);
-        if (!clinicianDates) continue;
-        for (const [dateISO, rowSet] of clinicianDates.entries()) {
-          if (rowSet.size <= 1) continue;
-          const assignmentKeys = buildAssignmentKeys(clinician.id, dateISO);
-          if (assignmentKeys.length === 0) continue;
-          violations.push({
-            id: `multi-${clinician.id}-${dateISO}`,
-            clinicianId: clinician.id,
-            clinicianName: clinicianNameById.get(clinician.id) ?? clinician.id,
-            summary: `Multiple shifts assigned on ${formatEuropeanDate(
-              dateISO,
-            )} while Allow multiple shifts per day is off.`,
-            assignmentKeys,
-          });
-        }
-      }
-    }
+    // Note: The old "allowMultipleShiftsPerDay" check has been removed.
+    // We now only flag actual time overlaps (handled below), not just having multiple shifts.
 
     if (solverSettings.enforceSameLocationPerDay) {
       for (const clinician of clinicians) {
@@ -1346,31 +1357,16 @@ export default function WeeklySchedulePage({
           const filteredRows = normalized.rows.filter(
             (row) => row.id !== "pool-not-working",
           );
-          const insertAfter = (rows: WorkplaceRow[], afterId: string, row: WorkplaceRow) => {
-            const index = rows.findIndex((item) => item.id === afterId);
-            if (index === -1) return [...rows, row];
-            const next = [...rows];
-            next.splice(index + 1, 0, row);
-            return next;
-          };
           let nextRows = filteredRows;
-          const hasManualPool = nextRows.some((row) => row.id === MANUAL_POOL_ID);
-          if (!hasManualPool) {
-            nextRows = insertAfter(nextRows, FREE_POOL_ID, {
-              id: MANUAL_POOL_ID,
-              name: "Reserve Pool",
-              kind: "pool",
-              dotColorClass: "bg-slate-300",
-            });
-          }
           const hasRestDayPool = nextRows.some((row) => row.id === REST_DAY_POOL_ID);
           if (!hasRestDayPool) {
-            nextRows = insertAfter(nextRows, MANUAL_POOL_ID, {
+            // Add Rest Day pool at the end if missing
+            nextRows = [...nextRows, {
               id: REST_DAY_POOL_ID,
               name: "Rest Day",
               kind: "pool",
               dotColorClass: "bg-slate-200",
-            });
+            }];
           }
           setRows(nextRows);
           normalized.rows = nextRows;
@@ -1424,6 +1420,20 @@ export default function WeeklySchedulePage({
 
   useEffect(() => {
     if (!hasLoaded || loadedUserId !== currentUser.username) return;
+
+    // SAFEGUARD: Check for colBand explosion before saving
+    const totalColBands = weeklyTemplate?.locations?.reduce(
+      (sum, loc) => sum + (loc.colBands?.length ?? 0),
+      0
+    ) ?? 0;
+    if (totalColBands > 500) {
+      console.error(
+        `[WeeklySchedulePage] BLOCKING SAVE - colBand explosion detected: ${totalColBands} total colBands`,
+        { stack: new Error().stack }
+      );
+      return; // Don't save corrupted state
+    }
+
     const { state: normalized } = normalizeAppState({
       locations,
       locationsEnabled,
@@ -2148,7 +2158,6 @@ export default function WeeklySchedulePage({
             highlightOpenSlots={isOpenSlotsHovered}
             holidayDates={holidayDates}
             holidayNameByDate={holidayNameByDate}
-            solverSettings={solverSettings}
             header={
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
@@ -2248,57 +2257,46 @@ export default function WeeklySchedulePage({
 
                 if (isFromVacation) {
                   removeVacationDay(clinicianId, dateISO);
-                  if (toRow.id === FREE_POOL_ID) {
-                    return next;
-                  }
                 }
-                if (toRow.kind === "pool") {
-                  const isManualPool =
-                    toRow.id === MANUAL_POOL_ID || toRow.id === REST_DAY_POOL_ID;
-                  if (isManualPool) {
-                    if (
-                      fromRow.kind === "class" ||
-                      fromRow.id === MANUAL_POOL_ID ||
-                      fromRow.id === REST_DAY_POOL_ID
-                    ) {
-                      const fromList = next.get(fromKey) ?? [];
-                      const moving = fromList.find((a) => a.id === assignmentId);
-                      if (!moving) return prev;
-                      removeAssignment(fromKey, assignmentId);
-                      const toList = next.get(toKey) ?? [];
-                      const already = toList.some((item) => item.clinicianId === clinicianId);
-                      if (!already) {
-                        next.set(toKey, [...toList, { ...moving, rowId: toRowId, dateISO }]);
-                      }
-                      return next;
-                    }
-
+                // Handle dropping to Rest Day pool
+                if (toRow.kind === "pool" && toRow.id === REST_DAY_POOL_ID) {
+                  if (fromRow.kind === "class" || fromRow.id === REST_DAY_POOL_ID) {
+                    const fromList = next.get(fromKey) ?? [];
+                    const moving = fromList.find((a) => a.id === assignmentId);
+                    if (!moving) return prev;
+                    removeAssignment(fromKey, assignmentId);
                     const toList = next.get(toKey) ?? [];
                     const already = toList.some((item) => item.clinicianId === clinicianId);
                     if (!already) {
-                      const newItem: Assignment = {
-                        id: `pool-${toRowId}-${clinicianId}-${dateISO}`,
-                        rowId: toRowId,
-                        dateISO,
-                        clinicianId,
-                      };
-                      next.set(toKey, [...toList, newItem]);
+                      next.set(toKey, [...toList, { ...moving, rowId: toRowId, dateISO }]);
                     }
                     return next;
                   }
 
-                  if (
-                    fromRow.kind === "class" ||
-                    fromRow.id === MANUAL_POOL_ID ||
-                    fromRow.id === REST_DAY_POOL_ID
-                  ) {
+                  const toList = next.get(toKey) ?? [];
+                  const already = toList.some((item) => item.clinicianId === clinicianId);
+                  if (!already) {
+                    const newItem: Assignment = {
+                      id: `pool-${toRowId}-${clinicianId}-${dateISO}`,
+                      rowId: toRowId,
+                      dateISO,
+                      clinicianId,
+                    };
+                    next.set(toKey, [...toList, newItem]);
+                  }
+                  return next;
+                }
+
+                // Handle dropping to other pool types (e.g., Vacation handled above)
+                if (toRow.kind === "pool") {
+                  if (fromRow.kind === "class" || fromRow.id === REST_DAY_POOL_ID) {
                     removeAssignment(fromKey, assignmentId);
                   }
                   return next;
                 }
 
                 if (fromRow.kind === "pool") {
-                  if (fromRow.id === MANUAL_POOL_ID || fromRow.id === REST_DAY_POOL_ID) {
+                  if (fromRow.id === REST_DAY_POOL_ID) {
                     removeAssignment(fromKey, assignmentId);
                   }
                   const toList = next.get(toKey) ?? [];
@@ -2306,14 +2304,6 @@ export default function WeeklySchedulePage({
                     (item) => item.clinicianId === clinicianId,
                   );
                   if (alreadyInTarget) return prev;
-                  const alreadyAssigned = Array.from(next.entries()).some(([key, list]) => {
-                    const { rowId: keyRowId, dateISO: keyDate } =
-                      splitAssignmentKey(key);
-                    if (keyDate !== dateISO) return false;
-                    const targetRow = rowById.get(keyRowId);
-                    if (!targetRow || targetRow.kind !== "class") return false;
-                    return list.some((a) => a.clinicianId === clinicianId);
-                  });
                   const newItem: Assignment = {
                     id: `as-${Date.now().toString(36)}-${clinicianId}`,
                     rowId: toRowId,

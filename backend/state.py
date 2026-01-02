@@ -713,6 +713,22 @@ def _resolve_shift_row(
 
 def _normalize_state(state: AppState) -> tuple[AppState, bool]:
     changed = False
+
+    # Migration: Remove deprecated pool rows (Distribution Pool and Reserve Pool)
+    deprecated_pool_ids = {"pool-not-allocated", "pool-manual"}
+    filtered_rows = [row for row in state.rows if row.id not in deprecated_pool_ids]
+    if len(filtered_rows) != len(state.rows):
+        state.rows = filtered_rows
+        changed = True
+
+    # Migration: Remove assignments to deprecated pools
+    filtered_assignments = [
+        a for a in state.assignments if a.rowId not in deprecated_pool_ids
+    ]
+    if len(filtered_assignments) != len(state.assignments):
+        state.assignments = filtered_assignments
+        changed = True
+
     locations_enabled = state.locationsEnabled is not False
     if state.locationsEnabled != locations_enabled:
         state.locationsEnabled = locations_enabled
@@ -904,7 +920,6 @@ def _normalize_state(state: AppState) -> tuple[AppState, bool]:
     slot_ids = {
         slot.id for location in weekly_template.locations for slot in location.slots
     }
-    free_pool_id = "pool-not-allocated"
     block_by_id = {block.id: block for block in weekly_template.blocks}
     slot_meta_by_id: Dict[str, Dict[str, Any]] = {}
     for location in weekly_template.locations:
@@ -953,13 +968,13 @@ def _normalize_state(state: AppState) -> tuple[AppState, bool]:
             continue
         meta = slot_meta_by_id.get(next_row_id)
         if not meta or not meta.get("valid", False):
-            mapped_assignments.append(assignment.model_copy(update={"rowId": free_pool_id}))
+            # Invalid assignment - remove it (no longer moved to Distribution Pool)
             changed = True
             continue
         assignment_day_type = _get_day_type(assignment.dateISO, state.holidays or [])
         slot_day_type = meta.get("dayType")
         if slot_day_type and slot_day_type != assignment_day_type:
-            mapped_assignments.append(assignment.model_copy(update={"rowId": free_pool_id}))
+            # Day type mismatch - remove assignment (no longer moved to Distribution Pool)
             changed = True
             continue
         if next_row_id != assignment.rowId:
@@ -999,21 +1014,16 @@ def _normalize_state(state: AppState) -> tuple[AppState, bool]:
     solver_settings = state.solverSettings or {}
     default_settings = SolverSettings().model_dump()
     merged_settings = {**default_settings, **solver_settings}
-    merged_settings["allowMultipleShiftsPerDay"] = bool(
-        merged_settings.get("allowMultipleShiftsPerDay", False)
-    )
     merged_settings["enforceSameLocationPerDay"] = bool(
         merged_settings.get("enforceSameLocationPerDay", False)
     )
     merged_settings["onCallRestEnabled"] = bool(
         merged_settings.get("onCallRestEnabled", False)
     )
-    merged_settings["showDistributionPool"] = bool(
-        merged_settings.get("showDistributionPool", True)
-    )
-    merged_settings["showReservePool"] = bool(
-        merged_settings.get("showReservePool", True)
-    )
+    # Remove deprecated settings during migration
+    merged_settings.pop("showDistributionPool", None)
+    merged_settings.pop("showReservePool", None)
+    merged_settings.pop("allowMultipleShiftsPerDay", None)
     on_call_class_id = merged_settings.get("onCallRestClassId")
     if not isinstance(on_call_class_id, str) or on_call_class_id not in class_row_ids:
         merged_settings["onCallRestClassId"] = class_rows[0].id if class_rows else None
@@ -1096,18 +1106,6 @@ def _default_state() -> AppState:
                     endDayOffset=0,
                 )
             ],
-        ),
-        WorkplaceRow(
-            id="pool-not-allocated",
-            name="Distribution Pool",
-            kind="pool",
-            dotColorClass="bg-slate-400",
-        ),
-        WorkplaceRow(
-            id="pool-manual",
-            name="Reserve Pool",
-            kind="pool",
-            dotColorClass="bg-slate-300",
         ),
         WorkplaceRow(
             id="pool-rest-day",

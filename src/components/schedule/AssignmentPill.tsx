@@ -1,9 +1,91 @@
 import { cx } from "../../lib/classNames";
+import { useMemo, useRef, useState, useLayoutEffect } from "react";
 import type { DragEventHandler, MouseEventHandler } from "react";
 import type { AvailabilitySegment } from "../../lib/schedule";
 
+/**
+ * Abbreviate a name to fit in limited space.
+ * Strategy: "First Last" -> "F. Last" -> "F. L." -> "FL"
+ * If disambiguation is needed, adds more characters from first name.
+ */
+function abbreviateName(
+  name: string,
+  level: number,
+  siblingNames?: string[],
+): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) {
+    // Single name - truncate if needed
+    if (level >= 2) return parts[0].charAt(0);
+    return parts[0];
+  }
+
+  const firstName = parts[0];
+  const lastName = parts[parts.length - 1];
+
+  let result: string;
+  if (level === 0) {
+    // Full name
+    result = name;
+  } else if (level === 1) {
+    // "F. Last"
+    result = `${firstName.charAt(0)}. ${lastName}`;
+  } else if (level === 2) {
+    // "F. L."
+    result = `${firstName.charAt(0)}. ${lastName.charAt(0)}.`;
+  } else {
+    // "FL"
+    result = `${firstName.charAt(0)}${lastName.charAt(0)}`;
+  }
+
+  // Check for collisions with sibling names and disambiguate if needed
+  if (siblingNames && siblingNames.length > 0 && level > 0) {
+    const otherAbbreviations = siblingNames
+      .filter((n) => n !== name)
+      .map((n) => abbreviateName(n, level));
+
+    if (otherAbbreviations.includes(result)) {
+      // Collision detected - add more of the first name to disambiguate
+      if (level === 1) {
+        // "F. Last" -> "Fi. Last" or "Fir. Last"
+        for (let i = 2; i <= firstName.length; i++) {
+          const disambiguated = `${firstName.slice(0, i)}. ${lastName}`;
+          const othersWithMoreChars = siblingNames
+            .filter((n) => n !== name)
+            .map((n) => {
+              const p = n.trim().split(/\s+/);
+              if (p.length === 1) return n;
+              return `${p[0].slice(0, i)}. ${p[p.length - 1]}`;
+            });
+          if (!othersWithMoreChars.includes(disambiguated)) {
+            return disambiguated;
+          }
+        }
+      } else if (level === 2) {
+        // "F. L." -> "Fi. L." or use first 2 chars of last name
+        const disambiguated = `${firstName.slice(0, 2)}. ${lastName.charAt(0)}.`;
+        const othersDisambiguated = siblingNames
+          .filter((n) => n !== name)
+          .map((n) => {
+            const p = n.trim().split(/\s+/);
+            if (p.length === 1) return n.charAt(0);
+            return `${p[0].slice(0, 2)}. ${p[p.length - 1].charAt(0)}.`;
+          });
+        if (!othersDisambiguated.includes(disambiguated)) {
+          return disambiguated;
+        }
+      }
+      // level 3 (initials) - not much we can do, fall through
+    }
+  }
+
+  return result;
+}
+
 type AssignmentPillProps = {
   name: string;
+  /** Other names in the same cell, used to ensure unique abbreviations */
+  siblingNames?: string[];
   timeLabel?: string;
   timeSegments?: AvailabilitySegment[];
   showNoEligibilityWarning?: boolean;
@@ -21,6 +103,7 @@ type AssignmentPillProps = {
 
 export default function AssignmentPill({
   name,
+  siblingNames,
   timeSegments,
   showNoEligibilityWarning,
   showIneligibleWarning,
@@ -49,6 +132,44 @@ export default function AssignmentPill({
           onDragEnd?.(event);
         }
       : undefined;
+
+  // Abbreviation logic: measure if name fits, progressively abbreviate if not
+  const nameRef = useRef<HTMLSpanElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [abbreviationLevel, setAbbreviationLevel] = useState(0);
+
+  const displayName = useMemo(
+    () => abbreviateName(name, abbreviationLevel, siblingNames),
+    [name, abbreviationLevel, siblingNames],
+  );
+
+  // Check if name fits and increase abbreviation level if needed
+  useLayoutEffect(() => {
+    const nameEl = nameRef.current;
+    const containerEl = containerRef.current;
+    if (!nameEl || !containerEl) return;
+
+    // Reset to full name first
+    setAbbreviationLevel(0);
+  }, [name]);
+
+  useLayoutEffect(() => {
+    const nameEl = nameRef.current;
+    const containerEl = containerRef.current;
+    if (!nameEl || !containerEl) return;
+
+    // Use requestAnimationFrame to ensure layout is computed
+    const rafId = requestAnimationFrame(() => {
+      const isOverflowing = nameEl.scrollWidth > containerEl.clientWidth;
+      if (isOverflowing && abbreviationLevel < 3) {
+        setAbbreviationLevel((prev) => prev + 1);
+      }
+    });
+
+    return () => cancelAnimationFrame(rafId);
+  }, [displayName, abbreviationLevel]);
+
+  const isAbbreviated = abbreviationLevel > 0;
   const showHighlight = isHighlighted && !isDragging;
   const showViolation = isViolation && !isDragging;
   const showDragFocus = isDragFocus;
@@ -129,8 +250,17 @@ export default function AssignmentPill({
           </div>
         ) : null}
         <div className="relative z-10 flex flex-col items-center gap-0.5">
-          <div className="flex items-center justify-center gap-1 truncate">
-            <span className="truncate text-center">{name}</span>
+          <div
+            ref={containerRef}
+            className="flex w-full items-center justify-center gap-1 overflow-hidden"
+          >
+            <span
+              ref={nameRef}
+              className="whitespace-nowrap text-center"
+              title={isAbbreviated ? name : undefined}
+            >
+              {displayName}
+            </span>
           </div>
         </div>
       </div>

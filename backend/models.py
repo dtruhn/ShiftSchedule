@@ -189,15 +189,12 @@ class SolveDayResponse(BaseModel):
 
 
 class SolverSettings(BaseModel):
-    allowMultipleShiftsPerDay: bool = False
     enforceSameLocationPerDay: bool = False
     onCallRestEnabled: bool = False
     onCallRestClassId: Optional[str] = None
     onCallRestDaysBefore: int = 1
     onCallRestDaysAfter: int = 1
     workingHoursToleranceHours: int = 5
-    showDistributionPool: bool = True
-    showReservePool: bool = True
 
 
 class SolverRule(BaseModel):

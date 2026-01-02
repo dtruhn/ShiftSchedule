@@ -19,9 +19,8 @@ import { DAY_TYPES, getDayType } from "./dayTypes";
 export const SHIFT_ROW_SEPARATOR = "::";
 export const DEFAULT_LOCATION_ID = "loc-default";
 export const DEFAULT_LOCATION_NAME = "Default";
-const FREE_POOL_ID = "pool-not-allocated";
-const MANUAL_POOL_ID = "pool-manual";
 const REST_DAY_POOL_ID = "pool-rest-day";
+const DEPRECATED_POOL_IDS = new Set(["pool-not-allocated", "pool-manual"]);
 const DEFAULT_SUB_SHIFT_MINUTES = 8 * 60;
 const DEFAULT_SUB_SHIFT_START_MINUTES = 8 * 60;
 const SECTION_BLOCK_COLORS = [
@@ -245,12 +244,21 @@ const normalizeTemplateRowBands = (rowBands: TemplateRowBand[]) => {
   }));
 };
 
+const MAX_COLBANDS_PER_DAY = 50; // Safeguard against colBand explosion
+
 const normalizeTemplateColBands = (colBands: TemplateColBand[]) => {
   const byDay = new Map<DayType, TemplateColBand[]>();
   for (const band of colBands ?? []) {
     if (!band?.id) continue;
     if (!DAY_TYPES.includes(band.dayType as DayType)) continue;
     const list = byDay.get(band.dayType as DayType) ?? [];
+    // SAFEGUARD: Limit colBands per dayType
+    if (list.length >= MAX_COLBANDS_PER_DAY) {
+      console.error(
+        `[normalizeTemplateColBands] BLOCKING colBand explosion: ${list.length} colBands for ${band.dayType}`,
+      );
+      continue;
+    }
     list.push(band);
     byDay.set(band.dayType as DayType, list);
   }
@@ -654,14 +662,13 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
   if (state.locationsEnabled !== locationsEnabled) {
     changed = true;
   }
-  const insertAfter = (rows: WorkplaceRow[], afterId: string, row: WorkplaceRow) => {
-    const index = rows.findIndex((item) => item.id === afterId);
-    if (index === -1) return [...rows, row];
-    const next = [...rows];
-    next.splice(index + 1, 0, row);
-    return next;
-  };
-  let baseRows = [...(state.rows ?? [])];
+  // Migration: Remove deprecated pool rows (Distribution Pool and Reserve Pool)
+  let baseRows = [...(state.rows ?? [])].filter(
+    (row) => !DEPRECATED_POOL_IDS.has(row.id),
+  );
+  if (baseRows.length !== (state.rows ?? []).length) {
+    changed = true;
+  }
   const hasRestDayPool = baseRows.some((row) => row.id === REST_DAY_POOL_ID);
   if (!hasRestDayPool) {
     const restDayRow: WorkplaceRow = {
@@ -670,13 +677,7 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
       kind: "pool",
       dotColorClass: "bg-slate-200",
     };
-    if (baseRows.some((row) => row.id === MANUAL_POOL_ID)) {
-      baseRows = insertAfter(baseRows, MANUAL_POOL_ID, restDayRow);
-    } else if (baseRows.some((row) => row.id === FREE_POOL_ID)) {
-      baseRows = insertAfter(baseRows, FREE_POOL_ID, restDayRow);
-    } else {
-      baseRows = [...baseRows, restDayRow];
-    }
+    baseRows = [...baseRows, restDayRow];
     changed = true;
   }
   if (Array.isArray(state.weeklyTemplate?.blocks)) {
@@ -694,19 +695,23 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
     }
   }
   const defaultSolverSettings = {
-    allowMultipleShiftsPerDay: false,
     enforceSameLocationPerDay: false,
     onCallRestEnabled: false,
     onCallRestClassId: "",
     onCallRestDaysBefore: 1,
     onCallRestDaysAfter: 1,
     workingHoursToleranceHours: 5,
-    showDistributionPool: true,
-    showReservePool: true,
   };
+  // Remove deprecated settings during migration
+  const {
+    showDistributionPool: _,
+    showReservePool: __,
+    allowMultipleShiftsPerDay: ___,
+    ...cleanedSettings
+  } = (state.solverSettings ?? {}) as Record<string, unknown>;
   const solverSettings = {
     ...defaultSolverSettings,
-    ...(state.solverSettings ?? {}),
+    ...cleanedSettings,
   };
   const classIds = baseRows
     .filter((row) => row.kind === "class")
@@ -728,20 +733,6 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
   };
   solverSettings.workingHoursToleranceHours = clampTolerance(
     solverSettings.workingHoursToleranceHours,
-  );
-  const coerceBoolean = (value: unknown, fallback: boolean) => {
-    if (typeof value === "boolean") return value;
-    if (value === "true") return true;
-    if (value === "false") return false;
-    return fallback;
-  };
-  solverSettings.showDistributionPool = coerceBoolean(
-    solverSettings.showDistributionPool,
-    defaultSolverSettings.showDistributionPool,
-  );
-  solverSettings.showReservePool = coerceBoolean(
-    solverSettings.showReservePool,
-    defaultSolverSettings.showReservePool,
   );
   if (JSON.stringify(solverSettings) !== JSON.stringify(state.solverSettings ?? {})) {
     changed = true;
@@ -826,6 +817,11 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
   );
   const assignments: Assignment[] = [];
   for (const assignment of state.assignments ?? []) {
+    // Migration: Skip assignments to deprecated pools
+    if (DEPRECATED_POOL_IDS.has(assignment.rowId)) {
+      changed = true;
+      continue;
+    }
     let rowId = assignment.rowId;
     if (classRowIds.has(rowId) && !rowId.includes(SHIFT_ROW_SEPARATOR)) {
       const fallback = fallbackShiftIdByClass.get(rowId) ?? "s1";
@@ -1000,13 +996,13 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
     }
     const meta = slotMetaById.get(nextRowId);
     if (!meta?.valid) {
-      mappedAssignments.push({ ...assignment, rowId: FREE_POOL_ID });
+      // Invalid assignment - remove it (no longer moved to Distribution Pool)
       changed = true;
       continue;
     }
     const assignmentDayType = getDayType(assignment.dateISO, holidaySet);
     if (meta.dayType && meta.dayType !== assignmentDayType) {
-      mappedAssignments.push({ ...assignment, rowId: FREE_POOL_ID });
+      // Day type mismatch - remove assignment (no longer moved to Distribution Pool)
       changed = true;
       continue;
     }

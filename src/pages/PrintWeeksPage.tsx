@@ -11,7 +11,7 @@ import {
   WorkplaceRow,
 } from "../data/mockData";
 import { addDays, addWeeks, formatRangeLabel, startOfWeek } from "../lib/date";
-import { buildRenderedAssignmentMap, FREE_POOL_ID, MANUAL_POOL_ID } from "../lib/schedule";
+import { buildRenderedAssignmentMap } from "../lib/schedule";
 import { cx } from "../lib/classNames";
 import { buildScheduleRows, normalizeAppState, type ScheduleRow } from "../lib/shiftRows";
 import {
@@ -178,7 +178,6 @@ const PrintableWeek = ({
               assignmentMap={weekAssignments}
               holidayDates={holidayDates}
               holidayNameByDate={holidayNameByDate}
-              solverSettings={solverSettings}
               locationSeparatorRowIds={locationSeparatorRowIds}
               readOnly
               header={
@@ -279,17 +278,7 @@ export default function PrintWeeksPage({ theme }: PrintWeeksPageProps) {
     () => buildScheduleRows(rows, locations, locationsEnabled, weeklyTemplate),
     [rows, locations, locationsEnabled, weeklyTemplate],
   );
-  const showDistributionPool = solverSettings.showDistributionPool ?? true;
-  const showReservePool = solverSettings.showReservePool ?? true;
-  const visibleScheduleRows = useMemo(
-    () =>
-      scheduleRows.filter((row) => {
-        if (row.id === FREE_POOL_ID) return showDistributionPool;
-        if (row.id === MANUAL_POOL_ID) return showReservePool;
-        return true;
-      }),
-    [scheduleRows, showDistributionPool, showReservePool],
-  );
+  const visibleScheduleRows = scheduleRows;
   const calendarRows = useMemo(
     () => buildCalendarRows(visibleScheduleRows),
     [visibleScheduleRows],
