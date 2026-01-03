@@ -192,12 +192,6 @@ export default function ClinicianEditor({
     setPreferredWorkingTimes((prev) => updater(prev));
   };
 
-  const setPreferredWorkingTimesLocal = (
-    updater: (prev: PreferredWorkingTimes) => PreferredWorkingTimes,
-  ) => {
-    setPreferredWorkingTimes((prev) => updater(prev));
-  };
-
   const commitPreferredWorkingTimes = (next?: PreferredWorkingTimes) => {
     const payload = next ?? preferredWorkingTimes;
     setPreferredWorkingTimes(payload);
@@ -605,7 +599,7 @@ export default function ClinicianEditor({
                     step={60}
                     value={value.startTime}
                     onChange={(event) =>
-                      setPreferredWorkingTimesLocal((prev) => ({
+                      updatePreferredWorkingTimes((prev) => ({
                         ...prev,
                         [day.id]: {
                           ...prev[day.id],
@@ -627,7 +621,7 @@ export default function ClinicianEditor({
                     step={60}
                     value={value.endTime}
                     onChange={(event) =>
-                      setPreferredWorkingTimesLocal((prev) => ({
+                      updatePreferredWorkingTimes((prev) => ({
                         ...prev,
                         [day.id]: {
                           ...prev[day.id],

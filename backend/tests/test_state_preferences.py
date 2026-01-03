@@ -1,3 +1,4 @@
+from backend.models import Clinician
 from backend.state import _default_state, _normalize_state
 
 
@@ -10,6 +11,10 @@ def test_solver_settings_tolerance_defaulted() -> None:
 
 def test_preferred_working_times_invalid_normalizes_to_default_times() -> None:
     state = _default_state()
+    # _default_state() returns empty clinicians list, so we need to add one
+    state.clinicians.append(
+        Clinician(id="c1", name="Test Clinician", qualifiedClassIds=[], vacations=[])
+    )
     state.clinicians[0].preferredWorkingTimes = {
         "mon": {"startTime": "25:00", "endTime": "12:00", "requirement": "mandatory"}
     }

@@ -946,7 +946,8 @@ def _normalize_state(state: AppState) -> tuple[AppState, bool]:
         for slot in location.slots:
             block = block_by_id.get(slot.blockId)
             valid = bool(block and block.sectionId in class_row_ids)
-            day_type = col_band_by_id.get(slot.colBandId).dayType if col_band_by_id.get(slot.colBandId) else None
+            col_band = col_band_by_id.get(slot.colBandId)
+            day_type = col_band.dayType if col_band else None
             slot_meta_by_id[slot.id] = {"valid": valid, "dayType": day_type}
     pool_row_ids = {row.id for row in state.rows if row.kind == "pool"}
 

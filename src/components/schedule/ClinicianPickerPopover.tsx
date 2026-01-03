@@ -86,8 +86,11 @@ export default function ClinicianPickerPopover({
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKeyDown);
-    setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    const timeoutId = setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      clearTimeout(timeoutId);
+    };
   }, [open, onClose]);
 
   useEffect(() => {

@@ -368,6 +368,16 @@ ColBand explosion on fresh start (fixed)
 - Fix: Changed the condition from `not getattr(template, "blocks", None)` to `not hasattr(template, "blocks")` which correctly checks for property existence rather than truthiness.
 - Note: The frontend (`src/lib/shiftRows.ts`) was already correct, using `!("blocks" in template)` which checks property existence.
 
+Code patterns to avoid
+- **Double `.get()` calls**: Avoid calling `.get()` twice on the same key; cache the result instead.
+  - Bad: `d.get(k).attr if d.get(k) else None`
+  - Good: `v = d.get(k); v.attr if v else None`
+- **setTimeout without cleanup**: Always store timeout IDs and clear them in useEffect cleanup to prevent memory leaks.
+  - Bad: `setTimeout(() => ref.current?.focus(), 0);`
+  - Good: `const id = setTimeout(...); return () => clearTimeout(id);`
+- **Duplicate functions**: Avoid creating multiple functions with identical implementations; consolidate them.
+- **Test assumptions**: Tests should not assume default state has data; always create required test fixtures explicitly.
+
 ---
 
 ## 4) Data Model (Shared Concept)
