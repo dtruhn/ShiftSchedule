@@ -146,6 +146,7 @@ export default function VacationOverviewModal({
   const vacationColor = sectionColorsById[VACATION_BAND_ID] ?? DEFAULT_VACATION_COLOR;
   const restDayColor = sectionColorsById[REST_DAY_BAND_ID] ?? DEFAULT_REST_DAY_COLOR;
   const [referencePanelOpen, setReferencePanelOpen] = useState(false);
+  const referencePanelRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
 
@@ -174,6 +175,21 @@ export default function VacationOverviewModal({
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [open, onClose]);
+
+  // Close reference panel on click outside
+  useEffect(() => {
+    if (!referencePanelOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        referencePanelRef.current &&
+        !referencePanelRef.current.contains(event.target as Node)
+      ) {
+        setReferencePanelOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [referencePanelOpen]);
 
   // Calculate left column width based on longest clinician name
   const leftColumnWidth = useMemo(() => {
@@ -540,7 +556,10 @@ export default function VacationOverviewModal({
                   Reference bands
                 </button>
                 {referencePanelOpen ? (
-                  <div className="absolute right-0 top-full z-[60] mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                  <div
+                    ref={referencePanelRef}
+                    className="absolute right-0 top-full z-[60] mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+                  >
                     <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Choose bands
                     </div>

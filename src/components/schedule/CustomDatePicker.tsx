@@ -117,6 +117,7 @@ export default function CustomDatePicker({
   className,
 }: CustomDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [openAbove, setOpenAbove] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const parsedValue = parseEuropeanDate(value);
   const [viewDate, setViewDate] = useState(() => parsedValue ?? new Date());
@@ -172,11 +173,24 @@ export default function CustomDatePicker({
 
   const displayValue = value || placeholder;
 
+  const handleToggle = () => {
+    if (disabled) return;
+    if (!isOpen && containerRef.current) {
+      // Calculate whether to open above or below
+      const rect = containerRef.current.getBoundingClientRect();
+      const calendarHeight = 320; // Approximate height of calendar dropdown
+      const spaceBelow = window.innerHeight - rect.bottom - 8;
+      const spaceAbove = rect.top - 8;
+      setOpenAbove(spaceBelow < calendarHeight && spaceAbove > spaceBelow);
+    }
+    setIsOpen(!isOpen);
+  };
+
   return (
     <div ref={containerRef} className={cx("relative", className)}>
       <button
         type="button"
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+        onClick={handleToggle}
         disabled={disabled}
         className={cx(
           "flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-xs transition-colors",
@@ -200,7 +214,12 @@ export default function CustomDatePicker({
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 top-full z-50 mt-1 rounded-xl border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+        <div
+          className={cx(
+            "absolute left-0 z-50 rounded-xl border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-800",
+            openAbove ? "bottom-full mb-1" : "top-full mt-1",
+          )}
+        >
           {/* Header with month/year navigation */}
           <div className="mb-2 flex items-center justify-between">
             <button

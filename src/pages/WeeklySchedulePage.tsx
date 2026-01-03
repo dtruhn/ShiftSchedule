@@ -868,8 +868,8 @@ export default function WeeklySchedulePage({
         onlyFillRequired: args.onlyFillRequired,
       });
       if (result.notes.length > 0) {
-        setSolverNotice(result.notes.join(" "));
-        window.setTimeout(() => setSolverNotice(null), 4000);
+        setSolverNotice(result.notes.join("\n"));
+        // Notice stays open until user clicks to dismiss
       }
       const filtered = result.assignments.filter(
         (a) => a.dateISO >= args.startISO && a.dateISO <= args.endISO,
@@ -2738,8 +2738,26 @@ export default function WeeklySchedulePage({
       />
 
       {solverNotice ? (
-        <div className="fixed bottom-6 right-6 z-50 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 shadow-lg dark:border-amber-500/40 dark:bg-amber-900/40 dark:text-amber-200">
-          {solverNotice}
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 dark:bg-black/40"
+          onClick={() => setSolverNotice(null)}
+        >
+          <div
+            className="relative max-w-lg max-h-[80vh] overflow-auto rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-700 shadow-xl dark:border-amber-500/40 dark:bg-amber-900/40 dark:text-amber-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setSolverNotice(null)}
+              className="absolute top-2 right-2 p-1 rounded-full hover:bg-amber-200/50 dark:hover:bg-amber-800/50 transition-colors"
+              aria-label="Dismiss"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <div className="pr-6 whitespace-pre-wrap">{solverNotice}</div>
+          </div>
         </div>
       ) : null}
 
