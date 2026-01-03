@@ -245,6 +245,7 @@ def test_week_solver_hours_tolerance_nudges_distribution(monkeypatch) -> None:
             "onCallRestDaysBefore": 1,
             "onCallRestDaysAfter": 1,
             "workingHoursToleranceHours": 0,
+            "preferContinuousShifts": False,  # Disable to test pure hours distribution
         },
     )
     monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)

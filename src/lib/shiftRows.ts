@@ -701,6 +701,7 @@ export function normalizeAppState(state: AppState): { state: AppState; changed: 
     onCallRestClassId: "",
     onCallRestDaysBefore: 1,
     onCallRestDaysAfter: 1,
+    preferContinuousShifts: true,
   };
   // Remove deprecated settings during migration
   const {

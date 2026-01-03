@@ -105,6 +105,7 @@ export const defaultSolverSettings = {
   onCallRestClassId: "mri",
   onCallRestDaysBefore: 1,
   onCallRestDaysAfter: 1,
+  preferContinuousShifts: true,
 };
 
 export const defaultSolverRules: Array<{

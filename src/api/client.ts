@@ -131,6 +131,7 @@ export type SolverSettings = {
   onCallRestClassId?: string;
   onCallRestDaysBefore: number;
   onCallRestDaysAfter: number;
+  preferContinuousShifts: boolean;
 };
 
 export type SolverRule = {

@@ -260,6 +260,7 @@ describe("buildRenderedAssignmentMap", () => {
         onCallRestClassId: "mri",
         onCallRestDaysBefore: 1,
         onCallRestDaysAfter: 1,
+        preferContinuousShifts: true,
       },
     });
 
@@ -318,6 +319,7 @@ describe("buildRenderedAssignmentMap", () => {
         onCallRestClassId: "mri",  // Matches sectionId of the slot
         onCallRestDaysBefore: 1,
         onCallRestDaysAfter: 1,
+        preferContinuousShifts: true,
       },
     });
 
@@ -361,6 +363,7 @@ describe("buildRenderedAssignmentMap", () => {
         onCallRestClassId: "mri",
         onCallRestDaysBefore: 1,
         onCallRestDaysAfter: 1,
+        preferContinuousShifts: true,
       },
     });
 

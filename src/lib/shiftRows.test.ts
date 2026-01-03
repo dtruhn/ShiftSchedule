@@ -113,6 +113,7 @@ describe("normalizeAppState", () => {
       onCallRestEnabled: false,
       onCallRestDaysBefore: 0,
       onCallRestDaysAfter: 0,
+      preferContinuousShifts: true,
     },
     solverRules: [],
     weeklyTemplate: {
@@ -244,6 +245,7 @@ describe("normalizeAppState", () => {
           onCallRestEnabled: true,
           onCallRestDaysBefore: 1,
           onCallRestDaysAfter: 1,
+          preferContinuousShifts: true,
         },
       });
 
@@ -262,6 +264,7 @@ describe("normalizeAppState", () => {
           onCallRestEnabled: false,
           onCallRestDaysBefore: 20,
           onCallRestDaysAfter: 0,
+          preferContinuousShifts: true,
         },
       });
 
@@ -277,6 +280,7 @@ describe("normalizeAppState", () => {
           onCallRestEnabled: false,
           onCallRestDaysBefore: 0,
           onCallRestDaysAfter: -5,
+          preferContinuousShifts: true,
         },
       });
 

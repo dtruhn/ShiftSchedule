@@ -181,6 +181,7 @@ Holidays
 
 Solver Settings
 - Toggle: Enforce same location per day (default: enabled).
+- Toggle: Prefer continuous shifts (default: enabled). When enabled, the solver prefers assigning adjacent time slots (where one slot's end time equals another's start time, same location) to the same clinician, creating continuous work blocks rather than fragmented schedules.
 - Multiple shifts per day are always allowed (removed setting); only actual time overlaps are blocked.
 - On-call rest days: toggle + section selector + days before/after. When enabled, solver enforces rest days and the UI places clinicians into the Rest Day pool.
 - On-call rest days dropdown only shows sections that exist as current template section blocks.
@@ -478,6 +479,7 @@ type SolverSettings = {
   onCallRestClassId?: string;
   onCallRestDaysBefore: number;
   onCallRestDaysAfter: number;
+  preferContinuousShifts: boolean; // default true
 };
 ```
 
@@ -533,6 +535,7 @@ Behavior
   - Minimize missing required slots.
   - If `only_fill_required=false`, add extras using wave-based distribution.
   - Preferred sections (order of eligible sections) is a lower-weight tie breaker.
+  - Continuous shift preference (when enabled): adds a small bonus for assigning adjacent slots to the same clinician; weight is lower than hours distribution to act as a tie-breaker.
 - Wave-based equal distribution (when `only_fill_required=false`):
   - First fills all slots to 1× their base required count.
   - Then fills all slots to 2× their base required count.
@@ -557,7 +560,8 @@ Backend stores one JSON blob per user in SQLite:
     "onCallRestEnabled": false,
     "onCallRestClassId": "on-call",
     "onCallRestDaysBefore": 1,
-    "onCallRestDaysAfter": 1
+    "onCallRestDaysAfter": 1,
+    "preferContinuousShifts": true
   },
   "solverRules": [],
   "publishedWeekStartISOs": ["2025-12-22"],

@@ -346,6 +346,40 @@ export default function SettingsView({
                 />
               </button>
             </div>
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+              <div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Prefer continuous shifts
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  When possible, assign consecutive time slots to the same person.
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={solverSettings.preferContinuousShifts}
+                onClick={() =>
+                  onChangeSolverSettings({
+                    ...solverSettings,
+                    preferContinuousShifts: !solverSettings.preferContinuousShifts,
+                  })
+                }
+                className={cx(
+                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                  solverSettings.preferContinuousShifts
+                    ? "bg-emerald-500"
+                    : "bg-slate-300 dark:bg-slate-700",
+                )}
+              >
+                <span
+                  className={cx(
+                    "inline-block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow transition-transform",
+                    solverSettings.preferContinuousShifts && "translate-x-[22px]",
+                  )}
+                />
+              </button>
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
               <div>
                 <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">

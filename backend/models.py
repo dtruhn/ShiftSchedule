@@ -195,6 +195,7 @@ class SolverSettings(BaseModel):
     onCallRestClassId: Optional[str] = None
     onCallRestDaysBefore: int = 1
     onCallRestDaysAfter: int = 1
+    preferContinuousShifts: bool = True
 
 
 class SolverRule(BaseModel):

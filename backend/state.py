@@ -1061,6 +1061,9 @@ def _normalize_state(state: AppState) -> tuple[AppState, bool]:
     merged_settings["onCallRestDaysAfter"] = _clamp_days(
         merged_settings.get("onCallRestDaysAfter", 1)
     )
+    merged_settings["preferContinuousShifts"] = bool(
+        merged_settings.get("preferContinuousShifts", True)
+    )
 
     def _clamp_tolerance(value: Any) -> int:
         try:
@@ -1104,10 +1107,18 @@ def _normalize_state(state: AppState) -> tuple[AppState, bool]:
 
 
 def _default_state() -> AppState:
-    """Create a minimal empty default state with only required pool rows."""
+    """Load default state from default_state.json file."""
+    import os
+    default_state_path = os.path.join(os.path.dirname(__file__), "default_state.json")
+    if os.path.exists(default_state_path):
+        with open(default_state_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        state = AppState.model_validate(data)
+        state, _ = _normalize_state(state)
+        return state
+    # Fallback to minimal empty state if file doesn't exist
     current_year = datetime.now(timezone.utc).year
     default_location = Location(id=DEFAULT_LOCATION_ID, name="Default")
-    # Only create required pool rows, no sections or clinicians
     rows = [
         WorkplaceRow(
             id="pool-rest-day",
@@ -1124,7 +1135,6 @@ def _default_state() -> AppState:
     ]
     clinicians: List[Clinician] = []
     min_slots: Dict[str, MinSlots] = {}
-    # Create empty col bands (one per day type) but no row bands
     empty_col_bands = [
         TemplateColBand(
             id=f"{DEFAULT_LOCATION_ID}-col-{day_type}-1",

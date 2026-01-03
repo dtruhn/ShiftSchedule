@@ -591,6 +591,7 @@ class TestWeekSolverHoursDistribution:
                 "enforceSameLocationPerDay": False,
                 "onCallRestEnabled": False,
                 "workingHoursToleranceHours": 0,  # Strict distribution
+                "preferContinuousShifts": False,  # Disable to test pure hours distribution
             },
         )
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)

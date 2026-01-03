@@ -26,6 +26,7 @@ router = APIRouter()
 PREFERRED_WINDOW_WEIGHT = 5
 WORKING_HOURS_BLOCK_MINUTES = 15
 WORKING_HOURS_PENALTY_WEIGHT = 1
+CONTINUOUS_SHIFT_WEIGHT = 3
 
 
 def _get_day_type(date_iso: str, holidays: List[Holiday]) -> str:
@@ -369,6 +370,34 @@ def solve_day(payload: SolveDayRequest, current_user: UserPublic = Depends(_get_
             model.Add(slack + already >= missing)
         slack_terms.append(slack * order_weight)
 
+    # Continuous shift preference: reward assigning adjacent slots to same clinician
+    continuous_terms: List[cp_model.IntVar] = []
+    if solver_settings.preferContinuousShifts:
+        # Find adjacent slot pairs (where slot_a.end == slot_b.start, same location)
+        adjacent_pairs: List[Tuple[str, str]] = []
+        slot_ids_list = list(slot_intervals.keys())
+        for i, slot_id_a in enumerate(slot_ids_list):
+            start_a, end_a, loc_a = slot_intervals[slot_id_a]
+            for slot_id_b in slot_ids_list[i + 1 :]:
+                start_b, end_b, loc_b = slot_intervals[slot_id_b]
+                # Check if adjacent (end of A == start of B or vice versa) and same location
+                if loc_a == loc_b:
+                    if end_a == start_b or end_b == start_a:
+                        adjacent_pairs.append((slot_id_a, slot_id_b))
+
+        # For each adjacent pair, reward when same clinician is assigned to both
+        for slot_a, slot_b in adjacent_pairs:
+            for clinician in state.clinicians:
+                var_a = var_map.get((clinician.id, slot_a))
+                var_b = var_map.get((clinician.id, slot_b))
+                if var_a is None or var_b is None:
+                    continue
+                # Create variable that's 1 when both are assigned
+                both = model.NewBoolVar(f"cont_{clinician.id}_{slot_a}_{slot_b}")
+                model.Add(var_a + var_b >= 2).OnlyEnforceIf(both)
+                model.Add(var_a + var_b <= 1).OnlyEnforceIf(both.Not())
+                continuous_terms.append(both)
+
     total_slack = sum(slack_terms) if slack_terms else 0
     total_coverage = sum(coverage_terms) if coverage_terms else 0
     total_priority = sum(
@@ -380,6 +409,10 @@ def solve_day(payload: SolveDayRequest, current_user: UserPublic = Depends(_get_
         for (cid, sid), var in var_map.items()
     )
     total_time_window_preference = sum(time_window_terms) if time_window_terms else 0
+    total_continuous = sum(continuous_terms) if continuous_terms else 0
+
+    # Total assignments - used to maximize distribution when not only_fill_required
+    total_assignments = sum(var for var in var_map.values())
 
     if payload.only_fill_required:
         model.Minimize(
@@ -387,14 +420,18 @@ def solve_day(payload: SolveDayRequest, current_user: UserPublic = Depends(_get_
             + total_slack * 1000
             - total_preference
             - total_time_window_preference * PREFERRED_WINDOW_WEIGHT
+            - total_continuous * CONTINUOUS_SHIFT_WEIGHT
         )
     else:
+        # When distributing all people, maximize total assignments
         model.Minimize(
             -total_coverage * 1000
             + total_slack * 1000
+            - total_assignments * 100  # Strong incentive to assign everyone
             - total_priority * 10
             - total_preference
             - total_time_window_preference * PREFERRED_WINDOW_WEIGHT
+            - total_continuous * CONTINUOUS_SHIFT_WEIGHT
         )
 
     solver = cp_model.CpSolver()
@@ -848,6 +885,37 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
         model.AddDivisionEquality(over_blocks, over, WORKING_HOURS_BLOCK_MINUTES)
         hours_penalty_terms.append(under_blocks + over_blocks)
 
+    # Continuous shift preference: reward assigning adjacent slots to same clinician
+    continuous_terms: List[cp_model.IntVar] = []
+    if solver_settings.preferContinuousShifts:
+        # Find adjacent slot pairs (where slot_a.end == slot_b.start, same location)
+        adjacent_pairs: List[Tuple[str, str]] = []
+        slot_ids_list = list(slot_intervals.keys())
+        for i, slot_id_a in enumerate(slot_ids_list):
+            start_a, end_a, loc_a = slot_intervals[slot_id_a]
+            for slot_id_b in slot_ids_list[i + 1 :]:
+                start_b, end_b, loc_b = slot_intervals[slot_id_b]
+                # Check if adjacent (end of A == start of B or vice versa) and same location
+                if loc_a == loc_b:
+                    if end_a == start_b or end_b == start_a:
+                        adjacent_pairs.append((slot_id_a, slot_id_b))
+
+        # For each adjacent pair and each day, reward when same clinician is assigned to both
+        for slot_a, slot_b in adjacent_pairs:
+            for date_iso in target_day_isos:
+                for clinician in state.clinicians:
+                    var_a = var_map.get((clinician.id, date_iso, slot_a))
+                    var_b = var_map.get((clinician.id, date_iso, slot_b))
+                    if var_a is None or var_b is None:
+                        continue
+                    # Create variable that's 1 when both are assigned
+                    both = model.NewBoolVar(
+                        f"cont_{clinician.id}_{date_iso}_{slot_a}_{slot_b}"
+                    )
+                    model.Add(var_a + var_b >= 2).OnlyEnforceIf(both)
+                    model.Add(var_a + var_b <= 1).OnlyEnforceIf(both.Not())
+                    continuous_terms.append(both)
+
     total_slack = sum(slack_terms) if slack_terms else 0
     total_coverage = sum(coverage_terms) if coverage_terms else 0
 
@@ -861,6 +929,10 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
     )
     total_time_window_preference = sum(time_window_terms) if time_window_terms else 0
     total_hours_penalty = sum(hours_penalty_terms) if hours_penalty_terms else 0
+    total_continuous = sum(continuous_terms) if continuous_terms else 0
+
+    # Total assignments - used to maximize distribution when not only_fill_required
+    total_assignments = sum(var for var in var_map.values())
 
     if payload.only_fill_required:
         model.Minimize(
@@ -868,15 +940,19 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
             + total_slack * 1000
             - total_preference
             - total_time_window_preference * PREFERRED_WINDOW_WEIGHT
+            - total_continuous * CONTINUOUS_SHIFT_WEIGHT
             + total_hours_penalty * WORKING_HOURS_PENALTY_WEIGHT
         )
     else:
+        # When distributing all people, maximize total assignments
         model.Minimize(
             -total_coverage * 1000
             + total_slack * 1000
+            - total_assignments * 100  # Strong incentive to assign everyone
             - total_priority * 10
             - total_preference
             - total_time_window_preference * PREFERRED_WINDOW_WEIGHT
+            - total_continuous * CONTINUOUS_SHIFT_WEIGHT
             + total_hours_penalty * WORKING_HOURS_PENALTY_WEIGHT
         )
 
