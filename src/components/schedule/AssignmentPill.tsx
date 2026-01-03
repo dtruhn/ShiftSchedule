@@ -104,6 +104,8 @@ type AssignmentPillProps = {
   name: string;
   /** Other names in the same cell, used to ensure unique abbreviations */
   siblingNames?: string[];
+  /** Unique key for violation line drawing: `${rowId}__${dateISO}__${clinicianId}` */
+  assignmentKey?: string;
   timeLabel?: string;
   timeSegments?: AvailabilitySegment[];
   showNoEligibilityWarning?: boolean;
@@ -122,6 +124,7 @@ type AssignmentPillProps = {
 export default function AssignmentPill({
   name,
   siblingNames,
+  assignmentKey,
   timeSegments,
   showNoEligibilityWarning,
   showIneligibleWarning,
@@ -218,6 +221,7 @@ export default function AssignmentPill({
   return (
     <div
       data-assignment-pill="true"
+      data-assignment-key={assignmentKey}
       draggable={draggable}
       onDragStart={handleRootDragStart}
       onDragEnd={handleRootDragEnd}

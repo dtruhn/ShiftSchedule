@@ -1162,6 +1162,7 @@ function RowSection({
                             key={assignment.id}
                             name={getClinicianName(assignment.clinicianId)}
                             siblingNames={siblingNames}
+                            assignmentKey={violationKey}
                             showNoEligibilityWarning={
                               !getHasEligibleClasses(assignment.clinicianId)
                             }
@@ -1499,6 +1500,7 @@ function RowSection({
                             key={assignment.id}
                             name={getClinicianName(assignment.clinicianId)}
                             siblingNames={siblingNames}
+                            assignmentKey={violationKey}
                             showNoEligibilityWarning={
                               !getHasEligibleClasses(assignment.clinicianId)
                             }

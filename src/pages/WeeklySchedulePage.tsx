@@ -7,6 +7,7 @@ import ScheduleGrid from "../components/schedule/ScheduleGrid";
 import SettingsView from "../components/schedule/SettingsView";
 import TopBar from "../components/schedule/TopBar";
 import VacationOverviewModal from "../components/schedule/VacationOverviewModal";
+import ViolationLinesOverlay from "../components/schedule/ViolationLinesOverlay";
 import WeekNavigator from "../components/schedule/WeekNavigator";
 import AdminUsersPanel from "../components/auth/AdminUsersPanel";
 import { ChevronLeftIcon, ChevronRightIcon } from "../components/schedule/icons";
@@ -1338,6 +1339,26 @@ export default function WeeklySchedulePage({
     violatingAssignmentKeys,
   ]);
 
+  // Violations to show connection lines for
+  const visibleViolationsForLines = useMemo(() => {
+    const activeId = hoveredRuleViolationId ?? activeRuleViolationId;
+    if (activeId) {
+      const match = ruleViolations.find((violation) => violation.id === activeId);
+      return match ? [match] : [];
+    }
+    if (isRuleViolationsHovered) {
+      return ruleViolations;
+    }
+    return [];
+  }, [
+    activeRuleViolationId,
+    hoveredRuleViolationId,
+    isRuleViolationsHovered,
+    ruleViolations,
+  ]);
+
+  const showViolationLines = visibleViolationsForLines.length > 0;
+
   const editingClinician = useMemo(
     () => clinicians.find((clinician) => clinician.id === editingClinicianId),
     [clinicians, editingClinicianId],
@@ -2640,6 +2661,10 @@ export default function WeeklySchedulePage({
         </div>
       ) : null}
 
+      <ViolationLinesOverlay
+        violations={visibleViolationsForLines}
+        visible={showViolationLines}
+      />
     </div>
   );
 }
