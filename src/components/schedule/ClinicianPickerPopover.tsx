@@ -1,6 +1,46 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/classNames";
+
+function InstantTooltip({ children, content }: { children: ReactNode; content: string }) {
+  const [show, setShow] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLSpanElement>(null);
+
+  const handleMouseEnter = () => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPosition({
+        top: rect.top - 4,
+        left: rect.left + rect.width / 2,
+      });
+    }
+    setShow(true);
+  };
+
+  return (
+    <>
+      <span
+        ref={triggerRef}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={() => setShow(false)}
+      >
+        {children}
+      </span>
+      {show &&
+        createPortal(
+          <div
+            className="pointer-events-none fixed z-[200] -translate-x-1/2 -translate-y-full rounded bg-slate-800 px-2 py-1 text-xs text-white shadow-lg dark:bg-slate-700"
+            style={{ top: position.top, left: position.left }}
+          >
+            {content}
+            <div className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-slate-800 dark:border-t-slate-700" />
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
 
 export type ClinicianOption = {
   id: string;
@@ -141,17 +181,16 @@ export default function ClinicianPickerPopover({
               >
                 <span className="flex-1 truncate">{clinician.name}</span>
                 {!isEligible && (
-                  <span className="flex items-center gap-1">
-                    <span
-                      className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-600 dark:bg-amber-900/40 dark:text-amber-400"
-                      title={warnings.join(", ")}
-                    >
-                      !
+                  <InstantTooltip content={warnings.join(" · ")}>
+                    <span className="flex items-center gap-1">
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-600 dark:bg-amber-900/40 dark:text-amber-400">
+                        !
+                      </span>
+                      <span className="text-xs text-slate-400 dark:text-slate-500">
+                        {warnings[0]}
+                      </span>
                     </span>
-                    <span className="text-xs text-slate-400 dark:text-slate-500">
-                      {warnings[0]}
-                    </span>
-                  </span>
+                  </InstantTooltip>
                 )}
               </button>
             );
