@@ -264,6 +264,7 @@ export default function WeeklyTemplateBuilder({
     index: number;
   } | null>(null);
   const [hoveredRowBandId, setHoveredRowBandId] = useState<string | null>(null);
+  const [hoveredLocationId, setHoveredLocationId] = useState<string | null>(null);
   const [hoveredDeleteRowBand, setHoveredDeleteRowBand] = useState<{
     locationId: string;
     rowBandId: string;
@@ -1393,10 +1394,16 @@ export default function WeeklyTemplateBuilder({
               if (rowBandId !== hoveredRowBandId) {
                 setHoveredRowBandId(rowBandId);
               }
+              const locationEl = target.closest("[data-location-id]") as HTMLElement | null;
+              const locationId = locationEl?.dataset.locationId ?? null;
+              if (locationId !== hoveredLocationId) {
+                setHoveredLocationId(locationId);
+              }
             }}
             onMouseLeave={() => {
               setHoveredColumn(null);
               setHoveredRowBandId(null);
+              setHoveredLocationId(null);
             }}
           >
             <div className="border-b border-r border-slate-200 bg-slate-50 p-2 text-slate-500 dark:border-slate-800 dark:bg-slate-900/60">
@@ -1482,6 +1489,7 @@ export default function WeeklyTemplateBuilder({
                       "col-span-full border-b border-slate-200 bg-white px-2 py-2 dark:border-slate-800 dark:bg-slate-950",
                       isLocationHighlighted && "ring-2 ring-rose-400 ring-inset",
                     )}
+                    data-location-id={location.id}
                   >
                     <div className="flex items-center gap-2">
                       <select
@@ -1529,7 +1537,10 @@ export default function WeeklyTemplateBuilder({
                             prev === location.id ? null : prev,
                           )
                         }
-                        className="rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-rose-500 hover:text-rose-600 dark:border-slate-700 dark:text-rose-300"
+                        className={cx(
+                          "rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-rose-500 transition-opacity hover:text-rose-600 dark:border-slate-700 dark:text-rose-300",
+                          hoveredLocationId === location.id ? "opacity-100" : "opacity-0",
+                        )}
                       >
                         Delete Location
                       </button>
@@ -1550,6 +1561,7 @@ export default function WeeklyTemplateBuilder({
                           isRowHighlighted && "ring-2 ring-rose-400 ring-inset",
                         )}
                         data-row-band-id={band.id}
+                        data-location-id={location.id}
                       >
                         <div className="flex w-full items-center gap-2">
                           <input
@@ -1651,6 +1663,7 @@ export default function WeeklyTemplateBuilder({
                               )}
                               data-column-key={`${dayType}-${colIndex}`}
                               data-row-band-id={band.id}
+                              data-location-id={location.id}
                               data-day-type={dayType}
                               data-col-index={colIndex}
                               data-add-block-trigger={!slot ? "true" : undefined}
@@ -1846,6 +1859,7 @@ export default function WeeklyTemplateBuilder({
                       "border-b border-r border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-950",
                       isLocationHighlighted && "ring-2 ring-rose-400 ring-inset",
                     )}
+                    data-location-id={location.id}
                   >
                     <button
                       type="button"
@@ -1885,6 +1899,7 @@ export default function WeeklyTemplateBuilder({
                               "ring-2 ring-rose-400 ring-inset",
                           )}
                           data-column-key={`${dayType}-${colIndex}`}
+                          data-location-id={location.id}
                           data-day-type={dayType}
                           data-col-index={colIndex}
                           aria-hidden={showColumnDeleteButton ? undefined : "true"}
