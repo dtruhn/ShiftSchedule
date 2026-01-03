@@ -91,6 +91,7 @@ export function buildRenderedAssignmentMap(
       .filter(([, sectionId]) => sectionId === onCallRestClassId)
       .map(([rowId]) => rowId),
   );
+
   const vacationByDate = new Map<string, Set<string>>();
   for (const clinician of clinicians) {
     for (const vacation of clinician.vacations) {

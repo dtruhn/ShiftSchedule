@@ -173,7 +173,7 @@ export default function AutomatedPlanningPanel({
       range.endISO,
     )}`;
     const confirmed = window.confirm(
-      `Reset assignments to the Distribution Pool for ${label}?`,
+      `Reset assignments for ${label}?`,
     );
     if (!confirmed) return;
     onReset({ startISO: range.startISO, endISO: range.endISO });
@@ -187,8 +187,26 @@ export default function AutomatedPlanningPanel({
         </div>
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-3">
-            <div className="text-xs font-normal uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              Timeframe (inclusive)
+            <div className="flex items-center gap-2">
+              <div className="text-xs font-normal uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                Timeframe
+              </div>
+              <button
+                type="button"
+                onClick={handleUseVisibleWeek}
+                disabled={isRunning}
+                className={getPillToggleClasses(visibleWeekActive)}
+              >
+                Use visible week
+              </button>
+              <button
+                type="button"
+                onClick={handleUseToday}
+                disabled={isRunning}
+                className={getPillToggleClasses(todayActive)}
+              >
+                Today
+              </button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <input
@@ -221,22 +239,6 @@ export default function AutomatedPlanningPanel({
                   "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark]",
                 )}
               />
-              <button
-                type="button"
-                onClick={handleUseVisibleWeek}
-                disabled={isRunning}
-                className={getPillToggleClasses(visibleWeekActive)}
-              >
-                Use visible week
-              </button>
-              <button
-                type="button"
-                onClick={handleUseToday}
-                disabled={isRunning}
-                className={getPillToggleClasses(todayActive)}
-              >
-                Today
-              </button>
             </div>
           </div>
           <div className="flex flex-col gap-3">
@@ -258,7 +260,7 @@ export default function AutomatedPlanningPanel({
                 disabled={isRunning}
                 className={getPillToggleClasses(strategy === "distribute")}
               >
-                Distribute all people from Distribution Pool
+                Distribute all people
               </button>
             </div>
           </div>
@@ -286,7 +288,7 @@ export default function AutomatedPlanningPanel({
               disabled={isRunning}
               className={buttonSecondary.base}
             >
-              Reset to Distribution Pool...
+              Reset...
             </button>
           </div>
         </div>

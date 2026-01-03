@@ -9,6 +9,7 @@ import SettingsView from "../components/schedule/SettingsView";
 import TopBar from "../components/schedule/TopBar";
 import VacationOverviewModal from "../components/schedule/VacationOverviewModal";
 import ViolationLinesOverlay from "../components/schedule/ViolationLinesOverlay";
+import WorkingHoursOverviewModal from "../components/schedule/WorkingHoursOverviewModal";
 import WeekNavigator from "../components/schedule/WeekNavigator";
 import AdminUsersPanel from "../components/auth/AdminUsersPanel";
 import { ChevronLeftIcon, ChevronRightIcon } from "../components/schedule/icons";
@@ -252,6 +253,7 @@ export default function WeeklySchedulePage({
     "vacations" | null
   >(null);
   const [vacationOverviewOpen, setVacationOverviewOpen] = useState(false);
+  const [workingHoursOverviewOpen, setWorkingHoursOverviewOpen] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [loadedUserId, setLoadedUserId] = useState<string>("");
   const [solverNotice, setSolverNotice] = useState<string | null>(null);
@@ -493,6 +495,14 @@ export default function WeeklySchedulePage({
   const toAssignments = () => {
     const out: Assignment[] = [];
     for (const list of assignmentMap.values()) {
+      out.push(...list);
+    }
+    return out;
+  };
+
+  const toRenderedAssignments = () => {
+    const out: Assignment[] = [];
+    for (const list of renderAssignmentMap.values()) {
       out.push(...list);
     }
     return out;
@@ -2374,65 +2384,93 @@ export default function WeeklySchedulePage({
             onCellClick={() => {}}
           />
           <div className="mx-auto w-full max-w-7xl px-4 pb-8 sm:px-6 sm:pb-10">
-            <div className="flex w-full flex-col gap-6 lg:flex-row lg:items-start">
-              <AutomatedPlanningPanel
-                weekStartISO={toISODate(weekStart)}
-                weekEndISO={toISODate(weekEndInclusive)}
-                isRunning={autoPlanRunning}
-                progress={autoPlanProgress}
-                startedAt={autoPlanStartedAt}
-                lastRunTotalDays={autoPlanLastRunStats?.totalDays ?? null}
-                lastRunDurationMs={autoPlanLastRunStats?.durationMs ?? null}
-                error={autoPlanError}
-                onRun={handleRunAutomatedPlanning}
-                onReset={handleResetAutomatedRange}
-              />
-              <div className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:max-w-xs sm:px-4">
-                <div className="flex flex-col gap-4">
-                  <div className="-mt-7 inline-flex self-start rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-normal text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                    Vacation Planner
+            <div className="flex flex-col gap-6">
+              {/* First row: Automated Planning, Vacation Planner, Export */}
+              <div className="flex w-full flex-col gap-6 lg:flex-row lg:items-start">
+                <AutomatedPlanningPanel
+                  weekStartISO={toISODate(weekStart)}
+                  weekEndISO={toISODate(weekEndInclusive)}
+                  isRunning={autoPlanRunning}
+                  progress={autoPlanProgress}
+                  startedAt={autoPlanStartedAt}
+                  lastRunTotalDays={autoPlanLastRunStats?.totalDays ?? null}
+                  lastRunDurationMs={autoPlanLastRunStats?.durationMs ?? null}
+                  error={autoPlanError}
+                  onRun={handleRunAutomatedPlanning}
+                  onReset={handleResetAutomatedRange}
+                />
+                <div className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:max-w-xs sm:px-4">
+                  <div className="flex flex-col gap-4">
+                    <div className="-mt-7 inline-flex self-start rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-normal text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                      Vacation Planner
+                    </div>
+                    <div className="text-sm text-slate-600 dark:text-slate-300">
+                      Review vacations across the year and jump into clinician edits.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setVacationOverviewOpen(true)}
+                      className={cx(
+                        "rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-normal text-slate-900 shadow-sm",
+                        "hover:bg-slate-50 active:bg-slate-100",
+                        "disabled:cursor-not-allowed disabled:opacity-70",
+                        "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+                      )}
+                    >
+                      Open Vacation Planner
+                    </button>
                   </div>
-                  <div className="text-sm text-slate-600 dark:text-slate-300">
-                    Review vacations across the year and jump into clinician edits.
+                </div>
+                <div className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:max-w-xs sm:px-4">
+                  <div className="flex flex-col gap-4">
+                    <div className="-mt-7 inline-flex self-start rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-normal text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                      Export
+                    </div>
+                    <div className="text-sm text-slate-600 dark:text-slate-300">
+                      Download PDFs, iCal feeds, or shareable web links for published weeks.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPdfError(null);
+                        setPdfProgress(null);
+                        openExportModal();
+                      }}
+                      className={cx(
+                        "rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-normal text-slate-900 shadow-sm",
+                        "hover:bg-slate-50 active:bg-slate-100",
+                        "disabled:cursor-not-allowed disabled:opacity-70",
+                        "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+                      )}
+                    >
+                      Open Export
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setVacationOverviewOpen(true)}
-                    className={cx(
-                      "rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-normal text-slate-900 shadow-sm",
-                      "hover:bg-slate-50 active:bg-slate-100",
-                      "disabled:cursor-not-allowed disabled:opacity-70",
-                      "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
-                    )}
-                  >
-                    Open Vacation Planner
-                  </button>
                 </div>
               </div>
-              <div className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:max-w-xs sm:px-4">
-                <div className="flex flex-col gap-4">
-                  <div className="-mt-7 inline-flex self-start rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-normal text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                    Export
+              {/* Second row: Working Hours */}
+              <div className="flex w-full flex-col gap-6 lg:flex-row lg:items-start">
+                <div className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 sm:max-w-xs sm:px-4">
+                  <div className="flex flex-col gap-4">
+                    <div className="-mt-7 inline-flex self-start rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-normal text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                      Working Hours
+                    </div>
+                    <div className="text-sm text-slate-600 dark:text-slate-300">
+                      Track working hours per week and compare against contract hours.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setWorkingHoursOverviewOpen(true)}
+                      className={cx(
+                        "rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-normal text-slate-900 shadow-sm",
+                        "hover:bg-slate-50 active:bg-slate-100",
+                        "disabled:cursor-not-allowed disabled:opacity-70",
+                        "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
+                      )}
+                    >
+                      Open Working Hours
+                    </button>
                   </div>
-                  <div className="text-sm text-slate-600 dark:text-slate-300">
-                    Download PDFs, iCal feeds, or shareable web links for published weeks.
-                  </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPdfError(null);
-                    setPdfProgress(null);
-                    openExportModal();
-                  }}
-                  className={cx(
-                    "rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-normal text-slate-900 shadow-sm",
-                    "hover:bg-slate-50 active:bg-slate-100",
-                    "disabled:cursor-not-allowed disabled:opacity-70",
-                    "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
-                  )}
-                >
-                    Open Export
-                  </button>
                 </div>
               </div>
             </div>
@@ -2603,9 +2641,23 @@ export default function WeeklySchedulePage({
           name: row.name,
           color: row.blockColor ?? null,
         }))}
-        assignments={toAssignments()}
+        assignments={toRenderedAssignments()}
         weeklyTemplate={weeklyTemplate}
         onSelectClinician={(clinicianId) => openClinicianEditor(clinicianId, "vacations")}
+        onReorderClinicians={(reorderedIds) => {
+          setClinicians((prev) => {
+            const byId = new Map(prev.map((c) => [c.id, c]));
+            return reorderedIds.map((id) => byId.get(id)).filter((c): c is Clinician => Boolean(c));
+          });
+        }}
+      />
+
+      <WorkingHoursOverviewModal
+        open={workingHoursOverviewOpen}
+        onClose={() => setWorkingHoursOverviewOpen(false)}
+        clinicians={clinicians}
+        assignments={toRenderedAssignments()}
+        weeklyTemplate={weeklyTemplate}
       />
 
       <ClinicianEditModal

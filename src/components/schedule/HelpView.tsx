@@ -84,10 +84,10 @@ export default function HelpView() {
                 </li>
                 <li>
                   <span className="font-medium">Distribute all people</span>:
-                  uses the Distribution Pool to spread assignments.
+                  spreads all people across available slots.
                 </li>
                 <li>
-                  <span className="font-medium">Reset to Distribution Pool</span>:
+                  <span className="font-medium">Reset</span>:
                   clears assignments for the selected timeframe.
                 </li>
               </ul>
@@ -101,14 +101,6 @@ export default function HelpView() {
                 Pools & solver behavior
               </div>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-slate-200">
-                <li>
-                  <span className="font-medium">Distribution Pool</span>:
-                  people here are used for automatic allocation.
-                </li>
-                <li>
-                  <span className="font-medium">Reserve Pool</span>: people
-                  here are not considered by the solver.
-                </li>
                 <li>
                   <span className="font-medium">Rest Day Pool</span>: people
                   placed before or after on-call duties to rest.

@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buttonPrimary, buttonSecondary } from "../../lib/buttonStyles";
+import { buttonPrimary, buttonSecondary, getPillToggleClasses } from "../../lib/buttonStyles";
 import { cx } from "../../lib/classNames";
 import { toISODate } from "../../lib/date";
 import type { Assignment, WeeklyCalendarTemplate } from "../../api/client";
@@ -19,10 +19,12 @@ type VacationOverviewModalProps = {
   assignments: Assignment[];
   weeklyTemplate?: WeeklyCalendarTemplate;
   onSelectClinician: (clinicianId: string) => void;
+  onReorderClinicians?: (reorderedIds: string[]) => void;
 };
 
 const DAY_WIDTH = 20;
-const LEFT_COLUMN_WIDTH = 200;
+const MIN_LEFT_COLUMN_WIDTH = 100;
+const LEFT_COLUMN_PADDING = 24; // px-3 = 12px each side
 const BAR_HEIGHT = 16;
 const YEAR_RANGE = 3;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -40,6 +42,12 @@ const MONTH_LABELS = [
   "November",
   "December",
 ];
+
+// Module-level state to preserve across open/close cycles
+// (component unmounts when closed, so refs don't work)
+const VACATION_BAND_ID = "__vacation__";
+let persistedActiveSectionIds: string[] = [VACATION_BAND_ID];
+let persistedSectionColorsById: Record<string, string> = {};
 
 const isLeapYear = (year: number) =>
   (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
@@ -108,25 +116,51 @@ export default function VacationOverviewModal({
   assignments,
   weeklyTemplate,
   onSelectClinician,
+  onReorderClinicians,
 }: VacationOverviewModalProps) {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [visibleYear, setVisibleYear] = useState(currentYear);
   const [pendingScrollToToday, setPendingScrollToToday] = useState(false);
-  const VACATION_BAND_ID = "__vacation__";
+  const [scrollBehavior, setScrollBehavior] = useState<"instant" | "smooth">("instant");
+  const REST_DAY_BAND_ID = "__rest_day__";
   const DEFAULT_VACATION_COLOR = "#86efac"; // emerald-300 (softer)
-  const [activeSectionIds, setActiveSectionIds] = useState<string[]>([VACATION_BAND_ID]);
+  const DEFAULT_REST_DAY_COLOR = "#fca5a5"; // rose-300
+
+  // Initialize state from module-level persisted values
+  const [activeSectionIds, setActiveSectionIds] = useState<string[]>(() => persistedActiveSectionIds);
   const [sectionColorsById, setSectionColorsById] = useState<Record<string, string>>(
-    {},
+    () => persistedSectionColorsById,
   );
+
+  // Keep module-level variables in sync with state
+  useEffect(() => {
+    persistedActiveSectionIds = activeSectionIds;
+  }, [activeSectionIds]);
+  useEffect(() => {
+    persistedSectionColorsById = sectionColorsById;
+  }, [sectionColorsById]);
+
   const isVacationActive = activeSectionIds.includes(VACATION_BAND_ID);
+  const isRestDayActive = activeSectionIds.includes(REST_DAY_BAND_ID);
   const vacationColor = sectionColorsById[VACATION_BAND_ID] ?? DEFAULT_VACATION_COLOR;
+  const restDayColor = sectionColorsById[REST_DAY_BAND_ID] ?? DEFAULT_REST_DAY_COLOR;
   const [referencePanelOpen, setReferencePanelOpen] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
 
+  // Mouse tracking for cursor line and day highlight
+  const [hoverDayIndex, setHoverDayIndex] = useState<number | null>(null);
+
+  // Clinician drag reorder state
+  const [dragClinicianId, setDragClinicianId] = useState<string | null>(null);
+  const [dragOverClinicianId, setDragOverClinicianId] = useState<string | null>(null);
+
+  // Scroll to today every time the modal opens
   useEffect(() => {
     if (!open) return;
     setSelectedYear(currentYear);
+    setScrollBehavior("instant");
     setPendingScrollToToday(true);
   }, [open, currentYear]);
 
@@ -140,6 +174,19 @@ export default function VacationOverviewModal({
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [open, onClose]);
+
+  // Calculate left column width based on longest clinician name
+  const leftColumnWidth = useMemo(() => {
+    if (clinicians.length === 0) return MIN_LEFT_COLUMN_WIDTH;
+    // Estimate character width (~7px per char for 14px text)
+    const charWidth = 7;
+    const longestName = clinicians.reduce(
+      (max, c) => (c.name.length > max ? c.name.length : max),
+      0,
+    );
+    const estimatedWidth = longestName * charWidth + LEFT_COLUMN_PADDING;
+    return Math.max(MIN_LEFT_COLUMN_WIDTH, estimatedWidth);
+  }, [clinicians]);
 
   const rangeStartYear = selectedYear - Math.floor(YEAR_RANGE / 2);
   const rangeEndYear = rangeStartYear + YEAR_RANGE - 1;
@@ -214,6 +261,49 @@ export default function VacationOverviewModal({
     }
     return map;
   }, [clinicians, rangeStartYear, rangeEndYear]);
+
+  const restDaySegmentsByClinician = useMemo(() => {
+    const REST_DAY_POOL_ID = "pool-rest-day";
+    const dayIndexByClinician = new Map<string, Set<number>>();
+    for (const assignment of assignments) {
+      if (assignment.rowId !== REST_DAY_POOL_ID) continue;
+      const dayIndex = dateToDayIndexInTimeline(
+        assignment.dateISO,
+        rangeStartYear,
+        rangeEndYear,
+      );
+      if (dayIndex === null) continue;
+      const set = dayIndexByClinician.get(assignment.clinicianId) ?? new Set();
+      set.add(dayIndex);
+      dayIndexByClinician.set(assignment.clinicianId, set);
+    }
+    const map = new Map<string, Array<{ id: string; left: number; width: number }>>();
+    for (const [clinicianId, indicesSet] of dayIndexByClinician.entries()) {
+      const indices = Array.from(indicesSet).sort((a, b) => a - b);
+      if (indices.length === 0) continue;
+      const segments: Array<{ id: string; left: number; width: number }> = [];
+      let runStart = indices[0];
+      let previous = indices[0];
+      for (let i = 1; i <= indices.length; i += 1) {
+        const current = indices[i];
+        if (current !== undefined && current === previous + 1) {
+          previous = current;
+          continue;
+        }
+        const left = runStart * DAY_WIDTH;
+        const width = (previous - runStart + 1) * DAY_WIDTH;
+        segments.push({
+          id: `${clinicianId}-rest-${runStart}-${previous}`,
+          left,
+          width,
+        });
+        runStart = current ?? 0;
+        previous = current ?? 0;
+      }
+      map.set(clinicianId, segments);
+    }
+    return map;
+  }, [assignments, rangeStartYear, rangeEndYear]);
 
   const slotSectionById = useMemo(() => {
     const map = new Map<string, string>();
@@ -304,15 +394,87 @@ export default function VacationOverviewModal({
     if (selectedYear !== currentYear) {
       setSelectedYear(currentYear);
     }
+    setScrollBehavior("smooth");
     setPendingScrollToToday(true);
   };
+
+  // Mouse move handler to track hovered day
+  const handleTimelineMouseMove = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const timeline = timelineRef.current;
+      if (!timeline) return;
+      const rect = timeline.getBoundingClientRect();
+      // Subtract leftColumnWidth since timeline includes the name column
+      const x = event.clientX - rect.left - leftColumnWidth;
+      const dayIndex = Math.floor(x / DAY_WIDTH);
+      if (dayIndex >= 0 && dayIndex < totalDays) {
+        setHoverDayIndex(dayIndex);
+      } else {
+        setHoverDayIndex(null);
+      }
+    },
+    [totalDays],
+  );
+
+  const handleTimelineMouseLeave = useCallback(() => {
+    setHoverDayIndex(null);
+  }, []);
+
+  // Clinician drag handlers
+  const handleClinicianDragStart = useCallback(
+    (event: React.DragEvent<HTMLDivElement>, clinicianId: string) => {
+      setDragClinicianId(clinicianId);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", clinicianId);
+    },
+    [],
+  );
+
+  const handleClinicianDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>, clinicianId: string) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      setDragOverClinicianId(clinicianId);
+    },
+    [],
+  );
+
+  const handleClinicianDragEnd = useCallback(() => {
+    setDragClinicianId(null);
+    setDragOverClinicianId(null);
+  }, []);
+
+  const handleClinicianDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>, targetClinicianId: string) => {
+      event.preventDefault();
+      const sourceId = dragClinicianId;
+      if (!sourceId || sourceId === targetClinicianId || !onReorderClinicians) {
+        handleClinicianDragEnd();
+        return;
+      }
+      const ids = clinicians.map((c) => c.id);
+      const sourceIndex = ids.indexOf(sourceId);
+      const targetIndex = ids.indexOf(targetClinicianId);
+      if (sourceIndex === -1 || targetIndex === -1) {
+        handleClinicianDragEnd();
+        return;
+      }
+      // Remove source and insert at target position
+      const newIds = [...ids];
+      newIds.splice(sourceIndex, 1);
+      newIds.splice(targetIndex, 0, sourceId);
+      onReorderClinicians(newIds);
+      handleClinicianDragEnd();
+    },
+    [dragClinicianId, clinicians, onReorderClinicians, handleClinicianDragEnd],
+  );
 
   useEffect(() => {
     if (!open) return;
     const container = scrollContainerRef.current;
     if (!container) return;
     const updateVisibleYear = () => {
-      const visibleWidth = Math.max(0, container.clientWidth - LEFT_COLUMN_WIDTH);
+      const visibleWidth = Math.max(0, container.clientWidth - leftColumnWidth);
       const centerIndex = Math.max(
         0,
         Math.floor((container.scrollLeft + visibleWidth / 2) / DAY_WIDTH),
@@ -332,14 +494,18 @@ export default function VacationOverviewModal({
     const container = scrollContainerRef.current;
     if (!container) return;
     const target =
-      LEFT_COLUMN_WIDTH + todayIndex * DAY_WIDTH - container.clientWidth / 2;
+      leftColumnWidth + todayIndex * DAY_WIDTH - container.clientWidth / 2;
     window.requestAnimationFrame(() => {
-      container.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
+      container.scrollTo({ left: Math.max(0, target), behavior: scrollBehavior });
     });
     setPendingScrollToToday(false);
-  }, [open, pendingScrollToToday, todayIndex]);
+  }, [open, pendingScrollToToday, todayIndex, scrollBehavior]);
 
-  if (!open) return null;
+  // Render the modal always but hide it when not open to preserve state
+  // (activeSectionIds, sectionColorsById, clinician order, etc.)
+  if (!open) {
+    return null;
+  }
 
   return createPortal(
     <div className="fixed inset-0 z-40">
@@ -366,15 +532,15 @@ export default function VacationOverviewModal({
                   type="button"
                   onClick={() => setReferencePanelOpen((prev) => !prev)}
                   className={cx(
-                    "rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600",
-                    "hover:bg-slate-100 active:bg-slate-200",
-                    "dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800",
+                    "rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600",
+                    "hover:bg-slate-50 active:bg-slate-100",
+                    "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800",
                   )}
                 >
                   Reference bands
                 </button>
                 {referencePanelOpen ? (
-                  <div className="absolute right-0 top-full z-40 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                  <div className="absolute right-0 top-full z-[60] mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
                     <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Choose bands
                     </div>
@@ -391,10 +557,8 @@ export default function VacationOverviewModal({
                             )
                           }
                           className={cx(
-                            "flex flex-1 items-center gap-2 rounded-full border px-2 py-1 text-[11px] font-semibold",
-                            isVacationActive
-                              ? "border-slate-400 bg-slate-900 text-white dark:border-slate-600 dark:bg-slate-100 dark:text-slate-900"
-                              : "border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200",
+                            "flex flex-1 items-center gap-2",
+                            getPillToggleClasses(isVacationActive),
                           )}
                         >
                           <span
@@ -416,6 +580,41 @@ export default function VacationOverviewModal({
                           aria-label="Vacation color"
                         />
                       </div>
+                      {/* Rest Day band option */}
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActiveSectionIds((prev) =>
+                              prev.includes(REST_DAY_BAND_ID)
+                                ? prev.filter((id) => id !== REST_DAY_BAND_ID)
+                                : [...prev, REST_DAY_BAND_ID],
+                            )
+                          }
+                          className={cx(
+                            "flex flex-1 items-center gap-2",
+                            getPillToggleClasses(isRestDayActive),
+                          )}
+                        >
+                          <span
+                            className="h-3 w-3 rounded-full border border-slate-200"
+                            style={{ backgroundColor: restDayColor }}
+                          />
+                          Rest Day
+                        </button>
+                        <input
+                          type="color"
+                          value={restDayColor}
+                          onChange={(event) =>
+                            setSectionColorsById((prev) => ({
+                              ...prev,
+                              [REST_DAY_BAND_ID]: event.target.value,
+                            }))
+                          }
+                          className="h-7 w-7 cursor-pointer rounded border border-slate-200 bg-transparent"
+                          aria-label="Rest Day color"
+                        />
+                      </div>
                       {sections.map((section) => {
                         const isActive = activeSectionIds.includes(section.id);
                         const defaultColor = section.color ?? "#D9F0FF";
@@ -435,10 +634,8 @@ export default function VacationOverviewModal({
                                 )
                               }
                               className={cx(
-                                "flex flex-1 items-center gap-2 rounded-full border px-2 py-1 text-[11px] font-semibold",
-                                isActive
-                                  ? "border-slate-400 bg-slate-900 text-white dark:border-slate-600 dark:bg-slate-100 dark:text-slate-900"
-                                  : "border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200",
+                                "flex flex-1 items-center gap-2",
+                                getPillToggleClasses(isActive),
                               )}
                             >
                               <span
@@ -482,7 +679,7 @@ export default function VacationOverviewModal({
               >
                 Today
               </button>
-              <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+              <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                 <button
                   type="button"
                   onClick={() => setSelectedYear((prev) => prev - 1)}
@@ -514,12 +711,38 @@ export default function VacationOverviewModal({
           </div>
           <div className="min-h-0 flex-1 overflow-hidden">
             <div ref={scrollContainerRef} className="h-full overflow-auto">
-              <div className="relative min-w-max">
+              <div
+                ref={timelineRef}
+                className="relative min-w-max"
+                onMouseMove={handleTimelineMouseMove}
+                onMouseLeave={handleTimelineMouseLeave}
+              >
+                {/* Hover day column highlight */}
+                {typeof hoverDayIndex === "number" && (
+                  <div
+                    className="pointer-events-none absolute top-0 bottom-0 z-10 bg-slate-400/10 dark:bg-slate-500/10"
+                    style={{
+                      left: leftColumnWidth + hoverDayIndex * DAY_WIDTH,
+                      width: DAY_WIDTH,
+                    }}
+                  />
+                )}
+                {/* Hover cursor line */}
+                {typeof hoverDayIndex === "number" && (
+                  <div
+                    className="pointer-events-none absolute top-0 bottom-0 z-20"
+                    style={{
+                      left: leftColumnWidth + hoverDayIndex * DAY_WIDTH + DAY_WIDTH / 2,
+                    }}
+                  >
+                    <div className="h-full w-px bg-slate-400/60 dark:bg-slate-500/60" />
+                  </div>
+                )}
                 {typeof todayIndex === "number" ? (
                   <div
                     className="pointer-events-none absolute top-0 bottom-0 z-20"
                     style={{
-                      left: LEFT_COLUMN_WIDTH + todayIndex * DAY_WIDTH,
+                      left: leftColumnWidth + todayIndex * DAY_WIDTH,
                     }}
                   >
                     <div className="h-full w-px bg-rose-400/80" />
@@ -533,7 +756,7 @@ export default function VacationOverviewModal({
                   <div className="flex border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                     <div
                       className="sticky left-0 z-40 border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
-                      style={{ width: LEFT_COLUMN_WIDTH }}
+                      style={{ width: leftColumnWidth }}
                     />
                     <div className="relative flex" style={{ width: totalWidth }}>
                       {/* Year labels row - absolutely positioned above months */}
@@ -557,7 +780,7 @@ export default function VacationOverviewModal({
                             >
                               <div
                                 className="sticky flex items-center"
-                                style={{ left: LEFT_COLUMN_WIDTH + 8 }}
+                                style={{ left: leftColumnWidth + 8 }}
                               >
                                 <span className="rounded bg-white px-1 text-xs font-semibold text-slate-700 dark:bg-slate-900 dark:text-slate-100">
                                   {span.year}
@@ -584,7 +807,7 @@ export default function VacationOverviewModal({
                   <div className="flex border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                     <div
                       className="sticky left-0 z-40 border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
-                      style={{ width: LEFT_COLUMN_WIDTH }}
+                      style={{ width: leftColumnWidth }}
                     />
                     <div className="flex" style={{ width: totalWidth }}>
                       {monthSpans.map((month) => (
@@ -608,29 +831,45 @@ export default function VacationOverviewModal({
                   {clinicians.map((clinician) => {
                     const segments =
                       vacationSegmentsByClinician.get(clinician.id) ?? [];
+                    const restDaySegments =
+                      restDaySegmentsByClinician.get(clinician.id) ?? [];
                     const sectionSegments =
                       sectionSegmentsByClinician.get(clinician.id) ?? new Map();
-                    const bandCount = (isVacationActive ? 1 : 0) + activeSections.length;
+                    const bandCount = (isVacationActive ? 1 : 0) + (isRestDayActive ? 1 : 0) + activeSections.length;
                     const bandGap = 4;
                     const minRowHeight = 44; // Ensure clinician name is always visible
                     const calculatedHeight =
                       bandCount * BAR_HEIGHT + (bandCount - 1) * bandGap + 8;
                     const rowHeight = Math.max(minRowHeight, calculatedHeight);
+                    const isDragging = dragClinicianId === clinician.id;
+                    const isDragOver = dragOverClinicianId === clinician.id && dragClinicianId !== clinician.id;
                     return (
                       <div
                         key={clinician.id}
-                        className="flex border-b border-slate-300 dark:border-slate-700"
+                        className={cx(
+                          "flex border-b border-slate-300 dark:border-slate-700",
+                          isDragging && "opacity-50",
+                          isDragOver && "border-t-2 border-t-sky-500",
+                        )}
                       >
                         <div
-                          className="sticky left-0 z-50 flex flex-col justify-center border-r border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-                          style={{ width: LEFT_COLUMN_WIDTH, minWidth: LEFT_COLUMN_WIDTH, height: rowHeight }}
+                          draggable={Boolean(onReorderClinicians)}
+                          onDragStart={(e) => handleClinicianDragStart(e, clinician.id)}
+                          onDragOver={(e) => handleClinicianDragOver(e, clinician.id)}
+                          onDragEnd={handleClinicianDragEnd}
+                          onDrop={(e) => handleClinicianDrop(e, clinician.id)}
+                          className={cx(
+                            "sticky left-0 z-50 flex flex-col justify-center border-r border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200",
+                            onReorderClinicians && "cursor-grab active:cursor-grabbing",
+                          )}
+                          style={{ width: leftColumnWidth, minWidth: leftColumnWidth, height: rowHeight }}
                         >
                           <span className="block truncate">{clinician.name}</span>
                         </div>
                         <button
                           type="button"
                           onClick={() => onSelectClinician(clinician.id)}
-                          className="relative flex flex-shrink-0 flex-col justify-center gap-1 px-2"
+                          className="relative flex flex-shrink-0 flex-col justify-center gap-1"
                           style={{ width: totalWidth, height: rowHeight }}
                         >
                           {isVacationActive && (
@@ -641,12 +880,31 @@ export default function VacationOverviewModal({
                               {segments.map((segment) => (
                                 <div
                                   key={segment.id}
-                                  className="absolute top-0 rounded-full"
+                                  className="absolute top-0"
                                   style={{
                                     left: segment.left,
                                     width: segment.width,
                                     height: BAR_HEIGHT,
                                     backgroundColor: vacationColor,
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          )}
+                          {isRestDayActive && (
+                            <div
+                              className="relative w-full overflow-visible rounded-full bg-slate-200 dark:bg-slate-800"
+                              style={{ height: BAR_HEIGHT }}
+                            >
+                              {restDaySegments.map((segment) => (
+                                <div
+                                  key={segment.id}
+                                  className="absolute top-0"
+                                  style={{
+                                    left: segment.left,
+                                    width: segment.width,
+                                    height: BAR_HEIGHT,
+                                    backgroundColor: restDayColor,
                                   }}
                                 />
                               ))}
@@ -668,7 +926,7 @@ export default function VacationOverviewModal({
                                 {sectionSegmentRows.map((segment: { id: string; left: number; width: number }) => (
                                   <div
                                     key={segment.id}
-                                    className="absolute top-0 rounded-full"
+                                    className="absolute top-0"
                                     style={{
                                       left: segment.left,
                                       width: segment.width,
@@ -685,7 +943,7 @@ export default function VacationOverviewModal({
                         <div
                           className="pointer-events-none sticky z-40 flex flex-col justify-center gap-1"
                           style={{
-                            left: LEFT_COLUMN_WIDTH + 8,
+                            left: leftColumnWidth + 8,
                             width: 0,
                             height: rowHeight,
                             marginLeft: -totalWidth - 8,
@@ -698,6 +956,16 @@ export default function VacationOverviewModal({
                             >
                               <span className="whitespace-nowrap text-[11px] font-normal text-slate-600 dark:text-slate-300">
                                 Vacation
+                              </span>
+                            </div>
+                          )}
+                          {isRestDayActive && (
+                            <div
+                              className="flex items-center"
+                              style={{ height: BAR_HEIGHT }}
+                            >
+                              <span className="whitespace-nowrap text-[11px] font-normal text-slate-600 dark:text-slate-300">
+                                Rest Day
                               </span>
                             </div>
                           )}

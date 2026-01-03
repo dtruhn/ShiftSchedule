@@ -236,4 +236,144 @@ describe("buildRenderedAssignmentMap", () => {
     expect(poolAssignments).toBeDefined();
     expect(poolAssignments?.some((a) => a.clinicianId === "clin-1")).toBe(true);
   });
+
+  it("places clinician in rest day pool when on-call rest days are enabled", () => {
+    const clinicians = [makeClinicianWithVacation("clin-1")];
+    // Clinician is on-call on 2026-01-07
+    const assignmentMap = new Map<string, Assignment[]>([
+      ["slot-a__2026-01-07", [
+        { id: "a1", rowId: "slot-a", dateISO: "2026-01-07", clinicianId: "clin-1" },
+      ]],
+    ]);
+    // Display includes 2026-01-06 (day before) through 2026-01-08 (day after)
+    const displayDays = [
+      new Date("2026-01-06"),
+      new Date("2026-01-07"),
+      new Date("2026-01-08"),
+    ];
+
+    const result = buildRenderedAssignmentMap(assignmentMap, clinicians, displayDays, {
+      scheduleRows,
+      solverSettings: {
+        enforceSameLocationPerDay: false,
+        onCallRestEnabled: true,
+        onCallRestClassId: "mri",
+        onCallRestDaysBefore: 1,
+        onCallRestDaysAfter: 1,
+        workingHoursToleranceHours: 5,
+      },
+    });
+
+    // Day before (2026-01-06) should have rest day entry
+    const restDayBefore = result.get(`${REST_DAY_POOL_ID}__2026-01-06`);
+    expect(restDayBefore).toBeDefined();
+    expect(restDayBefore?.some((a) => a.clinicianId === "clin-1")).toBe(true);
+
+    // Day after (2026-01-08) should have rest day entry
+    const restDayAfter = result.get(`${REST_DAY_POOL_ID}__2026-01-08`);
+    expect(restDayAfter).toBeDefined();
+    expect(restDayAfter?.some((a) => a.clinicianId === "clin-1")).toBe(true);
+
+    // On-call day (2026-01-07) should NOT have rest day entry
+    const onCallDay = result.get(`${REST_DAY_POOL_ID}__2026-01-07`);
+    const hasRestOnCallDay = onCallDay?.some((a) => a.clinicianId === "clin-1") ?? false;
+    expect(hasRestOnCallDay).toBe(false);
+  });
+
+  it("uses slot row id correctly for on-call detection with template slots", () => {
+    // This simulates a template slot with a custom ID format (like slot-123)
+    const templateScheduleRows: ScheduleRow[] = [
+      {
+        id: "slot-xyz-123",  // Template slot ID
+        kind: "class",
+        name: "MRI",
+        dotColorClass: "bg-slate-200",
+        sectionId: "mri",  // Section ID that matches on-call config
+      },
+      {
+        id: "pool-rest-day",
+        kind: "pool",
+        name: "Rest Day",
+        dotColorClass: "bg-slate-200",
+      },
+    ];
+
+    const clinicians = [makeClinicianWithVacation("clin-1")];
+    // Clinician is assigned to the template slot
+    const assignmentMap = new Map<string, Assignment[]>([
+      ["slot-xyz-123__2026-01-07", [
+        { id: "a1", rowId: "slot-xyz-123", dateISO: "2026-01-07", clinicianId: "clin-1" },
+      ]],
+    ]);
+    const displayDays = [
+      new Date("2026-01-06"),
+      new Date("2026-01-07"),
+      new Date("2026-01-08"),
+    ];
+
+    const result = buildRenderedAssignmentMap(assignmentMap, clinicians, displayDays, {
+      scheduleRows: templateScheduleRows,
+      solverSettings: {
+        enforceSameLocationPerDay: false,
+        onCallRestEnabled: true,
+        onCallRestClassId: "mri",  // Matches sectionId of the slot
+        onCallRestDaysBefore: 1,
+        onCallRestDaysAfter: 1,
+        workingHoursToleranceHours: 5,
+      },
+    });
+
+    // Day before should have rest day entry
+    const restDayBefore = result.get(`${REST_DAY_POOL_ID}__2026-01-06`);
+    expect(restDayBefore).toBeDefined();
+    expect(restDayBefore?.some((a) => a.clinicianId === "clin-1")).toBe(true);
+
+    // Day after should have rest day entry
+    const restDayAfter = result.get(`${REST_DAY_POOL_ID}__2026-01-08`);
+    expect(restDayAfter).toBeDefined();
+    expect(restDayAfter?.some((a) => a.clinicianId === "clin-1")).toBe(true);
+  });
+
+  it("only shows rest days that fall within displayDays (edge of week)", () => {
+    // On-call on Monday 2026-01-05 (first day of week)
+    // Rest day BEFORE would be Sunday 2026-01-04 (not in displayDays)
+    // Rest day AFTER would be Tuesday 2026-01-06 (in displayDays)
+    const clinicians = [makeClinicianWithVacation("clin-1")];
+    const assignmentMap = new Map<string, Assignment[]>([
+      ["slot-a__2026-01-05", [
+        { id: "a1", rowId: "slot-a", dateISO: "2026-01-05", clinicianId: "clin-1" },
+      ]],
+    ]);
+    // Week Mon-Sun: 2026-01-05 through 2026-01-11 (Sunday 01-04 NOT included)
+    const displayDays = [
+      new Date("2026-01-05"),
+      new Date("2026-01-06"),
+      new Date("2026-01-07"),
+      new Date("2026-01-08"),
+      new Date("2026-01-09"),
+      new Date("2026-01-10"),
+      new Date("2026-01-11"),
+    ];
+
+    const result = buildRenderedAssignmentMap(assignmentMap, clinicians, displayDays, {
+      scheduleRows,
+      solverSettings: {
+        enforceSameLocationPerDay: false,
+        onCallRestEnabled: true,
+        onCallRestClassId: "mri",
+        onCallRestDaysBefore: 1,
+        onCallRestDaysAfter: 1,
+        workingHoursToleranceHours: 5,
+      },
+    });
+
+    // Day before (2026-01-04) is NOT in displayDays, so no rest day entry
+    const restDayBefore = result.get(`${REST_DAY_POOL_ID}__2026-01-04`);
+    expect(restDayBefore).toBeUndefined();
+
+    // Day after (2026-01-06) IS in displayDays, so should have rest day entry
+    const restDayAfter = result.get(`${REST_DAY_POOL_ID}__2026-01-06`);
+    expect(restDayAfter).toBeDefined();
+    expect(restDayAfter?.some((a) => a.clinicianId === "clin-1")).toBe(true);
+  });
 });

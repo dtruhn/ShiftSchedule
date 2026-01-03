@@ -157,6 +157,18 @@ Clinician Editor (modal)
 - Mandatory windows are hard solver constraints; preference windows add a small solver reward.
 - Week solver nudges total assigned minutes toward `workingHoursPerWeek` within the tolerance (manual assignments count toward totals).
 
+Working Hours Overview
+- Dashboard panel opens a full-screen modal showing yearly working hours for all clinicians.
+- Year selector with navigation buttons; "Today" button jumps to current year/week.
+- Each clinician shows: name, contract hours (e.g., "40h/w"), weekly hours worked, yearly total.
+- If contract hours are set, also shows: Expected (fractional for partial weeks), Difference, Cumulative.
+- Weeks span Jan 1 to Dec 31 with partial weeks at year boundaries (e.g., if Jan 1 is Thursday, first week has 4 days).
+- Expected hours for partial weeks are calculated as `expectedWeeklyHours * (daysInWeek / 7)`.
+- Color coding: emerald (within ±2h of expected), amber (under by >2h), rose (over by >2h).
+- Pool assignments (rest day, vacation) do not count toward working hours.
+- Slot duration comes from the weekly template; defaults to 8 hours if not set.
+- Current week is highlighted with sky-blue background; sticky header + Total column.
+
 Holidays
 - Year selector with stepper buttons.
 - Country picker with flag emoji (top EU countries + CH, LU), alphabetical.
@@ -645,7 +657,8 @@ Frontend
 - `src/components/schedule/ClinicianPickerPopover.tsx` (open slot click → clinician selection)
 - `src/components/schedule/RowLabel.tsx`
 - `src/components/schedule/AssignmentPill.tsx`
-- `src/components/schedule/VacationOverviewModal.tsx`
+- `src/components/schedule/VacationOverviewModal.tsx` (vacation planner, scrolls to today on open)
+- `src/components/schedule/WorkingHoursOverviewModal.tsx` (yearly working hours overview for all clinicians)
 - `src/api/client.ts`
 - `src/lib/shiftRows.ts` (weeklyTemplate normalization, colBand safeguards, legacy shiftRowId helpers)
 - `src/lib/schedule.ts` (rendered assignment map, time intervals, Rest Day pool logic)
