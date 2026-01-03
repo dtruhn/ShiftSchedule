@@ -544,6 +544,27 @@ Behavior
   - Wave multiplier is calculated as `total_available_clinicians // total_base_required`.
   - Ensures proportional distribution across slots instead of piling all extras into high-priority slots.
 
+Performance optimizations:
+- Constraint building uses O(n) date-based grouping instead of O(n²) pairwise comparisons.
+- Lookup tables: `vars_by_clinician_date`, `vars_by_date_slot`, `manual_count_by_date_slot`.
+- Model build time ~25s for 100+ day ranges (down from ~100s before optimization).
+
+Timeouts:
+- ≤14 days: 60s
+- 15-60 days: 300s
+- >60 days: 1800s (30 minutes)
+
+Week-by-week fallback:
+- If full-range solver fails for >14 day ranges, automatically retries solving each week individually.
+- Each week uses 60s timeout.
+- Returns partial results if some weeks succeed and others fail.
+- Notes include timing info for each week solved.
+
+Solver notice panel (frontend):
+- Displays timing info (build + solve time) on success and failure.
+- Stays open until user clicks to dismiss (click backdrop or X button).
+- Centered modal with scrollable content for long diagnostics.
+
 ---
 
 ## 7) Backend State + Persistence
