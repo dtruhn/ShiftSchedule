@@ -17,7 +17,7 @@ from .models import (
     UserStateExport,
     UserUpdateRequest,
 )
-from .state import _load_state, _parse_import_state, _save_state
+from .state import _default_state, _load_state, _parse_import_state, _save_state
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret")
 JWT_ALGORITHM = "HS256"
@@ -270,8 +270,9 @@ def create_user(
         raise HTTPException(status_code=400, detail="Invalid import state.")
     created = _create_user(username, payload.password, payload.role, active=True)
     if import_state is None:
-        template_state = _load_state(current_user.username)
-        _save_state(template_state, username)
+        # Use default state for new users (not admin's state)
+        default_state = _default_state()
+        _save_state(default_state, username)
     else:
         _save_state(import_state, username)
     return created

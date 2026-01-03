@@ -1,0 +1,982 @@
+{
+  "locations": [
+    {
+      "id": "loc-default",
+      "name": "Berlin"
+    }
+  ],
+  "locationsEnabled": true,
+  "rows": [
+    {
+      "id": "class-mjyhorw0",
+      "name": "On Call",
+      "kind": "class",
+      "dotColorClass": "bg-violet-500",
+      "blockColor": "#FFD9C9",
+      "locationId": "loc-default",
+      "subShifts": [
+        {
+          "id": "s1",
+          "name": "Shift 1",
+          "order": 1,
+          "startTime": "08:00",
+          "endTime": "16:00",
+          "endDayOffset": 0,
+          "hours": null
+        }
+      ]
+    },
+    {
+      "id": "class-mjyhp8wj",
+      "name": "MRI",
+      "kind": "class",
+      "dotColorClass": "bg-cyan-500",
+      "blockColor": "#FFD9C9",
+      "locationId": "loc-default",
+      "subShifts": [
+        {
+          "id": "s1",
+          "name": "Shift 1",
+          "order": 1,
+          "startTime": "08:00",
+          "endTime": "16:00",
+          "endDayOffset": 0,
+          "hours": null
+        }
+      ]
+    },
+    {
+      "id": "class-mjyhpbq7",
+      "name": "CT",
+      "kind": "class",
+      "dotColorClass": "bg-fuchsia-500",
+      "blockColor": "#FFE8D6",
+      "locationId": "loc-default",
+      "subShifts": [
+        {
+          "id": "s1",
+          "name": "Shift 1",
+          "order": 1,
+          "startTime": "08:00",
+          "endTime": "16:00",
+          "endDayOffset": 0,
+          "hours": null
+        }
+      ]
+    },
+    {
+      "id": "class-mjyhpgvt",
+      "name": "Sonography",
+      "kind": "class",
+      "dotColorClass": "bg-amber-400",
+      "blockColor": "#FFEFD1",
+      "locationId": "loc-default",
+      "subShifts": [
+        {
+          "id": "s1",
+          "name": "Shift 1",
+          "order": 1,
+          "startTime": "08:00",
+          "endTime": "16:00",
+          "endDayOffset": 0,
+          "hours": null
+        }
+      ]
+    },
+    {
+      "id": "class-mjyhq2a0",
+      "name": "MRI Neuro",
+      "kind": "class",
+      "dotColorClass": "bg-blue-600",
+      "blockColor": "#FFF4C1",
+      "locationId": "loc-default",
+      "subShifts": [
+        {
+          "id": "s1",
+          "name": "Shift 1",
+          "order": 1,
+          "startTime": "08:00",
+          "endTime": "16:00",
+          "endDayOffset": 0,
+          "hours": null
+        }
+      ]
+    },
+    {
+      "id": "class-mjyhq91o",
+      "name": "CT Neuro",
+      "kind": "class",
+      "dotColorClass": "bg-rose-500",
+      "blockColor": "#EEF6C8",
+      "locationId": "loc-default",
+      "subShifts": [
+        {
+          "id": "s1",
+          "name": "Shift 1",
+          "order": 1,
+          "startTime": "08:00",
+          "endTime": "16:00",
+          "endDayOffset": 0,
+          "hours": null
+        }
+      ]
+    },
+    {
+      "id": "pool-rest-day",
+      "name": "Rest Day",
+      "kind": "pool",
+      "dotColorClass": "bg-slate-200",
+      "blockColor": null,
+      "locationId": null,
+      "subShifts": []
+    },
+    {
+      "id": "pool-vacation",
+      "name": "Vacation",
+      "kind": "pool",
+      "dotColorClass": "bg-emerald-500",
+      "blockColor": null,
+      "locationId": null,
+      "subShifts": []
+    }
+  ],
+  "clinicians": [
+    {
+      "id": "alex-hartmann",
+      "name": "Galileo Galilei",
+      "qualifiedClassIds": [
+        "class-mjyhorw0",
+        "class-mjyhp8wj",
+        "class-mjyhpbq7",
+        "class-mjyhpgvt",
+        "class-mjyhq2a0",
+        "class-mjyhq91o"
+      ],
+      "preferredClassIds": [
+        "class-mjyhorw0",
+        "class-mjyhp8wj",
+        "class-mjyhpbq7",
+        "class-mjyhpgvt",
+        "class-mjyhq2a0",
+        "class-mjyhq91o"
+      ],
+      "vacations": [],
+      "preferredWorkingTimes": {
+        "mon": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        },
+        "tue": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        },
+        "wed": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        },
+        "thu": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        },
+        "fri": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        },
+        "sat": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        },
+        "sun": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        }
+      },
+      "workingHoursPerWeek": 40.0,
+      "workingHoursToleranceHours": 5
+    },
+    {
+      "id": "clin-leonardo-davinci-mjyhx959",
+      "name": "Leonardo DaVinci",
+      "qualifiedClassIds": [
+        "class-mjyhorw0",
+        "class-mjyhp8wj",
+        "class-mjyhpbq7",
+        "class-mjyhq2a0",
+        "class-mjyhq91o"
+      ],
+      "preferredClassIds": [
+        "class-mjyhorw0",
+        "class-mjyhp8wj",
+        "class-mjyhpbq7",
+        "class-mjyhq2a0",
+        "class-mjyhq91o"
+      ],
+      "vacations": [],
+      "preferredWorkingTimes": {
+        "mon": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        },
+        "tue": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        },
+        "wed": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        },
+        "thu": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        },
+        "fri": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        },
+        "sat": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        },
+        "sun": {
+          "startTime": "07:00",
+          "endTime": "17:00",
+          "requirement": "none"
+        }
+      },
+      "workingHoursPerWeek": 40.0,
+      "workingHoursToleranceHours": 5
+    }
+  ],
+  "assignments": [],
+  "minSlotsByRowId": {
+    "class-mjyhorw0::s1": {
+      "weekday": 1,
+      "weekend": 1
+    },
+    "class-mjyhp8wj::s1": {
+      "weekday": 1,
+      "weekend": 1
+    },
+    "class-mjyhpbq7::s1": {
+      "weekday": 1,
+      "weekend": 1
+    },
+    "class-mjyhpgvt::s1": {
+      "weekday": 1,
+      "weekend": 1
+    },
+    "class-mjyhq2a0::s1": {
+      "weekday": 1,
+      "weekend": 1
+    },
+    "class-mjyhq91o::s1": {
+      "weekday": 1,
+      "weekend": 1
+    }
+  },
+  "slotOverridesByKey": {},
+  "weeklyTemplate": {
+    "version": 4,
+    "blocks": [
+      {
+        "id": "block-0386f1d4-c8e9-48fc-8daf-4c341d19fe2f",
+        "sectionId": "class-mjyhorw0",
+        "label": "",
+        "requiredSlots": 0,
+        "color": "#FFD9C9"
+      },
+      {
+        "id": "block-72f15858-9d07-4412-8dac-fb30dc3d1e4c",
+        "sectionId": "class-mjyhpbq7",
+        "label": "",
+        "requiredSlots": 0,
+        "color": "#FFE8D6"
+      },
+      {
+        "id": "block-fcf414eb-34a1-421d-81d9-a298b2d394b2",
+        "sectionId": "class-mjyhq91o",
+        "label": "",
+        "requiredSlots": 0,
+        "color": "#EEF6C8"
+      },
+      {
+        "id": "block-d6fd71c5-2ae7-45bb-9e37-9929da9813ee",
+        "sectionId": "class-mjyhp8wj",
+        "label": "",
+        "requiredSlots": 0,
+        "color": "#FFD9C9"
+      },
+      {
+        "id": "block-055fcb61-a153-4ec2-b850-28d290f84180",
+        "sectionId": "class-mjyhq2a0",
+        "label": "",
+        "requiredSlots": 0,
+        "color": "#FFF4C1"
+      },
+      {
+        "id": "block-60088b27-51e0-4f58-a5a1-25e84ffd6c0e",
+        "sectionId": "class-mjyhpgvt",
+        "label": "",
+        "requiredSlots": 0,
+        "color": "#FFEFD1"
+      }
+    ],
+    "locations": [
+      {
+        "locationId": "loc-default",
+        "rowBands": [
+          {
+            "id": "row-2af42bbd-cddb-4524-8eb7-fb26b3a600de",
+            "order": 1,
+            "label": "MRI"
+          },
+          {
+            "id": "row-556c32ba-2140-47ae-9d0d-a06824e4f378",
+            "order": 2,
+            "label": "CT"
+          },
+          {
+            "id": "row-d03ebabe-1ca1-4dd0-9d5e-9af9abc0314e",
+            "order": 3,
+            "label": "Sonography"
+          },
+          {
+            "id": "row-e5c696be-6621-474c-beda-7cbc1aeb8005",
+            "order": 4,
+            "label": "On call"
+          }
+        ],
+        "colBands": [
+          {
+            "id": "loc-default-col-mon-1",
+            "label": "",
+            "order": 1,
+            "dayType": "mon"
+          },
+          {
+            "id": "col-01ac06df-27a0-46f7-804a-313441ce8c3c",
+            "label": "",
+            "order": 2,
+            "dayType": "mon"
+          },
+          {
+            "id": "col-4729ed2c-30b4-43ff-bc0a-1ddce4b9fb36",
+            "label": "",
+            "order": 3,
+            "dayType": "mon"
+          },
+          {
+            "id": "col-e3ce15b2-aacc-4953-833f-ae3eb8068748",
+            "label": "",
+            "order": 1,
+            "dayType": "tue"
+          },
+          {
+            "id": "col-fa6d4c10-2b97-4bb4-8a17-cc965df8ad13",
+            "label": "",
+            "order": 2,
+            "dayType": "tue"
+          },
+          {
+            "id": "col-2e307f5a-89be-4d84-b40f-efcac8cf3a7a",
+            "label": "",
+            "order": 3,
+            "dayType": "tue"
+          },
+          {
+            "id": "col-89bded9f-56a5-41c3-b5f0-9f389bf385a1",
+            "label": "",
+            "order": 1,
+            "dayType": "wed"
+          },
+          {
+            "id": "col-14e1ed5e-e08d-4f40-832d-a084ce619b3f",
+            "label": "",
+            "order": 2,
+            "dayType": "wed"
+          },
+          {
+            "id": "col-0a1c4944-333a-46ae-8f8c-de8bce09d019",
+            "label": "",
+            "order": 3,
+            "dayType": "wed"
+          },
+          {
+            "id": "col-74e2369e-97a7-4264-995c-251a62568de4",
+            "label": "",
+            "order": 1,
+            "dayType": "thu"
+          },
+          {
+            "id": "col-478ec573-979b-45de-bdd2-7840ff607ae1",
+            "label": "",
+            "order": 2,
+            "dayType": "thu"
+          },
+          {
+            "id": "col-eeff5a4c-0f0d-4eb5-bb4f-e13d22bfeebe",
+            "label": "",
+            "order": 3,
+            "dayType": "thu"
+          },
+          {
+            "id": "col-e7844668-0f75-4701-a09e-1cbc9d43b74d",
+            "label": "",
+            "order": 1,
+            "dayType": "fri"
+          },
+          {
+            "id": "col-76c960ca-cc2d-42da-92b1-01db13c128c2",
+            "label": "",
+            "order": 2,
+            "dayType": "fri"
+          },
+          {
+            "id": "col-44684be1-0845-4b57-9bf8-4f29c9a33456",
+            "label": "",
+            "order": 3,
+            "dayType": "fri"
+          },
+          {
+            "id": "loc-default-col-sat-1",
+            "label": "",
+            "order": 1,
+            "dayType": "sat"
+          },
+          {
+            "id": "col-d85d3048-589e-4d3b-9453-33ab87a4e338",
+            "label": "",
+            "order": 2,
+            "dayType": "sat"
+          },
+          {
+            "id": "col-7aece3de-3281-43a1-9a28-6c2fc1462eb0",
+            "label": "",
+            "order": 1,
+            "dayType": "sun"
+          },
+          {
+            "id": "col-abd990f1-72a2-4ee8-ab36-dce281aeceae",
+            "label": "",
+            "order": 2,
+            "dayType": "sun"
+          },
+          {
+            "id": "col-1c61d0c3-edc1-43a1-b5fc-749e7489afee",
+            "label": "",
+            "order": 1,
+            "dayType": "holiday"
+          },
+          {
+            "id": "col-1537409e-3cf8-493a-bbe7-2d7bf808e10a",
+            "label": "",
+            "order": 2,
+            "dayType": "holiday"
+          }
+        ],
+        "slots": [
+          {
+            "id": "slot-f5d6e25c-f2b1-4459-94bc-53f2bb2ecdad",
+            "locationId": "loc-default",
+            "rowBandId": "row-556c32ba-2140-47ae-9d0d-a06824e4f378",
+            "colBandId": "loc-default-col-mon-1",
+            "blockId": "block-72f15858-9d07-4412-8dac-fb30dc3d1e4c",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-d832fb74-b59b-4826-b951-713832899dc2",
+            "locationId": "loc-default",
+            "rowBandId": "row-556c32ba-2140-47ae-9d0d-a06824e4f378",
+            "colBandId": "col-01ac06df-27a0-46f7-804a-313441ce8c3c",
+            "blockId": "block-fcf414eb-34a1-421d-81d9-a298b2d394b2",
+            "requiredSlots": 1,
+            "startTime": "12:00",
+            "endTime": "16:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-f099c76a-2ef9-445c-8a93-579328f6cfbc",
+            "locationId": "loc-default",
+            "rowBandId": "row-2af42bbd-cddb-4524-8eb7-fb26b3a600de",
+            "colBandId": "loc-default-col-mon-1",
+            "blockId": "block-d6fd71c5-2ae7-45bb-9e37-9929da9813ee",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-b387f976-da82-4a04-bf27-6679c2c36fea",
+            "locationId": "loc-default",
+            "rowBandId": "row-d03ebabe-1ca1-4dd0-9d5e-9af9abc0314e",
+            "colBandId": "loc-default-col-mon-1",
+            "blockId": "block-60088b27-51e0-4f58-a5a1-25e84ffd6c0e",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-7cfe4a1f-2c48-4f8d-9487-49b116a06d1b",
+            "locationId": "loc-default",
+            "rowBandId": "row-e5c696be-6621-474c-beda-7cbc1aeb8005",
+            "colBandId": "col-4729ed2c-30b4-43ff-bc0a-1ddce4b9fb36",
+            "blockId": "block-0386f1d4-c8e9-48fc-8daf-4c341d19fe2f",
+            "requiredSlots": 1,
+            "startTime": "16:00",
+            "endTime": "08:00",
+            "endDayOffset": 1
+          },
+          {
+            "id": "slot-c31692ef-a48c-4a5c-b795-4c1d17b063af",
+            "locationId": "loc-default",
+            "rowBandId": "row-2af42bbd-cddb-4524-8eb7-fb26b3a600de",
+            "colBandId": "col-01ac06df-27a0-46f7-804a-313441ce8c3c",
+            "blockId": "block-055fcb61-a153-4ec2-b850-28d290f84180",
+            "requiredSlots": 1,
+            "startTime": "12:00",
+            "endTime": "16:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-4fbe3962-3e18-4644-a533-b773465da4b3",
+            "locationId": "loc-default",
+            "rowBandId": "row-556c32ba-2140-47ae-9d0d-a06824e4f378",
+            "colBandId": "col-e3ce15b2-aacc-4953-833f-ae3eb8068748",
+            "blockId": "block-72f15858-9d07-4412-8dac-fb30dc3d1e4c",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-091bfc72-864c-45aa-9dee-db31b6b68203",
+            "locationId": "loc-default",
+            "rowBandId": "row-556c32ba-2140-47ae-9d0d-a06824e4f378",
+            "colBandId": "col-fa6d4c10-2b97-4bb4-8a17-cc965df8ad13",
+            "blockId": "block-fcf414eb-34a1-421d-81d9-a298b2d394b2",
+            "requiredSlots": 1,
+            "startTime": "12:00",
+            "endTime": "16:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-e3177693-1511-4da2-81e7-42b0a75155aa",
+            "locationId": "loc-default",
+            "rowBandId": "row-2af42bbd-cddb-4524-8eb7-fb26b3a600de",
+            "colBandId": "col-e3ce15b2-aacc-4953-833f-ae3eb8068748",
+            "blockId": "block-d6fd71c5-2ae7-45bb-9e37-9929da9813ee",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-77c3fbd8-5487-4fdd-838f-fc786be814df",
+            "locationId": "loc-default",
+            "rowBandId": "row-d03ebabe-1ca1-4dd0-9d5e-9af9abc0314e",
+            "colBandId": "col-e3ce15b2-aacc-4953-833f-ae3eb8068748",
+            "blockId": "block-60088b27-51e0-4f58-a5a1-25e84ffd6c0e",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-89d9e686-a055-4c7f-9b9c-c56e570e141d",
+            "locationId": "loc-default",
+            "rowBandId": "row-e5c696be-6621-474c-beda-7cbc1aeb8005",
+            "colBandId": "col-2e307f5a-89be-4d84-b40f-efcac8cf3a7a",
+            "blockId": "block-0386f1d4-c8e9-48fc-8daf-4c341d19fe2f",
+            "requiredSlots": 1,
+            "startTime": "16:00",
+            "endTime": "08:00",
+            "endDayOffset": 1
+          },
+          {
+            "id": "slot-88973fb9-bdb5-412a-a9c0-645a77b4a8ce",
+            "locationId": "loc-default",
+            "rowBandId": "row-2af42bbd-cddb-4524-8eb7-fb26b3a600de",
+            "colBandId": "col-fa6d4c10-2b97-4bb4-8a17-cc965df8ad13",
+            "blockId": "block-055fcb61-a153-4ec2-b850-28d290f84180",
+            "requiredSlots": 1,
+            "startTime": "12:00",
+            "endTime": "16:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-762766f9-4e1e-4fdf-8b9e-2540e3f5ccd1",
+            "locationId": "loc-default",
+            "rowBandId": "row-556c32ba-2140-47ae-9d0d-a06824e4f378",
+            "colBandId": "col-89bded9f-56a5-41c3-b5f0-9f389bf385a1",
+            "blockId": "block-72f15858-9d07-4412-8dac-fb30dc3d1e4c",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-ed7ccc7e-69c6-4e16-b126-d0566b6b8a6f",
+            "locationId": "loc-default",
+            "rowBandId": "row-556c32ba-2140-47ae-9d0d-a06824e4f378",
+            "colBandId": "col-14e1ed5e-e08d-4f40-832d-a084ce619b3f",
+            "blockId": "block-fcf414eb-34a1-421d-81d9-a298b2d394b2",
+            "requiredSlots": 1,
+            "startTime": "12:00",
+            "endTime": "16:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-90688608-6d61-49a4-b865-797eadffbdb3",
+            "locationId": "loc-default",
+            "rowBandId": "row-2af42bbd-cddb-4524-8eb7-fb26b3a600de",
+            "colBandId": "col-89bded9f-56a5-41c3-b5f0-9f389bf385a1",
+            "blockId": "block-d6fd71c5-2ae7-45bb-9e37-9929da9813ee",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-f02a57b6-c11b-4c3f-b907-e56c43a5dc09",
+            "locationId": "loc-default",
+            "rowBandId": "row-d03ebabe-1ca1-4dd0-9d5e-9af9abc0314e",
+            "colBandId": "col-89bded9f-56a5-41c3-b5f0-9f389bf385a1",
+            "blockId": "block-60088b27-51e0-4f58-a5a1-25e84ffd6c0e",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-97526f22-fcfa-46bf-b2f9-ca08e633078d",
+            "locationId": "loc-default",
+            "rowBandId": "row-e5c696be-6621-474c-beda-7cbc1aeb8005",
+            "colBandId": "col-0a1c4944-333a-46ae-8f8c-de8bce09d019",
+            "blockId": "block-0386f1d4-c8e9-48fc-8daf-4c341d19fe2f",
+            "requiredSlots": 1,
+            "startTime": "16:00",
+            "endTime": "08:00",
+            "endDayOffset": 1
+          },
+          {
+            "id": "slot-b7565bb0-c321-4e57-8fe3-dbd21934b23b",
+            "locationId": "loc-default",
+            "rowBandId": "row-2af42bbd-cddb-4524-8eb7-fb26b3a600de",
+            "colBandId": "col-14e1ed5e-e08d-4f40-832d-a084ce619b3f",
+            "blockId": "block-055fcb61-a153-4ec2-b850-28d290f84180",
+            "requiredSlots": 1,
+            "startTime": "12:00",
+            "endTime": "16:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-8ea87c35-f645-4a7b-82bf-53520048e2f5",
+            "locationId": "loc-default",
+            "rowBandId": "row-556c32ba-2140-47ae-9d0d-a06824e4f378",
+            "colBandId": "col-e7844668-0f75-4701-a09e-1cbc9d43b74d",
+            "blockId": "block-72f15858-9d07-4412-8dac-fb30dc3d1e4c",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-4f0b6034-0c3d-4ab8-9000-3fe6c6c961ff",
+            "locationId": "loc-default",
+            "rowBandId": "row-556c32ba-2140-47ae-9d0d-a06824e4f378",
+            "colBandId": "col-76c960ca-cc2d-42da-92b1-01db13c128c2",
+            "blockId": "block-fcf414eb-34a1-421d-81d9-a298b2d394b2",
+            "requiredSlots": 1,
+            "startTime": "12:00",
+            "endTime": "16:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-33002a67-b887-4b64-9c78-aba629d2ab9e",
+            "locationId": "loc-default",
+            "rowBandId": "row-2af42bbd-cddb-4524-8eb7-fb26b3a600de",
+            "colBandId": "col-e7844668-0f75-4701-a09e-1cbc9d43b74d",
+            "blockId": "block-d6fd71c5-2ae7-45bb-9e37-9929da9813ee",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-21807ce2-5038-45a6-9f73-fdef6c38a334",
+            "locationId": "loc-default",
+            "rowBandId": "row-d03ebabe-1ca1-4dd0-9d5e-9af9abc0314e",
+            "colBandId": "col-e7844668-0f75-4701-a09e-1cbc9d43b74d",
+            "blockId": "block-60088b27-51e0-4f58-a5a1-25e84ffd6c0e",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-5bc113eb-7589-4f80-98ae-89e6dab25876",
+            "locationId": "loc-default",
+            "rowBandId": "row-e5c696be-6621-474c-beda-7cbc1aeb8005",
+            "colBandId": "col-44684be1-0845-4b57-9bf8-4f29c9a33456",
+            "blockId": "block-0386f1d4-c8e9-48fc-8daf-4c341d19fe2f",
+            "requiredSlots": 1,
+            "startTime": "16:00",
+            "endTime": "08:00",
+            "endDayOffset": 1
+          },
+          {
+            "id": "slot-07afca42-49dc-4d7c-a849-73a48401e49c",
+            "locationId": "loc-default",
+            "rowBandId": "row-2af42bbd-cddb-4524-8eb7-fb26b3a600de",
+            "colBandId": "col-76c960ca-cc2d-42da-92b1-01db13c128c2",
+            "blockId": "block-055fcb61-a153-4ec2-b850-28d290f84180",
+            "requiredSlots": 1,
+            "startTime": "12:00",
+            "endTime": "16:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-528e277f-e08a-4c71-87be-392d1cabaa74",
+            "locationId": "loc-default",
+            "rowBandId": "row-556c32ba-2140-47ae-9d0d-a06824e4f378",
+            "colBandId": "col-74e2369e-97a7-4264-995c-251a62568de4",
+            "blockId": "block-72f15858-9d07-4412-8dac-fb30dc3d1e4c",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-3ba07fdf-7cc6-4c09-9ec2-d01f7f02b833",
+            "locationId": "loc-default",
+            "rowBandId": "row-556c32ba-2140-47ae-9d0d-a06824e4f378",
+            "colBandId": "col-478ec573-979b-45de-bdd2-7840ff607ae1",
+            "blockId": "block-fcf414eb-34a1-421d-81d9-a298b2d394b2",
+            "requiredSlots": 1,
+            "startTime": "12:00",
+            "endTime": "16:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-27095c91-b743-452a-8422-63d9d164d097",
+            "locationId": "loc-default",
+            "rowBandId": "row-2af42bbd-cddb-4524-8eb7-fb26b3a600de",
+            "colBandId": "col-74e2369e-97a7-4264-995c-251a62568de4",
+            "blockId": "block-d6fd71c5-2ae7-45bb-9e37-9929da9813ee",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-0dcfedef-7f4b-4023-a000-a68188b32882",
+            "locationId": "loc-default",
+            "rowBandId": "row-d03ebabe-1ca1-4dd0-9d5e-9af9abc0314e",
+            "colBandId": "col-74e2369e-97a7-4264-995c-251a62568de4",
+            "blockId": "block-60088b27-51e0-4f58-a5a1-25e84ffd6c0e",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "12:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-07c8eae1-0ad2-40f3-846f-1ca72496b5d0",
+            "locationId": "loc-default",
+            "rowBandId": "row-e5c696be-6621-474c-beda-7cbc1aeb8005",
+            "colBandId": "col-eeff5a4c-0f0d-4eb5-bb4f-e13d22bfeebe",
+            "blockId": "block-0386f1d4-c8e9-48fc-8daf-4c341d19fe2f",
+            "requiredSlots": 1,
+            "startTime": "16:00",
+            "endTime": "08:00",
+            "endDayOffset": 1
+          },
+          {
+            "id": "slot-e29464c1-dbfc-41fd-affa-c030aaae1e69",
+            "locationId": "loc-default",
+            "rowBandId": "row-2af42bbd-cddb-4524-8eb7-fb26b3a600de",
+            "colBandId": "col-478ec573-979b-45de-bdd2-7840ff607ae1",
+            "blockId": "block-055fcb61-a153-4ec2-b850-28d290f84180",
+            "requiredSlots": 1,
+            "startTime": "12:00",
+            "endTime": "16:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-d0521ca0-932c-4e40-a6b8-9d24014f4b97",
+            "locationId": "loc-default",
+            "rowBandId": "row-e5c696be-6621-474c-beda-7cbc1aeb8005",
+            "colBandId": "col-d85d3048-589e-4d3b-9453-33ab87a4e338",
+            "blockId": "block-0386f1d4-c8e9-48fc-8daf-4c341d19fe2f",
+            "requiredSlots": 1,
+            "startTime": "20:00",
+            "endTime": "08:00",
+            "endDayOffset": 1
+          },
+          {
+            "id": "slot-6193ca55-60f5-46af-b999-07b43a7eef51",
+            "locationId": "loc-default",
+            "rowBandId": "row-e5c696be-6621-474c-beda-7cbc1aeb8005",
+            "colBandId": "loc-default-col-sat-1",
+            "blockId": "block-0386f1d4-c8e9-48fc-8daf-4c341d19fe2f",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "20:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-cecaceb9-5da9-4190-a535-c175ff4f6e8a",
+            "locationId": "loc-default",
+            "rowBandId": "row-e5c696be-6621-474c-beda-7cbc1aeb8005",
+            "colBandId": "col-abd990f1-72a2-4ee8-ab36-dce281aeceae",
+            "blockId": "block-0386f1d4-c8e9-48fc-8daf-4c341d19fe2f",
+            "requiredSlots": 1,
+            "startTime": "20:00",
+            "endTime": "08:00",
+            "endDayOffset": 1
+          },
+          {
+            "id": "slot-573b230d-1074-49f0-b1c9-d42aa421dcde",
+            "locationId": "loc-default",
+            "rowBandId": "row-e5c696be-6621-474c-beda-7cbc1aeb8005",
+            "colBandId": "col-7aece3de-3281-43a1-9a28-6c2fc1462eb0",
+            "blockId": "block-0386f1d4-c8e9-48fc-8daf-4c341d19fe2f",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "20:00",
+            "endDayOffset": 0
+          },
+          {
+            "id": "slot-c34ea56c-f2da-48f9-bd11-fd4a0fc8ec12",
+            "locationId": "loc-default",
+            "rowBandId": "row-e5c696be-6621-474c-beda-7cbc1aeb8005",
+            "colBandId": "col-1537409e-3cf8-493a-bbe7-2d7bf808e10a",
+            "blockId": "block-0386f1d4-c8e9-48fc-8daf-4c341d19fe2f",
+            "requiredSlots": 1,
+            "startTime": "20:00",
+            "endTime": "08:00",
+            "endDayOffset": 1
+          },
+          {
+            "id": "slot-b790ae7e-9254-4986-8056-085d54e8679f",
+            "locationId": "loc-default",
+            "rowBandId": "row-e5c696be-6621-474c-beda-7cbc1aeb8005",
+            "colBandId": "col-1c61d0c3-edc1-43a1-b5fc-749e7489afee",
+            "blockId": "block-0386f1d4-c8e9-48fc-8daf-4c341d19fe2f",
+            "requiredSlots": 1,
+            "startTime": "08:00",
+            "endTime": "20:00",
+            "endDayOffset": 0
+          }
+        ]
+      }
+    ]
+  },
+  "holidayCountry": "DE",
+  "holidayYear": 2026,
+  "holidays": [
+    {
+      "dateISO": "2026-01-01",
+      "name": "Neujahr"
+    },
+    {
+      "dateISO": "2026-01-06",
+      "name": "Heilige Drei Könige"
+    },
+    {
+      "dateISO": "2026-03-08",
+      "name": "Internationaler Frauentag"
+    },
+    {
+      "dateISO": "2026-04-03",
+      "name": "Karfreitag"
+    },
+    {
+      "dateISO": "2026-04-05",
+      "name": "Ostersonntag"
+    },
+    {
+      "dateISO": "2026-04-06",
+      "name": "Ostermontag"
+    },
+    {
+      "dateISO": "2026-05-01",
+      "name": "Tag der Arbeit"
+    },
+    {
+      "dateISO": "2026-05-14",
+      "name": "Christi Himmelfahrt"
+    },
+    {
+      "dateISO": "2026-05-24",
+      "name": "Pfingstsonntag"
+    },
+    {
+      "dateISO": "2026-05-25",
+      "name": "Pfingstmontag"
+    },
+    {
+      "dateISO": "2026-06-04",
+      "name": "Fronleichnam"
+    },
+    {
+      "dateISO": "2026-08-15",
+      "name": "Mariä Himmelfahrt"
+    },
+    {
+      "dateISO": "2026-09-20",
+      "name": "Weltkindertag"
+    },
+    {
+      "dateISO": "2026-10-03",
+      "name": "Tag der Deutschen Einheit"
+    },
+    {
+      "dateISO": "2026-10-31",
+      "name": "Reformationstag"
+    },
+    {
+      "dateISO": "2026-11-01",
+      "name": "Allerheiligen"
+    },
+    {
+      "dateISO": "2026-11-18",
+      "name": "Buß- und Bettag"
+    },
+    {
+      "dateISO": "2026-12-25",
+      "name": "Erster Weihnachtstag"
+    },
+    {
+      "dateISO": "2026-12-26",
+      "name": "Zweiter Weihnachtstag"
+    }
+  ],
+  "publishedWeekStartISOs": [],
+  "solverSettings": {
+    "enforceSameLocationPerDay": true,
+    "onCallRestEnabled": true,
+    "onCallRestClassId": "class-mjyhorw0",
+    "onCallRestDaysBefore": 1,
+    "onCallRestDaysAfter": 1,
+    "preferContinuousShifts": true,
+    "workingHoursToleranceHours": 5
+  },
+  "solverRules": []
+}

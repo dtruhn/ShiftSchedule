@@ -583,10 +583,16 @@ State normalization on load
 - Ensures the Rest Day pool exists (pool-rest-day), inserted after Reserve Pool.
 
 Default state (clean database)
-- A fresh database starts with a truly empty state: no row bands, no sections, no clinicians.
-- Only the required pool rows exist: Rest Day (`pool-rest-day`) and Vacation (`pool-vacation`).
-- Empty row bands are allowed and preserved—normalization does not add default row bands anymore.
-- Users can build their entire schedule from scratch via the Weekly Calendar Template settings.
+- Default state is loaded from `backend/default_state.json` file.
+- New users start with a pre-configured radiology department setup:
+  - **Location**: Berlin
+  - **Sections**: On Call, MRI, CT, Sonography, MRI Neuro, CT Neuro (+ Rest Day, Vacation pools)
+  - **Clinicians**: 2 sample clinicians (Galileo Galilei, Leonardo DaVinci) with full qualifications
+  - **Weekly Template**: 4 row bands (MRI, CT, Sonography, On call), 3 columns per weekday, 2 columns for weekends/holidays
+  - **Slots**: Pre-configured with times (08:00-12:00, 12:00-16:00, 16:00-08:00+1d for on-call)
+  - **Holidays**: German holidays for 2026
+- To modify the default state, edit `backend/default_state.json` directly.
+- Fallback: if the JSON file doesn't exist, an empty state with only Rest Day and Vacation pools is created.
 Table: `app_state` (id = username). Legacy row id `"state"` is migrated to `"jk"`. The table now also has an `updated_at` column which is bumped on every `POST /v1/state` save.
 
 Endpoints
@@ -595,7 +601,7 @@ Endpoints
 - `GET /auth/me`
 - `GET /auth/users` (admin only)
 - `GET /auth/users/{username}/export` (admin only)
-- `POST /auth/users` (admin only, also seeds new user's state from creator)
+- `POST /auth/users` (admin only, seeds new user with default state from `default_state.json`)
 - `PATCH /auth/users/{username}` (admin only, supports password reset)
 - `DELETE /auth/users/{username}` (admin only)
 - `GET /v1/state`
@@ -614,7 +620,7 @@ Endpoints
 - JWT auth; frontend stores token in `localStorage` key `authToken`.
 - Admin user is created on startup if `ADMIN_USERNAME`/`ADMIN_PASSWORD` are set and the user does not already exist.
 - Set `ADMIN_PASSWORD_RESET=true` to force-reset the admin password on startup (useful for local dev DBs).
-- Creating a user in the admin panel copies the creator's current state as the new user's initial state.
+- Creating a user in the admin panel seeds the new user with the default state from `backend/default_state.json` (not the admin's state).
 - Login is case-sensitive (`admin` is lowercase).
 - Login screen includes show/hide password toggle.
 
@@ -727,6 +733,7 @@ Backend
 - `backend/constants.py` (shared constants)
 - `backend/db.py` (SQLite schema + connection helpers)
 - `backend/state.py` (state normalization, defaults, persistence)
+- `backend/default_state.json` (default state for new users)
 - `backend/auth.py` (JWT auth + admin endpoints)
 - `backend/web.py` (public web publish endpoints)
 - `backend/pdf.py` (PDF export endpoints)
