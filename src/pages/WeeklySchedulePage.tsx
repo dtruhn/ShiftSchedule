@@ -2078,7 +2078,7 @@ export default function WeeklySchedulePage({
           {ruleViolationsCount} Rule Violations
         </button>
         {ruleViolationsOpen ? (
-          <div className="absolute right-0 z-50 mt-2 w-80 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700 shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+          <div className="absolute right-0 z-[1100] mt-2 w-80 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700 shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
             <div className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
               Rule violations in view
             </div>
