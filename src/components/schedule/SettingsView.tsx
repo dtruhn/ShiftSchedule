@@ -12,6 +12,7 @@ import type { Holiday, SolverSettings, WeeklyCalendarTemplate } from "../../api/
 import WeeklyTemplateBuilder from "./WeeklyTemplateBuilder";
 import CustomSelect from "./CustomSelect";
 import CustomNumberInput from "./CustomNumberInput";
+import CustomDatePicker from "./CustomDatePicker";
 
 type SettingsViewProps = {
   classRows: WorkplaceRow[];
@@ -181,8 +182,6 @@ export default function SettingsView({
     return `${day}.${month}.${year}`;
   };
   const poolNoteById: Record<string, string> = {
-    "pool-not-allocated": "Pool from which people are distributed to workplaces.",
-    "pool-manual": "Reserve pool of people that will not be automatically distributed.",
     "pool-rest-day":
       "Rest day pool for people placed before or after on-call duties.",
     "pool-vacation":
@@ -758,21 +757,17 @@ export default function SettingsView({
                 New holiday
               </div>
               <div className="mt-3 flex flex-wrap gap-3">
-                <input
-                  type="text"
-                  value={newHolidayDate}
-                  onChange={(event) => {
-                    setNewHolidayDate(event.target.value);
-                    setHolidayInputError(null);
-                  }}
-                  placeholder="DD.MM.YYYY"
-                  className={cx(
-                    "w-40 rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
-                    "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:[color-scheme:dark]",
-                    holidayInputError &&
-                      "border-rose-300 text-rose-700 focus:border-rose-400 dark:border-rose-500/60 dark:text-rose-200",
-                  )}
-                />
+                <div className="w-40">
+                  <CustomDatePicker
+                    value={newHolidayDate}
+                    onChange={(value) => {
+                      setNewHolidayDate(value);
+                      setHolidayInputError(null);
+                    }}
+                    placeholder="DD.MM.YYYY"
+                    hasError={!!holidayInputError}
+                  />
+                </div>
                 <input
                   type="text"
                   value={newHolidayName}
@@ -781,8 +776,6 @@ export default function SettingsView({
                   className={cx(
                     "w-full max-w-xs rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900",
                     "focus:border-sky-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100",
-                    holidayInputError &&
-                      "border-rose-300 text-rose-700 focus:border-rose-400 dark:border-rose-500/60 dark:text-rose-200",
                   )}
                 />
                 <button
@@ -792,7 +785,7 @@ export default function SettingsView({
                     const parsedDate = parseHolidayDate(newHolidayDate);
                     if (!parsedDate || !trimmedName) {
                       setHolidayInputError(
-                        "Use DD.MM.YYYY or 27th Dec 2025 for the date.",
+                        "Please select a date and enter a holiday name.",
                       );
                       return;
                     }

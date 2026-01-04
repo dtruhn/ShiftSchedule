@@ -6,6 +6,7 @@ type CustomTimePickerProps = {
   onChange: (value: string) => void;
   disabled?: boolean;
   hasError?: boolean;
+  step?: number; // minutes between options, default 30
   className?: string;
 };
 
@@ -27,11 +28,12 @@ function ClockIcon({ className }: { className?: string }) {
   );
 }
 
-// Generate time options in 30-minute increments
-function generateTimeOptions(): string[] {
+// Generate time options with configurable step
+function generateTimeOptions(step: number): string[] {
   const options: string[] = [];
+  const validStep = Math.max(1, Math.min(60, step)); // Clamp to 1-60 minutes
   for (let hour = 0; hour < 24; hour++) {
-    for (let minute = 0; minute < 60; minute += 30) {
+    for (let minute = 0; minute < 60; minute += validStep) {
       const h = String(hour).padStart(2, "0");
       const m = String(minute).padStart(2, "0");
       options.push(`${h}:${m}`);
@@ -40,18 +42,24 @@ function generateTimeOptions(): string[] {
   return options;
 }
 
-const TIME_OPTIONS = generateTimeOptions();
+// Cache common step options
+const TIME_OPTIONS_30 = generateTimeOptions(30);
+const TIME_OPTIONS_15 = generateTimeOptions(15);
 
 export default function CustomTimePicker({
   value,
   onChange,
   disabled = false,
   hasError = false,
+  step = 30,
   className,
 }: CustomTimePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Use cached options for common steps, generate for others
+  const TIME_OPTIONS = step === 30 ? TIME_OPTIONS_30 : step === 15 ? TIME_OPTIONS_15 : generateTimeOptions(step);
 
   // Close on click outside
   useEffect(() => {

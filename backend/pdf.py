@@ -19,42 +19,6 @@ FRONTEND_BASE_URL = (
 ).strip()
 
 
-def _measure_schedule_dimensions(page, include_all_pages: bool) -> tuple[float, float]:
-    dims = page.evaluate(
-        """(useAll) => {
-            const measure = (root) => {
-                const schedule = root.querySelector(".schedule-grid");
-                const scroll = root.querySelector(".calendar-scroll");
-                const scrollWidth = scroll
-                    ? Math.max(scroll.scrollWidth, scroll.getBoundingClientRect().width)
-                    : 0;
-                const scrollHeight = scroll
-                    ? Math.max(scroll.scrollHeight, scroll.getBoundingClientRect().height)
-                    : 0;
-                const scheduleRect = schedule ? schedule.getBoundingClientRect() : null;
-                return {
-                    width: Math.max(scrollWidth, scheduleRect ? scheduleRect.width : 0),
-                    height: Math.max(scrollHeight, scheduleRect ? scheduleRect.height : 0),
-                };
-            };
-            const pages = Array.from(document.querySelectorAll(".print-page"));
-            const targets = useAll && pages.length ? pages : [document];
-            let maxWidth = 0;
-            let maxHeight = 0;
-            for (const target of targets) {
-                const dims = measure(target);
-                maxWidth = Math.max(maxWidth, dims.width);
-                maxHeight = Math.max(maxHeight, dims.height);
-            }
-            return { width: maxWidth, height: maxHeight };
-        }""",
-        include_all_pages,
-    )
-    width = float(dims.get("width", 0) or 0)
-    height = float(dims.get("height", 0) or 0)
-    return width, height
-
-
 @router.get("/v1/pdf/week")
 def export_week_pdf(
     start: str = Query(..., min_length=8),
@@ -75,30 +39,23 @@ def export_week_pdf(
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             try:
-                page = browser.new_page(viewport={"width": 1400, "height": 900})
+                # Set viewport to A4 landscape dimensions at 96 DPI
+                # 297mm x 210mm = 1122 x 794 px at 96 DPI
+                page = browser.new_page(viewport={"width": 1122, "height": 794})
                 page.add_init_script(
                     "localStorage.setItem('authToken', %s);" % json.dumps(token)
                 )
                 page.emulate_media(media="print")
                 page.goto(print_url, wait_until="networkidle", timeout=20000)
                 page.wait_for_function("window.__PDF_READY__ === true", timeout=20000)
-                width, height = _measure_schedule_dimensions(page, include_all_pages=False)
-                dpi = 96.0
-                a4_width = 11.69 * dpi
-                a4_height = 8.27 * dpi
-                margin = (6 / 25.4) * dpi
-                usable_width = max(1.0, a4_width - (2 * margin))
-                usable_height = max(1.0, a4_height - (2 * margin))
-                scale = 1.0
-                if width > 0 and height > 0:
-                    scale = min(1.0, usable_width / width, usable_height / height)
-                    scale *= 0.98
+                # Frontend already scales content to fit A4 printable area with margins,
+                # so we use scale=1.0 and no additional PDF margins
                 pdf_bytes = page.pdf(
                     format="A4",
                     landscape=True,
                     print_background=True,
-                    scale=scale,
-                    margin={"top": "6mm", "right": "6mm", "bottom": "6mm", "left": "6mm"},
+                    scale=1.0,
+                    margin={"top": "0mm", "right": "0mm", "bottom": "0mm", "left": "0mm"},
                 )
             finally:
                 browser.close()
@@ -136,34 +93,27 @@ def export_weeks_pdf(
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             try:
-                page = browser.new_page(viewport={"width": 1400, "height": 900})
+                # Set viewport to A4 landscape dimensions at 96 DPI
+                # 297mm x 210mm = 1122 x 794 px at 96 DPI
+                page = browser.new_page(viewport={"width": 1122, "height": 794})
                 page.add_init_script(
                     "localStorage.setItem('authToken', %s);" % json.dumps(token)
                 )
                 page.emulate_media(media="print")
                 page.goto(print_url, wait_until="networkidle", timeout=20000)
                 page.wait_for_function("window.__PDF_READY__ === true", timeout=20000)
-                width, height = _measure_schedule_dimensions(page, include_all_pages=True)
-                dpi = 96.0
-                a4_width = 11.69 * dpi
-                a4_height = 8.27 * dpi
-                margin = (6 / 25.4) * dpi
-                usable_width = max(1.0, a4_width - (2 * margin))
-                usable_height = max(1.0, a4_height - (2 * margin))
-                scale = 1.0
-                if width > 0 and height > 0:
-                    scale = min(1.0, usable_width / width, usable_height / height)
-                    scale *= 0.98
+                # Frontend already scales content to fit A4 printable area with margins,
+                # so we use scale=1.0 and no additional PDF margins
                 pdf_bytes = page.pdf(
                     format="A4",
                     landscape=True,
                     print_background=True,
-                    scale=scale,
+                    scale=1.0,
                     margin={
-                        "top": "6mm",
-                        "right": "6mm",
-                        "bottom": "6mm",
-                        "left": "6mm",
+                        "top": "0mm",
+                        "right": "0mm",
+                        "bottom": "0mm",
+                        "left": "0mm",
                     },
                 )
             finally:

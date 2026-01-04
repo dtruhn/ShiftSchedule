@@ -10,7 +10,6 @@ import {
 } from "react";
 import { cx } from "../../lib/classNames";
 import { DAY_TYPES, DAY_TYPE_LABELS } from "../../lib/dayTypes";
-import { DEFAULT_LOCATION_ID } from "../../lib/shiftRows";
 import { useConfirm } from "../ui/ConfirmDialog";
 import type {
   DayType,
@@ -23,6 +22,8 @@ import type {
   WeeklyTemplateLocation,
   WorkplaceRow,
 } from "../../api/client";
+import CustomTimePicker from "./CustomTimePicker";
+import CustomSelect from "./CustomSelect";
 
 type WeeklyTemplateBuilderProps = {
   template: WeeklyCalendarTemplate;
@@ -131,18 +132,6 @@ const sanitizeLocations = (
   });
 };
 
-const normalizeTimeInput = (value: string) => {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const match = trimmed.match(/^(\d{1,2}):(\d{1,2})$/);
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-};
-
 const formatTime = (value?: string) => {
   if (!value) return "";
   const match = value.match(/^(\d{1,2}):(\d{2})$/);
@@ -241,7 +230,6 @@ export default function WeeklyTemplateBuilder({
   );
 
   const [dragOverCell, setDragOverCell] = useState<string | null>(null);
-  const [timeDrafts, setTimeDrafts] = useState<Record<string, string>>({});
   const [activeSlotId, setActiveSlotId] = useState<string | null>(null);
   const [slotEditorMode, setSlotEditorMode] = useState<"time" | "required">("time");
   const [slotEditorAnchor, setSlotEditorAnchor] = useState<DOMRect | null>(null);
@@ -300,13 +288,6 @@ export default function WeeklyTemplateBuilder({
   const [copyConfirmed, setCopyConfirmed] = useState(false);
   const [copySuccessMessage, setCopySuccessMessage] = useState<string | null>(null);
   const gridScrollRef = useRef<HTMLDivElement | null>(null);
-
-  const isInvalidTimeDraft = (key: string) => {
-    const value = timeDrafts[key];
-    if (value === undefined) return false;
-    if (value.trim() === "") return false;
-    return normalizeTimeInput(value) === null;
-  };
 
   const updateTemplateLocation = (
     locationId: string,
@@ -1051,72 +1032,38 @@ export default function WeeklyTemplateBuilder({
           </div>
         ) : (
           <div className="flex flex-wrap items-start gap-2">
-            <input
-              className={cx(
-                "w-20 rounded border px-2 py-1 text-[11px]",
-                isInvalidTimeDraft(`${slot.id}-start`)
-                  ? "border-rose-300"
-                  : "border-slate-200",
-                "dark:border-slate-700 dark:bg-slate-950",
-              )}
-              placeholder="08:00"
-              value={timeDrafts[`${slot.id}-start`] ?? slot.startTime ?? ""}
-              onChange={(event) => {
-                const value = event.target.value;
-                setTimeDrafts((prev) => ({
-                  ...prev,
-                  [`${slot.id}-start`]: value,
-                }));
-                if (!value.trim()) {
-                  handleUpdateSlotTime(locationId, slot.id, { startTime: "" });
-                  return;
-                }
-                const normalized = normalizeTimeInput(value);
-                if (!normalized) return;
-                handleUpdateSlotTime(locationId, slot.id, { startTime: normalized });
+            <CustomTimePicker
+              value={slot.startTime ?? ""}
+              onChange={(value) => {
+                handleUpdateSlotTime(locationId, slot.id, { startTime: value });
               }}
+              step={15}
+              className="w-20"
             />
-            <span className="pt-1">-</span>
-            <div className="flex flex-col items-start">
-              <input
-                className={cx(
-                  "w-20 rounded border px-2 py-1 text-[11px]",
-                  isInvalidTimeDraft(`${slot.id}-end`)
-                    ? "border-rose-300"
-                    : "border-slate-200",
-                  "dark:border-slate-700 dark:bg-slate-950",
-                )}
-                placeholder="16:00"
-                value={timeDrafts[`${slot.id}-end`] ?? slot.endTime ?? ""}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setTimeDrafts((prev) => ({
-                    ...prev,
-                    [`${slot.id}-end`]: value,
-                  }));
-                  if (!value.trim()) {
-                    handleUpdateSlotTime(locationId, slot.id, { endTime: "" });
-                    return;
-                  }
-                  const normalized = normalizeTimeInput(value);
-                  if (!normalized) return;
-                  handleUpdateSlotTime(locationId, slot.id, { endTime: normalized });
+            <span className="pt-1 text-slate-400">-</span>
+            <div className="flex flex-col items-start gap-1">
+              <CustomTimePicker
+                value={slot.endTime ?? ""}
+                onChange={(value) => {
+                  handleUpdateSlotTime(locationId, slot.id, { endTime: value });
                 }}
+                step={15}
+                className="w-20"
               />
-              <select
-                className="mt-1 rounded border border-slate-200 px-1 py-0.5 text-[10px] text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
-                value={slot.endDayOffset ?? 0}
-                onChange={(event) => {
-                  const value = clampOffset(Number(event.target.value));
-                  handleUpdateSlotTime(locationId, slot.id, { endDayOffset: value });
+              <CustomSelect
+                value={String(slot.endDayOffset ?? 0)}
+                onChange={(value) => {
+                  const offset = clampOffset(Number(value));
+                  handleUpdateSlotTime(locationId, slot.id, { endDayOffset: offset });
                 }}
-              >
-                {[0, 1, 2, 3].map((option) => (
-                  <option key={option} value={option}>
-                    +{option}d
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "0", label: "+0d" },
+                  { value: "1", label: "+1d" },
+                  { value: "2", label: "+2d" },
+                  { value: "3", label: "+3d" },
+                ]}
+                className="w-16"
+              />
             </div>
           </div>
         )}
@@ -1497,19 +1444,17 @@ export default function WeeklyTemplateBuilder({
                     data-location-id={location.id}
                   >
                     <div className="flex items-center gap-2">
-                      <select
-                        value={locationIndex + 1}
-                        onChange={(event) =>
-                          handleLocationOrderChange(location.id, event.target.value)
+                      <CustomSelect
+                        value={String(locationIndex + 1)}
+                        onChange={(value) =>
+                          handleLocationOrderChange(location.id, value)
                         }
-                        className="w-14 rounded border border-slate-200 px-1 py-0.5 text-[11px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                      >
-                        {Array.from({ length: locations.length }, (_, index) => (
-                          <option key={index + 1} value={index + 1}>
-                            {index + 1}
-                          </option>
-                        ))}
-                      </select>
+                        options={Array.from({ length: locations.length }, (_, index) => ({
+                          value: String(index + 1),
+                          label: String(index + 1),
+                        }))}
+                        className="w-14"
+                      />
                       <input
                         className="w-40 rounded border border-slate-200 px-2 py-1 text-[11px] font-normal text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                         value={location.name}
@@ -2202,44 +2147,42 @@ export default function WeeklyTemplateBuilder({
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
                   Copy from
                 </label>
-                <select
-                  value={copySourceDay}
-                  onChange={(e) => {
-                    const newSource = e.target.value as DayType;
-                    setCopySourceDay(newSource);
-                    if (newSource === copyTargetDay) {
-                      const other = DAY_TYPES.find((d) => d !== newSource);
-                      setCopyTargetDay(other ?? "tue");
-                    }
-                    setCopyConfirmed(false);
-                  }}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                >
-                  {DAY_TYPES.map((day) => (
-                    <option key={day} value={day}>
-                      {DAY_TYPE_LABELS[day]}
-                    </option>
-                  ))}
-                </select>
+                <div className="mt-1">
+                  <CustomSelect
+                    value={copySourceDay}
+                    onChange={(value) => {
+                      const newSource = value as DayType;
+                      setCopySourceDay(newSource);
+                      if (newSource === copyTargetDay) {
+                        const other = DAY_TYPES.find((d) => d !== newSource);
+                        setCopyTargetDay(other ?? "tue");
+                      }
+                      setCopyConfirmed(false);
+                    }}
+                    options={DAY_TYPES.map((day) => ({
+                      value: day,
+                      label: DAY_TYPE_LABELS[day],
+                    }))}
+                  />
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
                   Copy to
                 </label>
-                <select
-                  value={copyTargetDay}
-                  onChange={(e) => {
-                    setCopyTargetDay(e.target.value as DayType);
-                    setCopyConfirmed(false);
-                  }}
-                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                >
-                  {DAY_TYPES.filter((d) => d !== copySourceDay).map((day) => (
-                    <option key={day} value={day}>
-                      {DAY_TYPE_LABELS[day]}
-                    </option>
-                  ))}
-                </select>
+                <div className="mt-1">
+                  <CustomSelect
+                    value={copyTargetDay}
+                    onChange={(value) => {
+                      setCopyTargetDay(value as DayType);
+                      setCopyConfirmed(false);
+                    }}
+                    options={DAY_TYPES.filter((d) => d !== copySourceDay).map((day) => ({
+                      value: day,
+                      label: DAY_TYPE_LABELS[day],
+                    }))}
+                  />
+                </div>
               </div>
             </div>
 

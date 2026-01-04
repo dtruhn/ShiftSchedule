@@ -75,18 +75,6 @@ export const workplaceRows: WorkplaceRow[] = [
     ],
   },
   {
-    id: "pool-not-allocated",
-    name: "Distribution Pool",
-    kind: "pool",
-    dotColorClass: "bg-slate-400",
-  },
-  {
-    id: "pool-manual",
-    name: "Reserve Pool",
-    kind: "pool",
-    dotColorClass: "bg-slate-300",
-  },
-  {
     id: "pool-rest-day",
     name: "Rest Day",
     kind: "pool",
@@ -115,7 +103,7 @@ export const defaultSolverSettings = {
   weightTotalAssignments: 100,
   weightSlotPriority: 10,
   weightTimeWindow: 5,
-  weightContinuousShifts: 3,
+  weightGapPenalty: 50,
   weightSectionPreference: 1,
   weightWorkingHours: 1,
 };

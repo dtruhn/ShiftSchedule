@@ -30,14 +30,24 @@ const MM_TO_PX = PRINT_DPI / 25.4;
 const PRINT_PAGE_WIDTH_MM = 297;
 const PRINT_PAGE_HEIGHT_MM = 210;
 const PRINT_PAGE_MARGIN_MM = 8;
-const PRINT_SAFETY_SCALE = 0.98;
+const PRINT_SAFETY_SCALE = 0.95;
 // Maximum scale-up factor (e.g., 1.5 means content can be scaled up to 150%)
 const MAX_SCALE_UP = 1.5;
 
+// Full A4 page dimensions in pixels
+const getFullPagePx = () => ({
+  width: PRINT_PAGE_WIDTH_MM * MM_TO_PX,
+  height: PRINT_PAGE_HEIGHT_MM * MM_TO_PX,
+});
+
+// Printable area (page minus margins)
 const getPrintAreaPx = () => ({
   width: (PRINT_PAGE_WIDTH_MM - PRINT_PAGE_MARGIN_MM * 2) * MM_TO_PX,
   height: (PRINT_PAGE_HEIGHT_MM - PRINT_PAGE_MARGIN_MM * 2) * MM_TO_PX,
 });
+
+// Margin in pixels
+const getMarginPx = () => PRINT_PAGE_MARGIN_MM * MM_TO_PX;
 
 const parseISODate = (value: string | null) => {
   if (!value) return null;
@@ -71,6 +81,8 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
   });
   const printContentRef = useRef<HTMLDivElement | null>(null);
   const printArea = useMemo(() => getPrintAreaPx(), []);
+  const fullPage = useMemo(() => getFullPagePx(), []);
+  const marginPx = useMemo(() => getMarginPx(), []);
 
   const startParam =
     typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("start") : null;
@@ -236,9 +248,8 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
         scale: nextScale,
         width: scaledWidth,
         height: scaledHeight,
-        // Horizontally centered
-        offsetX: Math.max(0, (available.width - scaledWidth) / 2),
-        // Top-aligned (no vertical centering)
+        // Centering is now handled by flexbox
+        offsetX: 0,
         offsetY: 0,
       });
     };
@@ -264,37 +275,41 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
 
   return (
     <div className={cx("bg-white", theme === "dark" && "dark")}>
+      {/* Full A4 page container */}
       <div
         className="print-page"
         style={{
+          width: fullPage.width,
+          height: fullPage.height,
+          padding: marginPx,
+          boxSizing: "border-box",
+          overflow: "hidden",
           breakInside: "avoid",
           pageBreakInside: "avoid",
           breakAfter: "auto",
           pageBreakAfter: "auto",
         }}
       >
+        {/* Printable area within margins - use absolute positioning for centering */}
         <div
-          className="relative overflow-hidden"
           style={{
+            position: "relative",
             width: printArea.width,
             height: printArea.height,
+            overflow: "hidden",
           }}
         >
           <div
-            className="absolute left-0 top-0"
+            ref={printContentRef}
             style={{
-              transform: `translate(${printLayout.offsetX}px, ${printLayout.offsetY}px)`,
+              position: "absolute",
+              left: printLayout.width ? (printArea.width - printLayout.width) / 2 : 0,
+              top: printLayout.height ? (printArea.height - printLayout.height) / 2 : 0,
+              transform: `scale(${printLayout.scale})`,
               transformOrigin: "top left",
             }}
           >
-            <div
-              ref={printContentRef}
-              style={{
-                transform: `scale(${printLayout.scale})`,
-                transformOrigin: "top left",
-              }}
-            >
-              <ScheduleGrid
+            <ScheduleGrid
                 leftHeaderTitle=""
                 weekDays={weekDays}
                 dayColumns={dayColumns}
@@ -334,7 +349,6 @@ export default function PrintWeekPage({ theme }: PrintWeekPageProps) {
                 onMoveWithinDay={() => {}}
                 onCellClick={() => {}}
               />
-            </div>
           </div>
         </div>
       </div>

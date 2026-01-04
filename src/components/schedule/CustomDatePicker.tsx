@@ -6,6 +6,7 @@ type CustomDatePickerProps = {
   onChange: (value: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  hasError?: boolean;
   className?: string;
 };
 
@@ -115,6 +116,7 @@ export default function CustomDatePicker({
   onChange,
   disabled = false,
   placeholder = "DD.MM.YYYY",
+  hasError = false,
   className,
 }: CustomDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -195,11 +197,15 @@ export default function CustomDatePicker({
         disabled={disabled}
         className={cx(
           "flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-xs transition-colors",
-          "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
+          "bg-white dark:bg-slate-900",
           disabled
             ? "cursor-not-allowed opacity-50"
             : "cursor-pointer hover:border-slate-300 dark:hover:border-slate-600",
-          isOpen && "border-sky-400 ring-1 ring-sky-400 dark:border-sky-500 dark:ring-sky-500",
+          hasError
+            ? "border-rose-400 dark:border-rose-500"
+            : isOpen
+              ? "border-sky-400 ring-1 ring-sky-400 dark:border-sky-500 dark:ring-sky-500"
+              : "border-slate-200 dark:border-slate-700",
         )}
       >
         <span
