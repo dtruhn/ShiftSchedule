@@ -756,6 +756,7 @@ test.describe.serial("ui login flows", () => {
     });
     const pageCount = countPdfPages(buffer);
     expect(pageCount).toBe(1);
+
   });
 
   test("print layout fits within one A4 page and fills at least one dimension", async ({

@@ -224,28 +224,26 @@ Testing
   - Print layout test opens `/print/week` in print media and asserts the scaled schedule fits within one A4 page (portrait or landscape) and fills at least 70% of one dimension.
   - ColBand explosion tests (`e2e/colband-explosion.spec.ts`): verify colBand counts stay stable through settings, Copy Day, column operations, and solver runs; checks for console explosion errors.
   - Pool removal tests (`e2e/pool-removal.spec.ts`): verify deprecated pools (Distribution Pool, Reserve Pool) are not rendered while Rest Day and Vacation pools remain visible.
-  - Full workflow test (`e2e/full-workflow.spec.ts`): comprehensive test that:
-    - Logs in as admin (`admin` / `tE7vcYMzC7ycXXV234s`)
-    - Deletes the test user if it exists
-    - Creates test user `Test` with password `Test`
-    - Sets up a complex radiology schedule via API:
-      - 3 locations: Main Hospital, Outpatient Center, Emergency
-      - 5 sections: MRI, CT, X-Ray, Ultrasound, On-Call
-      - 3 columns per day with non-overlapping time slots (08-12, 12-16, 16-20)
-      - 20 radiologists with varying qualifications:
-        - 1-5: Senior radiologists (all sections)
-        - 6-10: MRI & CT specialists
-        - 11-14: X-Ray & Ultrasound specialists
-        - 15-20: Emergency/On-Call specialists
-      - Realistic vacation schedules for 7 physicians
-      - ~93 template slots across all locations
-      - Different staffing for weekdays vs weekends
-      - On-Call can overlap with regular shifts
-    - Logs in via UI to verify setup
-    - Runs automated allocation for 1 week and 4 weeks
-    - Takes 12 screenshots at each step (saved to `test-results/` directory)
-    - Run with: `ADMIN_USERNAME=admin ADMIN_PASSWORD=tE7vcYMzC7ycXXV234s npx playwright test e2e/full-workflow.spec.ts`
+  - Full workflow test (`e2e/full-workflow.spec.ts`): UI-only comprehensive test that simulates a user setting up a schedule from scratch:
+    - **Step 1**: Login as admin (`admin` / `tE7vcYMzC7ycXXV234s`)
+    - **Step 2**: Create test user `test` with password `test` via User Management UI
+    - **Step 3**: Logout from admin
+    - **Step 4**: Login as test user
+    - **Step 5**: Create section blocks via Settings → Weekly Calendar Template:
+      - 6 sections: MRI, CT, Sonography, X-Ray, On-Call, Emergency
+    - **Step 6**: Create 3 locations: Berlin, Aachen, Munich
+    - **Step 7**: Create 7 clinicians with unique names (includes test run ID to avoid duplicates)
+    - **Step 8**: Return to calendar view
+    - **Step 9**: Run automated solver ("Apply Solution" when found)
+    - **Step 10**: Verify assignments exist in calendar
+    - **Step 11**: Navigate weeks forward
+    - **Step 12**: Final verification and logout
+    - Takes screenshots at each step (saved to `test-results/` directory)
+    - Uses unique clinician names per test run to avoid selector issues with duplicates
+    - Timeout: 3 minutes
+    - Run with: `ADMIN_USERNAME=admin ADMIN_PASSWORD=tE7vcYMzC7ycXXV234s PLAYWRIGHT_BASE_URL=http://localhost:5173 npx playwright test e2e/full-workflow.spec.ts`
     - View results: `npx playwright show-report`
+    - **Note**: Eligibility assignment step is currently skipped - clinicians inherit eligibilities from the template. For full eligibility testing, see the eligibility helpers in the test file.
 
 Dev server restart
 - Kill existing servers via `lsof -nP -iTCP:8000 -sTCP:LISTEN` and `lsof -nP -iTCP:5173 -sTCP:LISTEN`, then `kill <pid>`.
