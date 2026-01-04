@@ -23,6 +23,54 @@ const REST_DAY_POOL_ID = "pool-rest-day";
 const DEPRECATED_POOL_IDS = new Set(["pool-not-allocated", "pool-manual"]);
 const DEFAULT_SUB_SHIFT_MINUTES = 8 * 60;
 const DEFAULT_SUB_SHIFT_START_MINUTES = 8 * 60;
+
+/**
+ * Calculate relative luminance of a hex color using WCAG formula.
+ * Returns a value between 0 (black) and 1 (white).
+ */
+function getLuminance(hex: string): number {
+  const cleanHex = hex.replace("#", "");
+  const r = parseInt(cleanHex.slice(0, 2), 16) / 255;
+  const g = parseInt(cleanHex.slice(2, 4), 16) / 255;
+  const b = parseInt(cleanHex.slice(4, 6), 16) / 255;
+
+  const toLinear = (c: number) =>
+    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+}
+
+/**
+ * Get optimal text color (dark or light) for a given background color.
+ * Uses WCAG luminance calculation to ensure readable contrast.
+ * @param bgColor - Hex color string (e.g., "#FDE2E4")
+ * @returns Object with text color classes for primary and secondary text
+ */
+export function getContrastTextColor(bgColor: string | undefined): {
+  primary: string;
+  secondary: string;
+} {
+  if (!bgColor) {
+    return {
+      primary: "text-slate-600 dark:text-slate-200",
+      secondary: "text-slate-400 dark:text-slate-400",
+    };
+  }
+
+  const luminance = getLuminance(bgColor);
+  // Use 0.5 as threshold - colors with luminance below this need light text
+  if (luminance < 0.5) {
+    return {
+      primary: "text-white",
+      secondary: "text-white/70",
+    };
+  }
+  return {
+    primary: "text-slate-600 dark:text-slate-800",
+    secondary: "text-slate-500 dark:text-slate-600",
+  };
+}
+
 const SECTION_BLOCK_COLORS = [
   "#FDE2E4",
   "#FFD9C9",

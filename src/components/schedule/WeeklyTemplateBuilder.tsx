@@ -24,6 +24,7 @@ import type {
 } from "../../api/client";
 import CustomTimePicker from "./CustomTimePicker";
 import CustomSelect from "./CustomSelect";
+import { getContrastTextColor } from "../../lib/shiftRows";
 
 type WeeklyTemplateBuilderProps = {
   template: WeeklyCalendarTemplate;
@@ -949,6 +950,8 @@ export default function WeeklyTemplateBuilder({
     const hasTime = !!slot?.startTime && !!slot?.endTime;
     const blockColor = sectionColorById.get(block.sectionId) ?? block.color;
     const blockStyle = blockColor ? { backgroundColor: blockColor } : undefined;
+    const textColors = getContrastTextColor(blockColor);
+    const isDarkBg = blockColor && textColors.primary === "text-white";
     const timeLabel = hasTime
       ? `${formatTime(slot?.startTime)} - ${formatTime(slot?.endTime)}${
           (slot?.endDayOffset ?? 0) > 0 ? ` +${slot?.endDayOffset}d` : ""
@@ -956,7 +959,10 @@ export default function WeeklyTemplateBuilder({
       : "Choose time";
     return (
       <div
-        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        className={cx(
+          "w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] shadow-sm dark:border-slate-700 dark:bg-slate-900",
+          textColors.primary,
+        )}
         style={blockStyle}
       >
         <div className="flex items-center justify-between gap-2">
@@ -965,7 +971,12 @@ export default function WeeklyTemplateBuilder({
             type="button"
             data-slot-required-trigger={slot?.id}
             onClick={onRequiredClick}
-            className="rounded-md bg-slate-100 px-1.5 text-[10px] font-semibold text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            className={cx(
+              "rounded-md px-1.5 text-[10px] font-semibold",
+              isDarkBg
+                ? "bg-white/20 text-white hover:bg-white/30"
+                : "bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700",
+            )}
           >
             {requiredSlots}
           </button>
@@ -974,7 +985,7 @@ export default function WeeklyTemplateBuilder({
           className={cx(
             "block w-full text-left text-[10px]",
             hasTime
-              ? "text-slate-500 dark:text-slate-400"
+              ? textColors.secondary
               : "font-semibold text-rose-500",
             onTimeClick && "text-left",
           )}

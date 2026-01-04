@@ -17,6 +17,7 @@ import type { ClinicianOption } from "./ClinicianPickerPopover";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, MouseEvent as ReactMouseEvent, SetStateAction } from "react";
 import type { ScheduleRow } from "../../lib/shiftRows";
+import { getContrastTextColor } from "../../lib/shiftRows";
 
 type ScheduleGridProps = {
   leftHeaderTitle: string;
@@ -1627,16 +1628,21 @@ function RowSection({
                       : undefined
                   }
                 >
-                  <div className="flex flex-col gap-0.5 text-[10px] font-semibold text-slate-600 dark:text-slate-200">
-                    <span className="truncate">
-                      {activeRow.sectionName ?? activeRow.name}
-                    </span>
-                    {effectiveRowTimeLabel ? (
-                      <span className="text-[10px] font-medium text-slate-400 dark:text-slate-400">
-                        {effectiveRowTimeLabel}
-                      </span>
-                    ) : null}
-                  </div>
+                  {(() => {
+                    const textColors = getContrastTextColor(activeRow.blockColor);
+                    return (
+                      <div className={cx("flex flex-col gap-0.5 text-[10px] font-semibold", textColors.primary)}>
+                        <span className="truncate">
+                          {activeRow.sectionName ?? activeRow.name}
+                        </span>
+                        {effectiveRowTimeLabel ? (
+                          <span className={cx("text-[10px] font-medium", textColors.secondary)}>
+                            {effectiveRowTimeLabel}
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                   <div className="mt-1 flex flex-col gap-1">{cellContent}</div>
                 </div>
               ) : (
