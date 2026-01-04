@@ -21,8 +21,8 @@ from backend.models import (
     Assignment,
     Clinician,
     Location,
-    SolveWeekRequest,
-    SolveWeekResponse,
+    SolveRangeRequest,
+    SolveRangeResponse,
     TemplateBlock,
     TemplateColBand,
     TemplateRowBand,
@@ -33,7 +33,7 @@ from backend.models import (
     WeeklyTemplateLocation,
     WorkplaceRow,
 )
-from backend.solver import solve_week
+from backend.solver import _solve_range_impl
 
 from .conftest import (
     DAY_TYPES,
@@ -124,8 +124,8 @@ class TestDaySolverBasics:
         )
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)
 
-        response = solve_week(
-            SolveWeekRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
+        response = _solve_range_impl(
+            SolveRangeRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
             current_user=TEST_USER,
         )
 
@@ -160,8 +160,8 @@ class TestDaySolverBasics:
         )
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)
 
-        response = solve_week(
-            SolveWeekRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
+        response = _solve_range_impl(
+            SolveRangeRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
             current_user=TEST_USER,
         )
 
@@ -197,8 +197,8 @@ class TestDaySolverBasics:
         )
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)
 
-        response = solve_week(
-            SolveWeekRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
+        response = _solve_range_impl(
+            SolveRangeRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
             current_user=TEST_USER,
         )
 
@@ -241,8 +241,8 @@ class TestDaySolverOverlapConstraints:
         )
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)
 
-        response = solve_week(
-            SolveWeekRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
+        response = _solve_range_impl(
+            SolveRangeRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
             current_user=TEST_USER,
         )
 
@@ -281,8 +281,8 @@ class TestDaySolverOverlapConstraints:
         )
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)
 
-        response = solve_week(
-            SolveWeekRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
+        response = _solve_range_impl(
+            SolveRangeRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
             current_user=TEST_USER,
         )
 
@@ -393,8 +393,8 @@ class TestDaySolverLocationConstraints:
         )
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)
 
-        response = solve_week(
-            SolveWeekRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
+        response = _solve_range_impl(
+            SolveRangeRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
             current_user=TEST_USER,
         )
 
@@ -434,8 +434,8 @@ class TestDaySolverManualAssignments:
         )
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)
 
-        response = solve_week(
-            SolveWeekRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
+        response = _solve_range_impl(
+            SolveRangeRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
             current_user=TEST_USER,
         )
 
@@ -466,14 +466,14 @@ class TestDaySolverInfeasible:
         )
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)
 
-        response = solve_week(
-            SolveWeekRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
+        response = _solve_range_impl(
+            SolveRangeRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
             current_user=TEST_USER,
         )
 
         # Empty response but valid structure
         assert response.assignments == []
-        assert isinstance(response, SolveWeekResponse)
+        assert isinstance(response, SolveRangeResponse)
 
 
 class TestWeekSolverRestDays:
@@ -523,8 +523,8 @@ class TestWeekSolverRestDays:
         ]
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)
 
-        response = solve_week(
-            SolveWeekRequest(
+        response = _solve_range_impl(
+            SolveRangeRequest(
                 startISO="2026-01-05",  # Monday
                 endISO="2026-01-06",  # Tuesday
                 only_fill_required=True,
@@ -594,8 +594,8 @@ class TestWeekSolverHoursDistribution:
         )
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)
 
-        response = solve_week(
-            SolveWeekRequest(
+        response = _solve_range_impl(
+            SolveRangeRequest(
                 startISO="2026-01-05",
                 endISO="2026-01-05",
                 only_fill_required=True,
@@ -651,8 +651,8 @@ class TestSolverTimeIntervals:
         )
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)
 
-        response = solve_week(
-            SolveWeekRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
+        response = _solve_range_impl(
+            SolveRangeRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
             current_user=TEST_USER,
         )
 
@@ -692,8 +692,8 @@ class TestSolverPoolNonInterference:
         )
         monkeypatch.setattr("backend.solver._load_state", lambda _user_id: state)
 
-        response = solve_week(
-            SolveWeekRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
+        response = _solve_range_impl(
+            SolveRangeRequest(startISO="2026-01-05", endISO="2026-01-05", only_fill_required=True),
             current_user=TEST_USER,
         )
 

@@ -1,3 +1,57 @@
+"""
+Shift Schedule Solver using Google OR-Tools CP-SAT.
+
+This module provides an automated schedule solver that assigns clinicians to shifts
+while respecting constraints and optimizing for various objectives.
+
+ARCHITECTURE
+============
+- The solver runs in a subprocess to allow force-abort and prevent blocking the main API.
+- Real-time progress is streamed via Server-Sent Events (SSE) to the frontend.
+- A heartbeat mechanism ensures orphaned subprocesses are cleaned up.
+
+SOLVER PHASES (shown in UI progress)
+====================================
+1. load_state: Load schedule data from disk
+2. slot_contexts: Analyze shift patterns from weekly template
+3. create_variables: Create boolean decision variables (clinician × date × slot)
+4. overlap_constraints: Prevent time conflicts and enforce same-location-per-day
+5. coverage_constraints: Ensure required slots are filled
+6. on_call_rest_days: Block days before/after on-call shifts
+7. working_hours_constraints: Balance weekly hours per clinician
+8. gap_penalty_constraints: Penalize non-continuous shifts (gaps in the day)
+9. objective_setup: Build weighted objective function
+10. solve: Run CP-SAT solver with solution callbacks
+
+OBJECTIVE FUNCTION
+==================
+The solver minimizes a weighted sum of terms (some negated for maximization):
+- Coverage: Maximize filled required slots (weight: 1000)
+- Slack: Minimize unfilled slots (weight: 1000)
+- Total Assignments: Maximize assignments in "Distribute All" mode (weight: 100)
+- Slot Priority: Prefer earlier slots in template order (weight: 10)
+- Time Window: Respect clinician preferred working hours (weight: 5)
+- Gap Penalty: Penalize non-adjacent shifts on same day (weight: 50)
+- Section Preference: Assign clinicians to preferred sections (weight: 1)
+- Working Hours: Balance hours to target ± tolerance (weight: 1)
+
+CONSTRAINTS
+===========
+- Qualification: Clinicians can only be assigned to sections they're qualified for
+- Overlap: No overlapping time intervals for the same clinician
+- Location: Optionally enforce same location per day per clinician
+- Vacation: Clinicians on vacation cannot be assigned
+- On-call rest: Configurable rest days before/after on-call shifts
+- Manual assignments: Existing manual assignments are preserved as constraints
+
+KEY DATA STRUCTURES
+===================
+- var_map: Dict[(clinician_id, date_iso, slot_id), BoolVar] - Decision variables
+- slot_intervals: Dict[slot_id, (start_minutes, end_minutes, location_id)]
+- manual_assignments: Dict[(clinician_id, date_iso), List[slot_id]] - Fixed assignments
+- vars_by_clinician_date: Optimized lookup for constraints (O(n²) → O(slots_per_day²))
+"""
+
 import asyncio
 import atexit
 from datetime import datetime, timedelta
@@ -201,8 +255,8 @@ from .constants import (
 from .models import (
     Assignment,
     Holiday,
-    SolveWeekRequest,
-    SolveWeekResponse,
+    SolveRangeRequest,
+    SolveRangeResponse,
     SolverDebugInfo,
     SolverDebugSolutionTime,
     SolverSettings,
@@ -268,7 +322,7 @@ def _solver_subprocess_worker(
 
     try:
         # Reconstruct payload from dict
-        payload = SolveWeekRequest(**payload_dict)
+        payload = SolveRangeRequest(**payload_dict)
 
         # Create a mock user for state loading
         class MockUser:
@@ -284,7 +338,7 @@ def _solver_subprocess_worker(
             except:
                 pass  # Queue full, skip
 
-        result = _solve_week_impl_subprocess(payload, mock_user, cancel_event, on_progress, start_time)
+        result = _solve_range_impl_subprocess(payload, mock_user, cancel_event, on_progress, start_time)
 
         # Send result
         progress_queue.put({"type": "result", "data": result})
@@ -394,6 +448,7 @@ DEFAULT_WEIGHT_TOTAL_ASSIGNMENTS = 100
 DEFAULT_WEIGHT_SLOT_PRIORITY = 10
 DEFAULT_WEIGHT_TIME_WINDOW = 5
 DEFAULT_WEIGHT_CONTINUOUS_SHIFTS = 3
+DEFAULT_WEIGHT_GAP_PENALTY = 50  # Penalty for non-adjacent shifts on same day
 DEFAULT_WEIGHT_SECTION_PREFERENCE = 1
 DEFAULT_WEIGHT_WORKING_HOURS = 1
 
@@ -537,8 +592,8 @@ def _collect_slot_contexts(state) -> List[Dict[str, Any]]:
     return contexts
 
 
-@router.post("/v1/solve/week", response_model=SolveWeekResponse)
-def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_get_current_user)):
+@router.post("/v1/solve/range", response_model=SolveRangeResponse)
+def solve_range(payload: SolveRangeRequest, current_user: UserPublic = Depends(_get_current_user)):
     global _solver_is_running, _solver_process
 
     # Capture start time BEFORE anything else - this is used for accurate timeout calculation
@@ -644,7 +699,7 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
             raise Exception("Solver process terminated without result")
 
         # Convert dict result back to response
-        response = SolveWeekResponse(**result)
+        response = SolveRangeResponse(**result)
 
         # Broadcast complete event
         _broadcast_solver_progress("complete", {
@@ -674,20 +729,20 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
             _solver_cancel_event.clear()
 
 
-def _solve_week_impl_subprocess(
-    payload: SolveWeekRequest,
+def _solve_range_impl_subprocess(
+    payload: SolveRangeRequest,
     current_user,
     cancel_event,
     on_progress,
     start_time: float = None,
 ) -> dict:
     """
-    Subprocess-compatible implementation of solve_week.
+    Subprocess-compatible implementation of solve_range.
     Returns a dict that can be serialized and sent back to main process.
 
     start_time: The timestamp when the solve request started (for accurate timeout).
     """
-    result = _solve_week_impl(
+    result = _solve_range_impl(
         payload,
         current_user,
         cancel_event=cancel_event,
@@ -698,22 +753,38 @@ def _solve_week_impl_subprocess(
     return result.model_dump()
 
 
-def _solve_week_impl(
-    payload: SolveWeekRequest,
+def _solve_range_impl(
+    payload: SolveRangeRequest,
     current_user,
     cancel_event=None,
     on_progress=None,
     start_time: float = None,
 ):
-    """Internal implementation of solve_week.
+    """
+    Core solver implementation that builds and solves the constraint satisfaction problem.
+
+    This function constructs a CP-SAT model with:
+    1. Decision variables: One boolean per (clinician, date, slot) tuple
+    2. Hard constraints: Overlap prevention, qualifications, vacations, location rules
+    3. Soft constraints: Coverage targets, working hours balance, gap penalties
+    4. Objective: Weighted sum of coverage, distribution, and preference terms
+
+    The solver operates in two modes based on `payload.only_fill_required`:
+    - True: Only fill slots up to their required count
+    - False: "Distribute All" mode - assign as many people as possible using wave-based distribution
 
     Args:
-        payload: The solve request
-        current_user: User object (must have .username attribute)
-        cancel_event: Optional event to check for cancellation (defaults to global)
-        on_progress: Optional callback(event_type, data) for progress updates (defaults to SSE broadcast)
-        start_time: The timestamp when the solve request started (for accurate timeout).
-                   If None, uses current time (less accurate for subprocess calls).
+        payload: The solve request containing date range, timeout, and mode settings
+        current_user: User object (must have .username attribute) for loading state
+        cancel_event: Optional threading.Event to check for abort (defaults to global)
+        on_progress: Optional callback(event_type, data) for UI progress updates
+        start_time: Timestamp when request started (for accurate timeout calculation)
+
+    Returns:
+        SolveRangeResponse with assignments, notes, and debug timing info
+
+    Raises:
+        ValueError: If date range is invalid
     """
     # Use defaults if not provided
     if cancel_event is None:
@@ -769,6 +840,21 @@ def _solve_week_impl(
         slot_intervals[ctx["slot_id"]] = _build_slot_interval(
             ctx["slot"], ctx["location_id"]
         )
+
+    # Build a comprehensive interval map for ALL slots (including other locations)
+    # This is used for manual assignment gap penalty calculations
+    all_slot_intervals: Dict[str, Tuple[int, int, str]] = dict(slot_intervals)
+    template = state.weeklyTemplate
+    if template:
+        for template_location in template.locations:
+            location_id = (
+                template_location.locationId
+                if state.locationsEnabled
+                else DEFAULT_LOCATION_ID
+            )
+            for slot in template_location.slots:
+                if slot.id not in all_slot_intervals:
+                    all_slot_intervals[slot.id] = _build_slot_interval(slot, location_id)
     timer.checkpoint("slot_contexts")
 
     on_progress("phase", {"phase": "create_variables", "label": "Preparation (3/10): Setting up assignment options..."})
@@ -786,17 +872,30 @@ def _solve_week_impl(
                 return True
         return False
 
+    # manual_assignments: for solver constraints (only slots in the target location)
     manual_assignments: Dict[Tuple[str, str], List[str]] = {}
+    # all_manual_assignments: for gap penalty (includes all locations)
+    all_manual_assignments: Dict[Tuple[str, str], List[str]] = {}
+    skipped_assignments = []
     for assignment in state.assignments:
-        if assignment.rowId not in slot_ids:
-            continue
         if assignment.dateISO not in day_isos:
             continue
         if is_on_vac(assignment.clinicianId, assignment.dateISO):
             continue
-        manual_assignments.setdefault((assignment.clinicianId, assignment.dateISO), []).append(
-            assignment.rowId
-        )
+        # Track ALL manual assignments for gap penalty calculations
+        if assignment.rowId in all_slot_intervals:
+            all_manual_assignments.setdefault((assignment.clinicianId, assignment.dateISO), []).append(
+                assignment.rowId
+            )
+        else:
+            skipped_assignments.append(f"{assignment.clinicianId} on {assignment.dateISO}: rowId={assignment.rowId}")
+        # Only add to solver constraints if it's in the target slot set
+        if assignment.rowId in slot_ids:
+            manual_assignments.setdefault((assignment.clinicianId, assignment.dateISO), []).append(
+                assignment.rowId
+            )
+    # Track orphaned assignments (reference slots not in template) - this indicates data integrity issues
+    orphaned_assignments = skipped_assignments  # Assignments with rowId not in any known slot
 
     solver_settings = SolverSettings.model_validate(state.solverSettings or {})
     pref_weight: Dict[str, Dict[str, int]] = {}
@@ -906,16 +1005,17 @@ def _solve_week_impl(
         vars_by_clinician_date[cid][date_iso].append((sid, var, start, end, loc))
 
     # Build manual assignments lookup: clinician_id -> date -> list of (start, end, loc)
+    # Uses all_manual_assignments (from all locations) for gap penalty calculations
     manual_by_clinician_date: Dict[str, Dict[str, List[Tuple[int, int, str]]]] = {}
-    for (cid, date_iso), row_ids in manual_assignments.items():
+    for (cid, date_iso), row_ids in all_manual_assignments.items():
         if cid not in manual_by_clinician_date:
             manual_by_clinician_date[cid] = {}
         if date_iso not in manual_by_clinician_date[cid]:
             manual_by_clinician_date[cid][date_iso] = []
         for row_id in row_ids:
-            interval = slot_intervals.get(row_id)
+            interval = all_slot_intervals.get(row_id)
             if not interval:
-                continue
+                continue  # Already tracked in orphaned_assignments
             start, end, loc = interval
             manual_by_clinician_date[cid][date_iso].append((start, end, loc))
     timer.checkpoint("vacation_and_manual_setup")
@@ -1003,6 +1103,10 @@ def _solve_week_impl(
     coverage_terms = []
     slack_terms = []
     notes: List[str] = []
+
+    # Add warning if there are orphaned assignments (slots not in template)
+    if orphaned_assignments:
+        notes.append(f"WARNING: {len(orphaned_assignments)} assignment(s) reference slots not in the template and were ignored by the solver.")
     total_slots = len(slot_contexts)
     order_weight_by_slot_id: Dict[str, int] = {}
     BIG = 20
@@ -1272,11 +1376,14 @@ def _solve_week_impl(
         hours_penalty_terms.append(under_blocks + over_blocks)
     timer.checkpoint("working_hours_constraints")
 
-    on_progress("phase", {"phase": "continuous_shift_constraints", "label": "Preparation (8/10): Grouping consecutive shifts..."})
-    # Continuous shift preference: reward assigning adjacent slots to same clinician
-    # We use AddMultiplicationEquality to create: both = var_a * var_b
-    # This is 1 only when both adjacent slots are assigned to the same clinician
-    continuous_terms: List[Any] = []
+    on_progress("phase", {"phase": "gap_penalty_constraints", "label": "Preparation (8/10): Applying gap penalties..."})
+    # Gap penalty: penalize non-adjacent shifts on the same day for the same clinician
+    # A gap is when a clinician has shifts that don't connect (there's time between them)
+    # This includes gaps between:
+    # 1. Two solver variables (both can be assigned)
+    # 2. A solver variable and a manual assignment (manual is fixed, penalize if solver assigns the variable)
+    gap_penalty_terms: List[Any] = []
+
     if solver_settings.preferContinuousShifts:
         # Build index: (end_time, location) -> list of slot_ids that END at this time
         slots_ending_at: Dict[Tuple[int, str], List[str]] = {}
@@ -1285,36 +1392,104 @@ def _solve_week_impl(
             slots_ending_at.setdefault((end, loc), []).append(slot_id)
             slots_starting_at.setdefault((start, loc), []).append(slot_id)
 
-        # Build lookup: (clinician_id, date, slot_id) -> var (fast access)
-        var_by_cid_date_slot: Dict[Tuple[str, str, str], Any] = {}
-        for cid, clinician_dates in vars_by_clinician_date.items():
-            for date_iso, day_vars in clinician_dates.items():
-                for (sid, var, _s, _e, _l) in day_vars:
-                    var_by_cid_date_slot[(cid, date_iso, sid)] = var
-
-        # Find adjacent pairs and create reward terms
-        # Use short variable names and batch creation for speed
-        cont_idx = 0
+        # Build set of adjacent pairs for quick lookup (based on slot_id pairs)
+        adjacent_pairs: set[Tuple[str, str]] = set()
         for (end_time, loc), ending_slots in slots_ending_at.items():
             starting_slots = slots_starting_at.get((end_time, loc), [])
-            if not starting_slots:
-                continue
             for slot_a in ending_slots:
                 for slot_b in starting_slots:
-                    if slot_a == slot_b:
-                        continue
-                    # For this adjacent pair, iterate days and clinicians
-                    for date_iso in target_day_isos:
-                        for cid in vars_by_clinician_date:
-                            var_a = var_by_cid_date_slot.get((cid, date_iso, slot_a))
-                            var_b = var_by_cid_date_slot.get((cid, date_iso, slot_b))
-                            if var_a is not None and var_b is not None:
-                                # both = var_a AND var_b (1 only when same clinician does both)
-                                both = model.NewBoolVar(f"c{cont_idx}")
-                                cont_idx += 1
-                                model.AddMultiplicationEquality(both, [var_a, var_b])
-                                continuous_terms.append(both)
-    timer.checkpoint("continuous_shift_constraints")
+                    if slot_a != slot_b:
+                        adjacent_pairs.add((slot_a, slot_b))
+                        adjacent_pairs.add((slot_b, slot_a))  # Add both directions
+
+        # Helper to check if two intervals are adjacent (touching at same time+location)
+        def intervals_adjacent(end_a: int, start_b: int, loc_a: str, loc_b: str) -> bool:
+            return end_a == start_b and loc_a == loc_b
+
+        # Gap penalty: For each (clinician, date), penalize non-adjacent slot pairs
+        # A gap exists when both slots are assigned and they don't connect (one ends before the other starts)
+        # We check ALL pairs, not just consecutive, because the solver might assign non-adjacent slots
+        gap_idx = 0
+        for cid, clinician_dates in vars_by_clinician_date.items():
+            clinician_manual = manual_by_clinician_date.get(cid, {})
+
+            for date_iso, day_vars in clinician_dates.items():
+                # Get manual assignments for this clinician on this date
+                manual_slots = clinician_manual.get(date_iso, [])
+
+                # Part 1: Gaps between solver variables (existing logic)
+                if len(day_vars) >= 2:
+                    slot_list = [(sid, var, start, end, loc) for (sid, var, start, end, loc) in day_vars]
+
+                    for i in range(len(slot_list)):
+                        sid_a, var_a, start_a, end_a, loc_a = slot_list[i]
+                        for j in range(i + 1, len(slot_list)):
+                            sid_b, var_b, start_b, end_b, loc_b = slot_list[j]
+
+                            if (sid_a, sid_b) not in adjacent_pairs:
+                                has_gap = (end_a < start_b) or (end_b < start_a)
+                                if has_gap:
+                                    gap_var = model.NewBoolVar(f"gap{gap_idx}")
+                                    gap_idx += 1
+                                    model.AddMultiplicationEquality(gap_var, [var_a, var_b])
+                                    gap_penalty_terms.append(gap_var)
+
+                # Part 2: Gaps between solver variables and manual assignments
+                # Manual assignments are fixed (always assigned), so the gap penalty
+                # activates when the solver assigns a variable that creates a gap
+                if manual_slots and day_vars:
+                    for (sid, var, start, end, loc) in day_vars:
+                        for (m_start, m_end, m_loc) in manual_slots:
+                            # Check if the solver slot and manual slot are adjacent
+                            is_adjacent = (
+                                intervals_adjacent(end, m_start, loc, m_loc) or
+                                intervals_adjacent(m_end, start, m_loc, loc)
+                            )
+                            if not is_adjacent:
+                                # Check if there's actually a gap (non-overlapping, non-touching)
+                                has_gap = (end < m_start) or (m_end < start)
+                                if has_gap:
+                                    # Penalty = var (if solver assigns this slot, it creates a gap with manual)
+                                    gap_penalty_terms.append(var)
+
+        # Part 3: Gaps between manual assignments themselves
+        # If two manual slots have a gap, we add a constant penalty (1) for that gap.
+        # If a solver variable can fill that gap, we subtract var from the penalty.
+        # Net effect: if solver fills the gap, penalty = 1 - 1 = 0. If not filled, penalty = 1.
+        for cid, clinician_manual_dates in manual_by_clinician_date.items():
+            clinician_vars = vars_by_clinician_date.get(cid, {})
+
+            for date_iso, manual_slots in clinician_manual_dates.items():
+                if len(manual_slots) < 2:
+                    continue
+
+                # Get solver variables for this clinician on this date
+                day_vars = clinician_vars.get(date_iso, [])
+
+                # Sort manual slots by start time
+                sorted_manual = sorted(manual_slots, key=lambda x: x[0])
+                for i in range(len(sorted_manual) - 1):
+                    m1_start, m1_end, m1_loc = sorted_manual[i]
+                    m2_start, m2_end, m2_loc = sorted_manual[i + 1]
+
+                    # Check if there's a gap between these two manual slots (not adjacent)
+                    gap_exists = m1_end < m2_start and not intervals_adjacent(m1_end, m2_start, m1_loc, m2_loc)
+
+                    if gap_exists:
+                        # Add constant penalty for this manual-to-manual gap
+                        gap_penalty_terms.append(1)
+
+                        # Find solver variables that could fill this gap
+                        if day_vars:
+                            for (sid, var, start, end, loc) in day_vars:
+                                # Check if this solver slot bridges the gap
+                                connects_m1 = intervals_adjacent(m1_end, start, m1_loc, loc)
+                                connects_m2 = intervals_adjacent(end, m2_start, loc, m2_loc)
+                                if connects_m1 and connects_m2:
+                                    # This slot fills the gap! Subtract var to cancel the penalty when assigned
+                                    gap_penalty_terms.append(-var)
+
+    timer.checkpoint("gap_penalty_constraints")
 
     on_progress("phase", {"phase": "objective_setup", "label": "Preparation (9/10): Finalizing optimization goals..."})
     total_slack = sum(slack_terms) if slack_terms else 0
@@ -1334,20 +1509,25 @@ def _solve_week_impl(
     total_preference = sum(preference_terms) if preference_terms else 0
     total_time_window_preference = sum(time_window_terms) if time_window_terms else 0
     total_hours_penalty = sum(hours_penalty_terms) if hours_penalty_terms else 0
-    total_continuous = sum(continuous_terms) if continuous_terms else 0
+    total_gap_penalty = sum(gap_penalty_terms) if gap_penalty_terms else 0
 
     # Total assignments - used to maximize distribution when not only_fill_required
     total_assignments = sum(var for var in var_map.values())
 
     # Get configurable weights from solver_settings (with defaults)
-    w_coverage = getattr(solver_settings, 'weightCoverage', None) or DEFAULT_WEIGHT_COVERAGE
-    w_slack = getattr(solver_settings, 'weightSlack', None) or DEFAULT_WEIGHT_SLACK
-    w_total_assignments = getattr(solver_settings, 'weightTotalAssignments', None) or DEFAULT_WEIGHT_TOTAL_ASSIGNMENTS
-    w_slot_priority = getattr(solver_settings, 'weightSlotPriority', None) or DEFAULT_WEIGHT_SLOT_PRIORITY
-    w_time_window = getattr(solver_settings, 'weightTimeWindow', None) or DEFAULT_WEIGHT_TIME_WINDOW
-    w_continuous = getattr(solver_settings, 'weightContinuousShifts', None) or DEFAULT_WEIGHT_CONTINUOUS_SHIFTS
-    w_section_pref = getattr(solver_settings, 'weightSectionPreference', None) or DEFAULT_WEIGHT_SECTION_PREFERENCE
-    w_working_hours = getattr(solver_settings, 'weightWorkingHours', None) or DEFAULT_WEIGHT_WORKING_HOURS
+    # Note: Use 'is not None' check to allow explicit 0 values (0 is falsy in Python)
+    def get_weight(attr_name: str, default: int) -> int:
+        val = getattr(solver_settings, attr_name, None)
+        return val if val is not None else default
+
+    w_coverage = get_weight('weightCoverage', DEFAULT_WEIGHT_COVERAGE)
+    w_slack = get_weight('weightSlack', DEFAULT_WEIGHT_SLACK)
+    w_total_assignments = get_weight('weightTotalAssignments', DEFAULT_WEIGHT_TOTAL_ASSIGNMENTS)
+    w_slot_priority = get_weight('weightSlotPriority', DEFAULT_WEIGHT_SLOT_PRIORITY)
+    w_time_window = get_weight('weightTimeWindow', DEFAULT_WEIGHT_TIME_WINDOW)
+    w_gap_penalty = get_weight('weightGapPenalty', DEFAULT_WEIGHT_GAP_PENALTY)
+    w_section_pref = get_weight('weightSectionPreference', DEFAULT_WEIGHT_SECTION_PREFERENCE)
+    w_working_hours = get_weight('weightWorkingHours', DEFAULT_WEIGHT_WORKING_HOURS)
 
     if payload.only_fill_required:
         model.Minimize(
@@ -1355,7 +1535,7 @@ def _solve_week_impl(
             + total_slack * w_slack
             - total_preference * w_section_pref
             - total_time_window_preference * w_time_window
-            - total_continuous * w_continuous
+            + total_gap_penalty * w_gap_penalty
             + total_hours_penalty * w_working_hours
         )
     else:
@@ -1367,7 +1547,7 @@ def _solve_week_impl(
             - total_priority * w_slot_priority
             - total_preference * w_section_pref
             - total_time_window_preference * w_time_window
-            - total_continuous * w_continuous
+            + total_gap_penalty * w_gap_penalty
             + total_hours_penalty * w_working_hours
         )
     timer.checkpoint("objective_setup")
@@ -1491,7 +1671,7 @@ def _solve_week_impl(
                 week_end = min(week_cursor + timedelta(days=6), range_end)
 
                 # Create a sub-request for this week
-                week_payload = SolveWeekRequest(
+                week_payload = SolveRangeRequest(
                     startISO=week_cursor.isoformat(),
                     endISO=week_end.isoformat(),
                     only_fill_required=payload.only_fill_required,
@@ -1500,7 +1680,7 @@ def _solve_week_impl(
 
                 # Recursively solve this week (will use shorter timeout for smaller range)
                 try:
-                    week_result = solve_week(week_payload, current_user)
+                    week_result = solve_range(week_payload, current_user)
                     if any("No solution" in note for note in week_result.notes):
                         week_notes.append(f"Week {week_num} ({week_cursor} to {week_end}): No solution found.")
                         week_success = False
@@ -1518,7 +1698,7 @@ def _solve_week_impl(
 
             if week_success and week_assignments:
                 week_notes.append(f"Week-by-week solving completed successfully with {len(week_assignments)} assignments.")
-                return SolveWeekResponse(
+                return SolveRangeResponse(
                     startISO=range_start.isoformat(),
                     endISO=range_end.isoformat(),
                     assignments=week_assignments,
@@ -1527,14 +1707,14 @@ def _solve_week_impl(
             else:
                 # Week-by-week also failed
                 week_notes.append("Week-by-week solving also failed.")
-                return SolveWeekResponse(
+                return SolveRangeResponse(
                     startISO=range_start.isoformat(),
                     endISO=range_end.isoformat(),
                     assignments=week_assignments,  # Return partial results if any
                     notes=["No solution"] + week_notes,
                 )
 
-        return SolveWeekResponse(
+        return SolveRangeResponse(
             startISO=range_start.isoformat(),
             endISO=range_end.isoformat(),
             assignments=[],
@@ -1644,7 +1824,7 @@ def _solve_week_impl(
         eval_slack = sum(solver.Value(t) for t in slack_terms) if slack_terms else 0
         eval_preference = sum(solver.Value(t) for t in preference_terms) if preference_terms else 0
         eval_time_window = sum(solver.Value(t) for t in time_window_terms) if time_window_terms else 0
-        eval_continuous = sum(solver.Value(t) for t in continuous_terms) if continuous_terms else 0
+        eval_gap_penalty = sum(solver.Value(t) for t in gap_penalty_terms) if gap_penalty_terms else 0
         eval_hours_penalty = sum(solver.Value(t) for t in hours_penalty_terms) if hours_penalty_terms else 0
 
         sub_scores = SolverSubScores(
@@ -1653,7 +1833,7 @@ def _solve_week_impl(
             total_assignments=len(new_assignments),
             preference_score=eval_preference,
             time_window_score=eval_time_window,
-            continuous_shift_score=eval_continuous,
+            gap_penalty=eval_gap_penalty,
             hours_penalty=eval_hours_penalty,
         )
 
@@ -1673,7 +1853,7 @@ def _solve_week_impl(
         sub_scores=sub_scores,
     )
 
-    return SolveWeekResponse(
+    return SolveRangeResponse(
         startISO=range_start.isoformat(),
         endISO=range_end.isoformat(),
         assignments=new_assignments,

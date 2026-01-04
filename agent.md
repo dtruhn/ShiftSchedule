@@ -128,19 +128,28 @@ Locations
 - Delete location (confirm) is allowed even for the default location; the next location becomes the new default (`loc-default`) and slot locationIds are updated.
 
 Pools
-- Rename pool rows (Distribution Pool, Reserve Pool, Rest Day, Vacation). No deletion.
+- Rename pool rows (Rest Day, Vacation). No deletion.
+- **Deprecated pools (removed)**: Distribution Pool (`pool-not-allocated`) and Reserve Pool (`pool-manual`) were removed from the UI. State normalization automatically removes these rows and any assignments to them on load.
 - Rest Day pool is used to park clinicians before/after on-call duty when the setting is enabled.
 - Pool visibility is a UI filter only: class assignments are never hidden by rest-day/vacation logic.
 - If a clinician is marked off on a date, any pool assignment for that date is re-routed to the Rest Day pool in the UI (so they stay visible).
 
 Slots / Template integrity
 - Invalid slot assignments are repaired on load:
-  - If a slot references a block/section that no longer exists or the slot dayType does not match the assignment date's dayType, the assignment is moved to the Distribution Pool.
+  - If a slot references a block/section that no longer exists or the slot dayType does not match the assignment date's dayType, the assignment is removed (since Distribution Pool was deprecated).
   - This is enforced in both frontend normalization (`src/lib/shiftRows.ts`) and backend normalization (`backend/state.py`).
 - ColBand explosion safeguard: max 50 colBands per day type (MAX_COLBANDS_PER_DAY). If exceeded, extra colBands are blocked and logged. Safeguard is enforced in:
   - `src/lib/shiftRows.ts` (normalizeTemplateColBands)
   - `src/components/schedule/WeeklyTemplateBuilder.tsx` (sanitizeLocations)
   - `src/pages/WeeklySchedulePage.tsx` (setWeeklyTemplate wrapper blocks saves over 500 total colBands)
+- **Slot collision detection**: Multiple sections sharing the same `rowBandId + dayType + colBandOrder` causes only one section to be visible in the calendar UI while others are hidden but still exist in the database. This is a critical configuration error.
+  - Detection: `slotCollisions` useMemo in `WeeklySchedulePage.tsx` identifies collisions by grouping classShiftRows by `locationId__rowBandId__dayType__colBandOrder` and flagging groups with multiple different `sectionId` values.
+  - Warning banner: A prominent red banner appears below the top bar when collisions are detected, showing:
+    - Error title: "Template Configuration Error: Hidden Sections Detected"
+    - Explanation of the issue (only one section visible, others hidden)
+    - Expandable list of collision details (day type, row band, affected section names)
+    - "Open Settings" button to navigate to template builder for fixing
+  - Fix: Ensure each section has its own row band in the Weekly Template Builder.
 
 Clinicians
 - List with Add Clinician and Edit buttons (Add uses a dashed, full-width button below the list).
@@ -192,7 +201,7 @@ Solver Settings
 - **Click-to-scroll for violations**: Clicking a rule violation in the popover scrolls the schedule grid to show the responsible assignment pill (smooth scroll to center).
 - Automated planning runs the week solver over the selected date range in one call and shows an ETA based on the last run's per-day duration.
 - **Optimization weights**: Collapsible section in the Solver Info modal (gear icon) allows configuring objective weights:
-  - Coverage (1000), Slack (1000), Total Assignments (100), Slot Priority (10), Time Window (5), Continuous Shifts (3), Section Preference (1), Working Hours (1).
+  - Coverage (1000), Slack (1000), Total Assignments (100), Slot Priority (10), Time Window (5), Gap Penalty (50), Section Preference (1), Working Hours (1).
   - "Total Assignments" and "Slot Priority" are only active in "Distribute All" mode (visually dimmed with amber description).
   - Each weight has an info tooltip explaining its effect in layman's terms.
   - "Reset to defaults" button restores all weights to their default values.
@@ -494,7 +503,7 @@ type SolverSettings = {
   weightTotalAssignments?: number;   // default 100 (Distribute All only)
   weightSlotPriority?: number;       // default 10 (Distribute All only)
   weightTimeWindow?: number;         // default 5
-  weightContinuousShifts?: number;   // default 3
+  weightGapPenalty?: number;         // default 50
   weightSectionPreference?: number;  // default 1
   weightWorkingHours?: number;       // default 1
 };
@@ -524,7 +533,7 @@ Slot IDs
 ## 6) Solver (Backend, OR-Tools)
 Endpoints:
 - `POST /v1/solve` (single day)
-- `POST /v1/solve/week` (range solver; accepts `startISO` and optional `endISO`)
+- `POST /v1/solve/range` (range solver; accepts `startISO` and optional `endISO`)
 Payloads:
 ```json
 { "dateISO": "YYYY-MM-DD", "only_fill_required": true|false }
@@ -535,7 +544,7 @@ Payloads:
 
 Behavior
 - Day solver (`/v1/solve`) uses only clinicians in Distribution Pool (unassigned + not on vacation).
-- Week solver (`/v1/solve/week`) considers all clinicians not on vacation; manual assignments are treated as fixed.
+- Range solver (`/v1/solve/range`) considers all clinicians not on vacation; manual assignments are treated as fixed.
 - Range solves include a 1-day context window on both ends for rest-day constraints; rest rules only enforce inside the selected range and emit a warning note if boundary days are already assigned.
 - Hard constraints:
   - Qualification required.
@@ -552,7 +561,7 @@ Behavior
   - Minimize missing required slots.
   - If `only_fill_required=false`, add extras using wave-based distribution.
   - Preferred sections (order of eligible sections) is a lower-weight tie breaker.
-  - Continuous shift preference (when enabled): adds a small bonus for assigning adjacent slots to the same clinician; weight is lower than hours distribution to act as a tie-breaker.
+  - Gap penalty (when preferContinuousShifts enabled): penalizes non-adjacent shifts on the same day; weight (`weightGapPenalty`, default 50) encourages continuous work blocks.
 - Wave-based equal distribution (when `only_fill_required=false`):
   - First fills all slots to 1× their base required count.
   - Then fills all slots to 2× their base required count.
@@ -719,7 +728,7 @@ Endpoints
 - `GET /v1/state`
 - `POST /v1/state`
 - `POST /v1/solve`
-- `POST /v1/solve/week`
+- `POST /v1/solve/range`
 - `POST /v1/solve/abort` (abort solver; `?force=true` kills subprocess immediately)
 - `GET /v1/solve/progress` (SSE stream for live solver updates; requires `?token=<jwt>`)
 - `GET /v1/ical/publish`

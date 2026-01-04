@@ -192,7 +192,7 @@ class SolverSettings(BaseModel):
     weightTotalAssignments: int = 100  # Maximize total assignments
     weightSlotPriority: int = 10  # Prefer slots in template order
     weightTimeWindow: int = 5  # Respect preferred working time windows
-    weightContinuousShifts: int = 3  # Group consecutive shifts
+    weightGapPenalty: int = 50  # Penalize non-adjacent shifts on same day
     weightSectionPreference: int = 1  # Assign to preferred sections
     weightWorkingHours: int = 1  # Stay within target working hours
 
@@ -207,7 +207,8 @@ class SolverRule(BaseModel):
     thenShiftRowId: Optional[str] = None
 
 
-class SolveWeekRequest(BaseModel):
+class SolveRangeRequest(BaseModel):
+    """Request to solve a date range (can be a single day, week, or any range)."""
     startISO: str
     endISO: Optional[str] = None
     only_fill_required: bool = False
@@ -232,7 +233,7 @@ class SolverSubScores(BaseModel):
     total_assignments: int = 0  # Total assignments made
     preference_score: int = 0  # Clinician section preferences satisfied
     time_window_score: int = 0  # Preferred working hours satisfied
-    continuous_shift_score: int = 0  # Consecutive shift bonuses
+    gap_penalty: int = 0  # Number of non-adjacent shift gaps (lower is better)
     hours_penalty: int = 0  # Working hours violations
 
 
@@ -248,7 +249,8 @@ class SolverDebugInfo(BaseModel):
     sub_scores: Optional[SolverSubScores] = None
 
 
-class SolveWeekResponse(BaseModel):
+class SolveRangeResponse(BaseModel):
+    """Response from the solver containing assignments for the requested date range."""
     startISO: str
     endISO: str
     assignments: List[Assignment]

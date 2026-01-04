@@ -25,7 +25,7 @@ import {
   abortSolver,
   rotateIcalToken,
   saveState,
-  solveWeek,
+  solveRange,
   rotateWeb,
   unpublishIcal,
   unpublishWeb,
@@ -70,21 +70,52 @@ import {
 /**
  * Scroll to the first assignment element matching any of the given keys.
  * Uses the data-assignment-key attribute on AssignmentPill components.
- * Uses requestAnimationFrame to ensure DOM is ready after state update.
+ * Handles both page scroll (vertical) and calendar container scroll (horizontal).
  */
 function scrollToAssignmentKeys(keys: string[]): void {
-  // Use requestAnimationFrame to ensure the DOM has updated
-  requestAnimationFrame(() => {
+  // Use setTimeout to ensure the DOM has updated after state change
+  setTimeout(() => {
     for (const key of keys) {
-      const element = document.querySelector(
-        `[data-assignment-key="${key}"]`,
-      ) as HTMLElement | null;
+      const selector = `[data-assignment-key="${key}"]`;
+      const element = document.querySelector(selector) as HTMLElement | null;
       if (element) {
-        element.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+        // Find the calendar scroll container for horizontal scrolling
+        const scrollContainer = element.closest(".calendar-scroll") as HTMLElement | null;
+
+        if (scrollContainer) {
+          // Get element position relative to the scroll container
+          const elementRect = element.getBoundingClientRect();
+          const containerRect = scrollContainer.getBoundingClientRect();
+
+          // Calculate the horizontal scroll position to center the element
+          const elementCenterX = elementRect.left + elementRect.width / 2;
+          const containerCenterX = containerRect.left + containerRect.width / 2;
+          const scrollLeftDelta = elementCenterX - containerCenterX;
+
+          // Scroll the container horizontally
+          scrollContainer.scrollBy({
+            left: scrollLeftDelta,
+            behavior: "smooth",
+          });
+
+          // For vertical scroll, we need to scroll the window/page directly
+          // since the calendar container has overflow-y: hidden
+          const viewportCenterY = window.innerHeight / 2;
+          const elementCenterY = elementRect.top + elementRect.height / 2;
+          const scrollTopDelta = elementCenterY - viewportCenterY;
+
+          window.scrollBy({
+            top: scrollTopDelta,
+            behavior: "smooth",
+          });
+        } else {
+          // Fallback if no scroll container found
+          element.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
         return;
       }
     }
-  });
+  }, 50);
 }
 import { buildICalendar, type ICalEvent } from "../lib/ical";
 import {
@@ -328,7 +359,11 @@ export default function WeeklySchedulePage({
   const [hoveredRuleViolationId, setHoveredRuleViolationId] = useState<string | null>(null);
   const [isRuleViolationsHovered, setIsRuleViolationsHovered] = useState(false);
   const [isOpenSlotsHovered, setIsOpenSlotsHovered] = useState(false);
+  const [nonConsecutiveShiftsOpen, setNonConsecutiveShiftsOpen] = useState(false);
+  const [isSplitShiftsHovered, setIsSplitShiftsHovered] = useState(false);
+  const [activeSplitShiftId, setActiveSplitShiftId] = useState<string | null>(null);
   const ruleViolationsRef = useRef<HTMLDivElement | null>(null);
+  const nonConsecutiveShiftsRef = useRef<HTMLDivElement | null>(null);
 
   const isMobile = useMediaQuery("(max-width: 640px)");
   useEffect(() => {
@@ -346,6 +381,21 @@ export default function WeeklySchedulePage({
       setActiveRuleViolationId(null);
     }
   }, [ruleViolationsOpen]);
+  useEffect(() => {
+    if (!nonConsecutiveShiftsOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!nonConsecutiveShiftsRef.current || nonConsecutiveShiftsRef.current.contains(target)) return;
+      setNonConsecutiveShiftsOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [nonConsecutiveShiftsOpen]);
+  useEffect(() => {
+    if (!nonConsecutiveShiftsOpen) {
+      setActiveSplitShiftId(null);
+    }
+  }, [nonConsecutiveShiftsOpen]);
 
   // Track elapsed time during solver run
   useEffect(() => {
@@ -557,6 +607,49 @@ export default function WeeklySchedulePage({
     () => buildLocationColumnTimeMetaByKey(scheduleRows),
     [scheduleRows],
   );
+
+  // Detect slot collisions: multiple sections sharing the same rowBandId + dayType + colBandOrder
+  // This is a critical configuration error - only one section will be visible in the UI
+  type SlotCollision = {
+    key: string;
+    locationId: string;
+    rowBandId: string;
+    dayType: string;
+    colBandOrder: number;
+    sections: Array<{ slotId: string; sectionName: string }>;
+  };
+  const slotCollisions = useMemo((): SlotCollision[] => {
+    const collisionMap = new Map<string, Array<{ slotId: string; sectionName: string; sectionId: string }>>();
+    for (const row of classShiftRows) {
+      if (!row.rowBandId || !row.dayType) continue;
+      const key = `${row.locationId ?? "loc"}__${row.rowBandId}__${row.dayType}__${row.colBandOrder ?? 1}`;
+      const existing = collisionMap.get(key) ?? [];
+      existing.push({
+        slotId: row.id,
+        sectionName: row.sectionName ?? row.name,
+        sectionId: row.sectionId ?? row.id,
+      });
+      collisionMap.set(key, existing);
+    }
+    const collisions: SlotCollision[] = [];
+    for (const [key, slots] of collisionMap) {
+      // Check if multiple DIFFERENT sections share the same position
+      const uniqueSections = new Set(slots.map(s => s.sectionId));
+      if (uniqueSections.size > 1) {
+        const [locationId, rowBandId, dayType, colBandOrderStr] = key.split("__");
+        collisions.push({
+          key,
+          locationId: locationId ?? "loc",
+          rowBandId: rowBandId ?? "",
+          dayType: dayType ?? "mon",
+          colBandOrder: parseInt(colBandOrderStr ?? "1", 10),
+          sections: slots.map(s => ({ slotId: s.slotId, sectionName: s.sectionName })),
+        });
+      }
+    }
+    return collisions;
+  }, [classShiftRows]);
+
   const dayColumns = useMemo(
     () => buildDayColumns(displayDays, weeklyTemplate, holidayDates, columnTimeMetaByKey),
     [displayDays, weeklyTemplate, holidayDates, columnTimeMetaByKey],
@@ -887,6 +980,17 @@ export default function WeeklySchedulePage({
     [assignmentMap, clinicians, displayDays, scheduleRows, solverSettings],
   );
 
+  // Full week rendered assignments for gap detection (uses fullWeekDays, not displayDays)
+  const fullWeekRenderAssignmentMap = useMemo(
+    () =>
+      buildRenderedAssignmentMap(assignmentMap, clinicians, fullWeekDays, {
+        scheduleRows,
+        solverSettings,
+        holidayDates,
+      }),
+    [assignmentMap, clinicians, fullWeekDays, scheduleRows, solverSettings],
+  );
+
   const isOnVacation = (clinicianId: string, dateISO: string) => {
     const clinician = clinicians.find((item) => item.id === clinicianId);
     if (!clinician) return false;
@@ -1004,7 +1108,7 @@ export default function WeeklySchedulePage({
         });
         await saveState(normalized);
       }
-      const result = await solveWeek(args.startISO, {
+      const result = await solveRange(args.startISO, {
         endISO: args.endISO,
         onlyFillRequired: args.onlyFillRequired,
         timeoutSeconds: args.timeoutSeconds,
@@ -1467,6 +1571,115 @@ export default function WeeklySchedulePage({
     rowById,
   ]);
 
+  // Calculate non-consecutive shifts (gaps) for clinicians in the current week
+  // Uses renderAssignmentMap (not raw assignmentMap) to match what's displayed in the UI
+  type NonConsecutiveShift = {
+    id: string;
+    clinicianId: string;
+    clinicianName: string;
+    dateISO: string;
+    dateFormatted: string;
+    assignmentKeys: string[];
+  };
+  const nonConsecutiveShifts = useMemo((): NonConsecutiveShift[] => {
+    const dateISOs = fullWeekDays.map(toISODate);
+    const result: NonConsecutiveShift[] = [];
+
+    // Helper to parse time string to minutes
+    const parseTimeToMinutes = (time: string | undefined): number | null => {
+      if (!time) return null;
+      const match = time.match(/^(\d{1,2}):(\d{2})$/);
+      if (!match) return null;
+      const hours = Number(match[1]);
+      const minutes = Number(match[2]);
+      if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+      if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+      return hours * 60 + minutes;
+    };
+
+    // Group assignments by clinician and date using fullWeekRenderAssignmentMap (matches UI, covers full week)
+    const assignmentsByClinicianDate = new Map<string, { rowId: string; clinicianId: string }[]>();
+    for (const d of dateISOs) {
+      for (const rowId of classShiftRowIds) {
+        const cell = fullWeekRenderAssignmentMap.get(`${rowId}__${d}`) ?? [];
+        for (const assignment of cell) {
+          const key = `${assignment.clinicianId}|${d}`;
+          if (!assignmentsByClinicianDate.has(key)) {
+            assignmentsByClinicianDate.set(key, []);
+          }
+          assignmentsByClinicianDate.get(key)!.push({ rowId, clinicianId: assignment.clinicianId });
+        }
+      }
+    }
+
+    // Check each (clinician, date) for non-consecutive shifts
+    for (const [key, assignments] of assignmentsByClinicianDate) {
+      if (assignments.length <= 1) continue;
+
+      const [clinicianId, dateISO] = key.split("|");
+      const clinician = clinicians.find((c) => c.id === clinicianId);
+      if (!clinician) continue;
+
+      // Get time intervals for each assignment
+      const intervals: { start: number; end: number; rowId: string }[] = [];
+      for (const { rowId } of assignments) {
+        const row = rowById.get(rowId);
+        if (!row) continue;
+        const start = parseTimeToMinutes(row.startTime);
+        const end = parseTimeToMinutes(row.endTime);
+        if (start !== null && end !== null) {
+          let adjustedEnd = end;
+          if (row.endDayOffset && row.endDayOffset > 0) {
+            adjustedEnd += row.endDayOffset * 24 * 60;
+          } else if (end < start) {
+            adjustedEnd += 24 * 60;
+          }
+          intervals.push({ start, end: adjustedEnd, rowId });
+        }
+      }
+
+      if (intervals.length <= 1) continue;
+
+      // Sort by start time
+      intervals.sort((a, b) => a.start - b.start);
+
+      // Check for gaps between consecutive intervals
+      let hasGap = false;
+      for (let i = 1; i < intervals.length; i++) {
+        const prev = intervals[i - 1];
+        const curr = intervals[i];
+        if (curr.start > prev.end) {
+          hasGap = true;
+          break;
+        }
+      }
+
+      if (hasGap) {
+        const date = new Date(dateISO);
+        const dayName = date.toLocaleDateString("en-US", { weekday: "short" });
+        const dayNum = date.getDate();
+        const monthNum = date.getMonth() + 1;
+        result.push({
+          id: key,
+          clinicianId,
+          clinicianName: clinician.name,
+          dateISO,
+          dateFormatted: `${dayName} ${dayNum}.${monthNum}.`,
+          assignmentKeys: intervals.map((i) => `${i.rowId}__${dateISO}__${clinicianId}`),
+        });
+      }
+    }
+
+    // Sort by date then clinician name
+    result.sort((a, b) => {
+      const dateCompare = a.dateISO.localeCompare(b.dateISO);
+      if (dateCompare !== 0) return dateCompare;
+      return a.clinicianName.localeCompare(b.clinicianName);
+    });
+
+    return result;
+  }, [fullWeekDays, fullWeekRenderAssignmentMap, classShiftRowIds, clinicians, rowById]);
+
   const ruleAssignmentContext = useMemo(() => {
     const dateISOs = fullWeekDays.map(toISODate);
     const dateSet = new Set(dateISOs);
@@ -1712,6 +1925,42 @@ export default function WeeklySchedulePage({
   ]);
 
   const showViolationLines = visibleViolationsForLines.length > 0;
+
+  // Split shifts (non-consecutive) highlighting
+  const splitShiftAssignmentKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const shift of nonConsecutiveShifts) {
+      for (const key of shift.assignmentKeys) {
+        keys.add(key);
+      }
+    }
+    return keys;
+  }, [nonConsecutiveShifts]);
+
+  const highlightedSplitShiftKeys = useMemo(() => {
+    if (activeSplitShiftId) {
+      const match = nonConsecutiveShifts.find((shift) => shift.id === activeSplitShiftId);
+      return match ? new Set(match.assignmentKeys) : undefined;
+    }
+    if (isSplitShiftsHovered) {
+      return splitShiftAssignmentKeys.size ? new Set(splitShiftAssignmentKeys) : undefined;
+    }
+    return undefined;
+  }, [activeSplitShiftId, isSplitShiftsHovered, nonConsecutiveShifts, splitShiftAssignmentKeys]);
+
+  // Split shifts to show connection lines for
+  const visibleSplitShiftsForLines = useMemo(() => {
+    if (activeSplitShiftId) {
+      const match = nonConsecutiveShifts.find((shift) => shift.id === activeSplitShiftId);
+      return match ? [match] : [];
+    }
+    if (isSplitShiftsHovered) {
+      return nonConsecutiveShifts;
+    }
+    return [];
+  }, [activeSplitShiftId, isSplitShiftsHovered, nonConsecutiveShifts]);
+
+  const showSplitShiftLines = visibleSplitShiftsForLines.length > 0;
 
   const editingClinician = useMemo(
     () => clinicians.find((clinician) => clinician.id === editingClinicianId),
@@ -2500,6 +2749,80 @@ export default function WeeklySchedulePage({
           : null}
       </>
     ) : null;
+  // Get popover position for non-consecutive shifts from button ref
+  const getNonConsecutivePopoverPosition = useCallback(() => {
+    if (!nonConsecutiveShiftsRef.current) return { top: 0, right: 0 };
+    const rect = nonConsecutiveShiftsRef.current.getBoundingClientRect();
+    return {
+      top: rect.bottom + 8,
+      right: window.innerWidth - rect.right,
+    };
+  }, []);
+  const [nonConsecutivePopoverPosition, setNonConsecutivePopoverPosition] = useState({ top: 0, right: 0 });
+  useEffect(() => {
+    if (nonConsecutiveShiftsOpen) {
+      setNonConsecutivePopoverPosition(getNonConsecutivePopoverPosition());
+    }
+  }, [nonConsecutiveShiftsOpen, getNonConsecutivePopoverPosition]);
+  const nonConsecutiveShiftsCount = nonConsecutiveShifts.length;
+  const nonConsecutiveShiftsBadge =
+    nonConsecutiveShiftsCount > 0 ? (
+      <>
+        <div ref={nonConsecutiveShiftsRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setNonConsecutiveShiftsOpen((open) => !open)}
+            onMouseEnter={() => setIsSplitShiftsHovered(true)}
+            onMouseLeave={() => setIsSplitShiftsHovered(false)}
+            className={cx(
+              "inline-flex items-center self-start rounded-full px-2.5 py-1 text-[11px] font-normal ring-1 ring-inset sm:self-auto sm:px-3",
+              "bg-orange-50 text-orange-700 ring-orange-200 hover:bg-orange-100 dark:bg-orange-900/40 dark:text-orange-200 dark:ring-orange-500/40",
+            )}
+            aria-expanded={nonConsecutiveShiftsOpen}
+          >
+            {nonConsecutiveShiftsCount} Split Shift{nonConsecutiveShiftsCount !== 1 ? "s" : ""}
+          </button>
+        </div>
+        {nonConsecutiveShiftsOpen
+          ? createPortal(
+              <div
+                className="fixed z-[1100] w-80 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700 shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                style={{ top: nonConsecutivePopoverPosition.top, right: nonConsecutivePopoverPosition.right }}
+              >
+                <div className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Split shifts (gaps between assignments)
+                </div>
+                <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                  {nonConsecutiveShifts.map((shift) => (
+                    <button
+                      key={shift.id}
+                      type="button"
+                      onClick={() => {
+                        setActiveSplitShiftId((prev) => (prev === shift.id ? null : shift.id));
+                        scrollToAssignmentKeys(shift.assignmentKeys);
+                      }}
+                      className={cx(
+                        "w-full rounded-lg border px-2 py-1 text-left transition-colors",
+                        activeSplitShiftId === shift.id
+                          ? "border-orange-300 bg-orange-50 dark:border-orange-500/50 dark:bg-orange-900/30"
+                          : "border-slate-100 bg-white hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900/70",
+                      )}
+                    >
+                      <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                        {shift.clinicianName}
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                        {shift.dateFormatted} - Gap between shifts
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>,
+              document.body,
+            )
+          : null}
+      </>
+    ) : null;
   const publishToggle = (
     <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
       <span>Publish</span>
@@ -2547,6 +2870,58 @@ export default function WeeklySchedulePage({
         onToggleTheme={onToggleTheme}
       />
 
+      {slotCollisions.length > 0 && (
+        <div className="border-b border-red-200 bg-red-50 px-4 py-3 dark:border-red-900 dark:bg-red-950">
+          <div className="mx-auto max-w-7xl">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-red-600 dark:text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-red-800 dark:text-red-200">
+                  Template Configuration Error: Hidden Sections Detected
+                </h3>
+                <div className="mt-1 text-xs text-red-700 dark:text-red-300">
+                  <p className="mb-2">
+                    Multiple sections are assigned to the same row and time slot. Only one section will be visible in the calendar - others are hidden but still exist in the database.
+                  </p>
+                  <details className="group">
+                    <summary className="cursor-pointer font-medium hover:underline">
+                      Show {slotCollisions.length} collision{slotCollisions.length > 1 ? "s" : ""} ({slotCollisions.reduce((sum, c) => sum + c.sections.length, 0)} sections affected)
+                    </summary>
+                    <ul className="mt-2 space-y-1 pl-4">
+                      {slotCollisions.slice(0, 10).map((collision) => {
+                        const uniqueSections = [...new Set(collision.sections.map(s => s.sectionName))];
+                        return (
+                          <li key={collision.key} className="text-xs">
+                            <span className="font-medium">{collision.dayType.toUpperCase()}</span> in row "{collision.rowBandId}": {uniqueSections.join(", ")}
+                          </li>
+                        );
+                      })}
+                      {slotCollisions.length > 10 && (
+                        <li className="text-xs italic">...and {slotCollisions.length - 10} more</li>
+                      )}
+                    </ul>
+                  </details>
+                  <p className="mt-2 font-medium">
+                    Fix: Open Weekly Template Builder and ensure each section has its own row.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewMode("settings")}
+                className="flex-shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600"
+              >
+                Open Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {viewMode === "calendar" ? (
         <>
           <ScheduleGrid
@@ -2584,6 +2959,7 @@ export default function WeeklySchedulePage({
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {openSlotsBadge}
+                  {nonConsecutiveShiftsBadge}
                   {ruleViolationsBadge}
                   {publishToggle}
                 </div>

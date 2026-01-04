@@ -141,7 +141,7 @@ export type SolverSettings = {
   weightTotalAssignments?: number; // Maximize total assignments (default: 100)
   weightSlotPriority?: number; // Prefer slots in template order (default: 10)
   weightTimeWindow?: number; // Respect preferred working time windows (default: 5)
-  weightContinuousShifts?: number; // Group consecutive shifts (default: 3)
+  weightGapPenalty?: number; // Penalize non-adjacent shifts on same day (default: 50)
   weightSectionPreference?: number; // Assign to preferred sections (default: 1)
   weightWorkingHours?: number; // Stay within target working hours (default: 1)
 };
@@ -398,7 +398,7 @@ export type SolverSubScores = {
   total_assignments: number;
   preference_score: number;
   time_window_score: number;
-  continuous_shift_score: number;
+  gap_penalty: number;
   hours_penalty: number;
 };
 
@@ -414,7 +414,7 @@ export type SolverDebugInfo = {
   sub_scores?: SolverSubScores;
 };
 
-export type SolveWeekResult = {
+export type SolveRangeResult = {
   startISO: string;
   endISO: string;
   assignments: Assignment[];
@@ -422,11 +422,11 @@ export type SolveWeekResult = {
   debugInfo?: SolverDebugInfo;
 };
 
-export async function solveWeek(
+export async function solveRange(
   startISO: string,
   options?: { endISO?: string; onlyFillRequired?: boolean; timeoutSeconds?: number; signal?: AbortSignal },
-): Promise<SolveWeekResult> {
-  const res = await fetch(`${API_BASE}/v1/solve/week`, {
+): Promise<SolveRangeResult> {
+  const res = await fetch(`${API_BASE}/v1/solve/range`, {
     method: "POST",
     headers: buildHeaders(),
     body: JSON.stringify({
@@ -439,7 +439,7 @@ export async function solveWeek(
   });
   if (res.status === 401) handleUnauthorized();
   if (!res.ok) {
-    throw new Error(`Failed to solve week: ${res.status}`);
+    throw new Error(`Failed to solve range: ${res.status}`);
   }
   return res.json();
 }
