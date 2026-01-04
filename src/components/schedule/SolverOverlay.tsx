@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { Assignment, Clinician } from "../../api/client";
 import type { ScheduleRow } from "../../lib/shiftRows";
@@ -15,9 +15,11 @@ type SolverOverlayProps = {
   isVisible: boolean;
   progress: { current: number; total: number } | null;
   elapsedMs: number;
+  totalAllowedMs: number; // Total time allowed for solving
   solveRange: { startISO: string; endISO: string } | null;
   displayedRange: { startISO: string; endISO: string };
   onAbort: () => void;
+  onApplySolution: () => void; // Separate handler for applying solution
   liveSolutions?: LiveSolution[];
   scheduleRows?: ScheduleRow[];
   clinicians?: Clinician[];
@@ -195,27 +197,6 @@ function LiveSolutionChart({ solutions, elapsedMs }: { solutions: LiveSolution[]
   );
 }
 
-function ChevronIcon({ className, expanded }: { className?: string; expanded: boolean }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      className={`${className} transition-transform ${expanded ? "rotate-180" : ""}`}
-    >
-      <path
-        fillRule="evenodd"
-        d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
-
-function formatMs(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
 
 // Type for stats history entry
 type StatsHistoryEntry = {
@@ -223,32 +204,33 @@ type StatsHistoryEntry = {
   filledSlots: number;
   openSlots: number;
   nonConsecutiveShifts: number;
-  cliniciansWithinHours: number;
-  totalCliniciansWithTarget: number;
+  peopleWeeksWithinHours: number;
+  totalPeopleWeeksWithTarget: number;
   totalRequiredSlots: number;
+  locationChanges: number;
 };
 
-// Mini sparkline chart for a single metric
+// Stats chart for a single metric - same size as main solution chart
 function MiniStatsChart({
   data,
   dataKey,
   elapsedMs,
   color,
-  invertBetter = false,
   maxValue,
+  labelSuffix,
 }: {
   data: StatsHistoryEntry[];
   dataKey: keyof StatsHistoryEntry;
   elapsedMs: number;
   color: string;
-  invertBetter?: boolean; // true = higher is better, false = lower is better
   maxValue?: number;
+  labelSuffix?: string; // e.g., "/42" for "x/y" format
 }) {
   if (data.length === 0) return null;
 
-  const width = 200;
-  const height = 50;
-  const padding = { top: 5, right: 5, bottom: 15, left: 5 };
+  const width = 500;
+  const height = 140;
+  const padding = { top: 15, right: 45, bottom: 25, left: 55 }; // Extra right padding for label
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
 
@@ -259,28 +241,30 @@ function MiniStatsChart({
 
   const maxTimeMs = Math.max(elapsedMs, ...data.map((d) => d.time_ms)) * 1.05;
 
-  // Build step path
-  const points: { x: number; y: number }[] = [];
+  // Build step path - higher values at top
+  const points: { x: number; y: number; value: number }[] = [];
   for (let i = 0; i < data.length; i++) {
     const d = data[i];
     const val = d[dataKey] as number;
     const normalized = (val - minVal) / range;
-    // If invertBetter, higher values at top; otherwise lower values at top
-    const y = invertBetter
-      ? padding.top + (1 - normalized) * innerHeight
-      : padding.top + normalized * innerHeight;
+    const y = padding.top + (1 - normalized) * innerHeight;
     const x = padding.left + (d.time_ms / maxTimeMs) * innerWidth;
-    points.push({ x, y });
+    points.push({ x, y, value: val });
 
     // Extend to next point or current time
     const nextTime = i < data.length - 1 ? data[i + 1].time_ms : elapsedMs;
     const nextX = padding.left + (nextTime / maxTimeMs) * innerWidth;
-    points.push({ x: nextX, y });
+    points.push({ x: nextX, y, value: val });
   }
 
   const linePath = points.length > 0
     ? `M ${points.map((p) => `${p.x},${p.y}`).join(" L ")}`
     : "";
+
+  // Get the current (last) value for the label
+  const currentValue = points.length > 0 ? points[points.length - 1].value : 0;
+  const lastPoint = points.length > 0 ? points[points.length - 1] : null;
+  const labelText = labelSuffix ? `${currentValue}${labelSuffix}` : `${currentValue}`;
 
   return (
     <svg width={width} height={height} className="overflow-visible">
@@ -297,56 +281,232 @@ function MiniStatsChart({
       {linePath && (
         <path d={linePath} fill="none" stroke={color} strokeWidth={1.5} />
       )}
-      {/* Current value dot */}
-      {points.length >= 2 && (
-        <circle
-          cx={points[points.length - 1].x}
-          cy={points[points.length - 1].y}
-          r={3}
-          fill={color}
-        />
+      {/* Current value dot and label at leading edge */}
+      {lastPoint && (
+        <>
+          <circle
+            cx={lastPoint.x}
+            cy={lastPoint.y}
+            r={4}
+            fill={color}
+          />
+          <text
+            x={lastPoint.x + 8}
+            y={lastPoint.y + 4}
+            className="text-[11px] font-semibold"
+            fill={color}
+          >
+            {labelText}
+          </text>
+        </>
       )}
-      {/* Min/max labels */}
+      {/* Y-axis labels - higher values at top */}
       <text
-        x={padding.left}
-        y={padding.top + 2}
-        className="fill-current text-[8px] opacity-40"
+        x={padding.left - 4}
+        y={padding.top + 3}
+        textAnchor="end"
+        className="fill-current text-[9px] opacity-60"
       >
-        {invertBetter ? maxVal : minVal}
+        {maxVal}
       </text>
       <text
-        x={padding.left}
-        y={height - padding.bottom - 2}
-        className="fill-current text-[8px] opacity-40"
+        x={padding.left - 4}
+        y={height - padding.bottom}
+        textAnchor="end"
+        className="fill-current text-[9px] opacity-60"
       >
-        {invertBetter ? minVal : maxVal}
+        {minVal}
       </text>
+      {/* X-axis labels */}
+      <text
+        x={padding.left}
+        y={height - 5}
+        className="fill-current text-[9px] opacity-40"
+      >
+        0
+      </text>
+      <text
+        x={width - padding.right}
+        y={height - 5}
+        textAnchor="end"
+        className="fill-current text-[9px] opacity-40"
+      >
+        {(Math.max(elapsedMs, ...data.map((d) => d.time_ms)) / 1000).toFixed(1)}
+      </text>
+      {/* Axis lines */}
+      <line
+        x1={padding.left}
+        y1={height - padding.bottom}
+        x2={width - padding.right}
+        y2={height - padding.bottom}
+        stroke="currentColor"
+        strokeOpacity={0.2}
+      />
+      <line
+        x1={padding.left}
+        y1={padding.top}
+        x2={padding.left}
+        y2={height - padding.bottom}
+        stroke="currentColor"
+        strokeOpacity={0.2}
+      />
     </svg>
   );
 }
 
-function formatImprovement(current: number, previous: number): string {
-  const diff = current - previous;
-  const pct = (diff / Math.abs(previous)) * 100;
-  return `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+// Full-screen dashboard with all graphs
+function SolverDashboard({
+  liveSolutions,
+  statsHistory,
+  liveStats,
+  elapsedMs,
+  totalAllowedMs,
+  onClose,
+}: {
+  liveSolutions: LiveSolution[];
+  statsHistory: StatsHistoryEntry[];
+  liveStats: {
+    filledSlots: number;
+    totalRequiredSlots: number;
+    openSlots: number;
+    nonConsecutiveShifts: number;
+    peopleWeeksWithinHours: number;
+    totalPeopleWeeksWithTarget: number;
+    locationChanges: number;
+  } | null;
+  elapsedMs: number;
+  totalAllowedMs: number;
+  onClose: () => void;
+}) {
+  return createPortal(
+    <div className="fixed inset-0 z-[1100] flex flex-col bg-white dark:bg-slate-900">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+          Solver Details
+        </h2>
+        <div className="flex items-center gap-4">
+          <span className="text-sm font-medium tabular-nums text-slate-600 dark:text-slate-300">
+            {formatDuration(elapsedMs)} / {formatDuration(totalAllowedMs)}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-700"
+          >
+            ← Back
+          </button>
+        </div>
+      </div>
+
+      {/* Dashboard content */}
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="mx-auto flex max-w-3xl flex-col gap-8">
+          {/* Score graph */}
+          <div className="flex flex-col items-center gap-2">
+            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Score
+            </h3>
+            <LiveSolutionChart solutions={liveSolutions} elapsedMs={elapsedMs} />
+          </div>
+
+          {/* Filled Slots graph */}
+          {liveStats && statsHistory.length > 1 && (
+            <div className="flex flex-col items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Filled Slots
+              </h3>
+              <MiniStatsChart
+                data={statsHistory}
+                dataKey="filledSlots"
+                elapsedMs={elapsedMs}
+                color="#6366f1"
+                maxValue={liveStats.totalRequiredSlots}
+                labelSuffix={`/${liveStats.totalRequiredSlots}`}
+              />
+            </div>
+          )}
+
+          {/* Non-consecutive shifts graph */}
+          {liveStats && statsHistory.length > 1 && (
+            <div className="flex flex-col items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Non-consecutive Shifts
+              </h3>
+              <MiniStatsChart
+                data={statsHistory}
+                dataKey="nonConsecutiveShifts"
+                elapsedMs={elapsedMs}
+                color="#ef4444"
+              />
+            </div>
+          )}
+
+          {/* People-Weeks within working hours graph */}
+          {liveStats && liveStats.totalPeopleWeeksWithTarget > 0 && statsHistory.length > 1 && (
+            <div className="flex flex-col items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                People-Weeks within Working Hours
+              </h3>
+              <MiniStatsChart
+                data={statsHistory}
+                dataKey="peopleWeeksWithinHours"
+                elapsedMs={elapsedMs}
+                color="#10b981"
+                maxValue={liveStats.totalPeopleWeeksWithTarget}
+                labelSuffix={`/${liveStats.totalPeopleWeeksWithTarget}`}
+              />
+            </div>
+          )}
+
+          {/* Location changes graph */}
+          {liveStats && statsHistory.length > 1 && (
+            <div className="flex flex-col items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Location Changes
+              </h3>
+              <MiniStatsChart
+                data={statsHistory}
+                dataKey="locationChanges"
+                elapsedMs={elapsedMs}
+                color="#f59e0b"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
 }
 
 export default function SolverOverlay({
   isVisible,
   progress,
   elapsedMs,
+  totalAllowedMs,
   solveRange,
   displayedRange,
   onAbort,
+  onApplySolution,
   liveSolutions = [],
   scheduleRows = [],
   clinicians = [],
   holidays = new Set(),
   currentPhase = null,
 }: SolverOverlayProps) {
-  const [containerRect, setContainerRect] = useState<DOMRect | null>(null);
-  const [detailsExpanded, setDetailsExpanded] = useState(false);
-  const [statsGraphsExpanded, setStatsGraphsExpanded] = useState(false);
+  const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [calendarContainer, setCalendarContainer] = useState<HTMLElement | null>(null);
+
+  // Find the calendar container on mount
+  useEffect(() => {
+    // Find the parent of .calendar-scroll which has position:relative
+    const scrollEl = document.querySelector('.calendar-scroll');
+    const container = scrollEl?.parentElement;
+    if (container instanceof HTMLElement) {
+      setCalendarContainer(container);
+    }
+  }, []);
 
   // Build stats history from all solutions
   const statsHistory = useMemo(() => {
@@ -379,8 +539,9 @@ export default function SolverOverlay({
       totalRequiredSlots: last.totalRequiredSlots,
       openSlots: last.openSlots,
       nonConsecutiveShifts: last.nonConsecutiveShifts,
-      cliniciansWithinHours: last.cliniciansWithinHours,
-      totalCliniciansWithTarget: last.totalCliniciansWithTarget,
+      peopleWeeksWithinHours: last.peopleWeeksWithinHours,
+      totalPeopleWeeksWithTarget: last.totalPeopleWeeksWithTarget,
+      locationChanges: last.locationChanges,
     };
   }, [statsHistory]);
 
@@ -388,60 +549,20 @@ export default function SolverOverlay({
   const hasOverlap =
     isVisible && solveRange && rangesOverlap(solveRange, displayedRange);
 
-  // Find and track the scrollable container's visible area
-  useEffect(() => {
-    if (!hasOverlap) {
-      setContainerRect(null);
-      return;
-    }
-
-    const updateRect = () => {
-      // Find the scrollable container (parent of the grid with overflow-x-auto)
-      const scrollContainer = document.querySelector('.calendar-scroll') as HTMLElement | null;
-      if (scrollContainer) {
-        setContainerRect(scrollContainer.getBoundingClientRect());
-      }
-    };
-
-    updateRect();
-
-    // Update on resize only (not scroll - we want fixed position)
-    window.addEventListener("resize", updateRect);
-
-    // Also update periodically in case of layout shifts
-    const interval = setInterval(updateRect, 500);
-
-    return () => {
-      window.removeEventListener("resize", updateRect);
-      clearInterval(interval);
-    };
-  }, [hasOverlap]);
-
-  // Don't render if no overlap or no container rect
-  if (!hasOverlap || !containerRect) return null;
+  // Don't render if no overlap or no container found
+  if (!hasOverlap || !calendarContainer) return null;
 
   const dateRangeLabel = solveRange
     ? `${formatEuropeanDate(solveRange.startISO)} – ${formatEuropeanDate(solveRange.endISO)}`
     : null;
 
   return createPortal(
-    <div
-      className="fixed z-[1000] flex items-center justify-center overflow-hidden"
-      style={{
-        top: containerRect.top,
-        left: containerRect.left,
-        width: containerRect.width,
-        height: containerRect.height,
-        pointerEvents: "auto",
-      }}
-    >
-      {/* Semi-transparent overlay without backdrop-blur to avoid bleeding */}
-      <div className="absolute inset-0 bg-white/70 dark:bg-slate-900/70" />
+    <div className="absolute inset-0 z-30 flex items-center justify-center">
+      {/* Semi-transparent overlay */}
+      <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80" />
 
-      {/* Content panel - centered with 90% of calendar width */}
-      <div
-        className="relative z-10 mx-4 flex w-[90%] flex-col items-center gap-5 rounded-2xl border border-slate-200 bg-white px-8 py-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-      >
+      {/* Content panel - compact width that fits content */}
+      <div className="relative z-10 flex max-h-[90%] w-auto max-w-lg flex-col items-center gap-4 overflow-y-auto rounded-2xl border border-slate-200 bg-white px-8 py-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
         {/* Animated spinner */}
         <div className="relative h-14 w-14">
           <svg
@@ -498,184 +619,25 @@ export default function SolverOverlay({
           <LiveSolutionChart solutions={liveSolutions} elapsedMs={elapsedMs} />
         )}
 
-        {/* Live stats - clickable to expand graphs */}
-        {liveStats && (
-          <div className="w-full">
-            <button
-              type="button"
-              onClick={() => setStatsGraphsExpanded(!statsGraphsExpanded)}
-              className="flex w-full flex-col gap-1.5 rounded-lg border border-transparent px-3 py-2 text-sm transition-colors hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-800/50"
-            >
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-slate-500 dark:text-slate-400">Filled Open Slots:</span>
-                <span className="font-semibold tabular-nums text-slate-700 dark:text-slate-200">
-                  {liveStats.filledSlots}/{liveStats.totalRequiredSlots}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-slate-500 dark:text-slate-400">Shifts that are non-consecutive:</span>
-                <span
-                  className={`font-semibold tabular-nums ${
-                    liveStats.nonConsecutiveShifts === 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-amber-600 dark:text-amber-400"
-                  }`}
-                >
-                  {liveStats.nonConsecutiveShifts}
-                </span>
-              </div>
-              {liveStats.totalCliniciansWithTarget > 0 && (
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-slate-500 dark:text-slate-400">People within working hour range:</span>
-                  <span
-                    className={`font-semibold tabular-nums ${
-                      liveStats.cliniciansWithinHours === liveStats.totalCliniciansWithTarget
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-amber-600 dark:text-amber-400"
-                    }`}
-                  >
-                    {liveStats.cliniciansWithinHours}/{liveStats.totalCliniciansWithTarget}
-                  </span>
-                </div>
-              )}
-              <div className="mt-1 flex items-center justify-center gap-1 text-xs text-slate-400 dark:text-slate-500">
-                <span>{statsGraphsExpanded ? "Hide" : "Show"} graphs</span>
-                <ChevronIcon className="h-3 w-3" expanded={statsGraphsExpanded} />
-              </div>
-            </button>
-
-            {/* Expanded graphs panel */}
-            {statsGraphsExpanded && statsHistory.length > 1 && (
-              <div className="mt-3 grid grid-cols-2 gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
-                {/* Filled Slots graph */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                    Filled Slots
-                  </span>
-                  <MiniStatsChart
-                    data={statsHistory}
-                    dataKey="filledSlots"
-                    elapsedMs={elapsedMs}
-                    color="#6366f1"
-                    invertBetter={true}
-                    maxValue={liveStats.totalRequiredSlots}
-                  />
-                </div>
-
-                {/* Open Slots graph */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                    Open Slots
-                  </span>
-                  <MiniStatsChart
-                    data={statsHistory}
-                    dataKey="openSlots"
-                    elapsedMs={elapsedMs}
-                    color="#f59e0b"
-                    invertBetter={false}
-                  />
-                </div>
-
-                {/* Non-consecutive shifts graph */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                    Non-consecutive Shifts
-                  </span>
-                  <MiniStatsChart
-                    data={statsHistory}
-                    dataKey="nonConsecutiveShifts"
-                    elapsedMs={elapsedMs}
-                    color="#ef4444"
-                    invertBetter={false}
-                  />
-                </div>
-
-                {/* Working hours graph */}
-                {liveStats.totalCliniciansWithTarget > 0 && (
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                      Within Working Hours
-                    </span>
-                    <MiniStatsChart
-                      data={statsHistory}
-                      dataKey="cliniciansWithinHours"
-                      elapsedMs={elapsedMs}
-                      color="#10b981"
-                      invertBetter={true}
-                      maxValue={liveStats.totalCliniciansWithTarget}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Collapsible Details section */}
-        {liveSolutions.length > 0 && (
-          <div className="w-full max-w-md">
-            <button
-              type="button"
-              onClick={() => setDetailsExpanded(!detailsExpanded)}
-              className="flex w-full items-center justify-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
-            >
-              <span>Details</span>
-              <ChevronIcon className="h-4 w-4" expanded={detailsExpanded} />
-            </button>
-            {detailsExpanded && (
-              <div className="mt-2 max-h-32 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0">
-                    <tr className="bg-slate-50 dark:bg-slate-800">
-                      <th className="px-2 py-1 text-left font-medium text-slate-600 dark:text-slate-300">#</th>
-                      <th className="px-2 py-1 text-right font-medium text-slate-600 dark:text-slate-300">Time</th>
-                      <th className="px-2 py-1 text-right font-medium text-slate-600 dark:text-slate-300">Score</th>
-                      <th className="px-2 py-1 text-right font-medium text-slate-600 dark:text-slate-300">Δ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {liveSolutions.map((sol, i) => {
-                      const prevObj = i > 0 ? liveSolutions[i - 1].objective : sol.objective;
-                      return (
-                        <tr
-                          key={sol.solution_num}
-                          className={i % 2 === 0 ? "bg-white dark:bg-slate-900" : "bg-slate-50/50 dark:bg-slate-800/50"}
-                        >
-                          <td className="px-2 py-1 text-slate-700 dark:text-slate-200">{sol.solution_num}</td>
-                          <td className="px-2 py-1 text-right tabular-nums text-slate-600 dark:text-slate-300">
-                            {formatMs(sol.time_ms)}
-                          </td>
-                          <td className="px-2 py-1 text-right tabular-nums text-slate-600 dark:text-slate-300">
-                            {sol.objective}
-                          </td>
-                          <td className="px-2 py-1 text-right tabular-nums text-slate-500 dark:text-slate-400">
-                            {i === 0 ? "—" : formatImprovement(sol.objective, prevObj)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Elapsed time */}
-        <div className="text-sm text-slate-500 dark:text-slate-400">
-          {formatDuration(elapsedMs)}
+        {/* Elapsed / Total time */}
+        <div className="text-sm font-medium tabular-nums text-slate-600 dark:text-slate-300">
+          {formatDuration(elapsedMs)} / {formatDuration(totalAllowedMs)}
         </div>
 
-        {/* Action button - changes to "Apply Solution" once a solution is found */}
-        {liveSolutions.length > 0 ? (
-          <button
-            type="button"
-            onClick={onAbort}
-            className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-sm font-medium text-indigo-600 transition-colors hover:border-indigo-300 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 dark:hover:border-indigo-700 dark:hover:bg-indigo-900"
-          >
-            Apply Solution
-          </button>
-        ) : (
+        {/* Action buttons */}
+        <div className="flex items-center gap-3">
+          {/* Details button - only shown when solutions exist */}
+          {liveSolutions.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setDashboardOpen(true)}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-700"
+            >
+              Details
+            </button>
+          )}
+
+          {/* Abort button - always shown */}
           <button
             type="button"
             onClick={onAbort}
@@ -683,9 +645,32 @@ export default function SolverOverlay({
           >
             Abort
           </button>
+
+          {/* Apply Solution button - only shown when solutions exist */}
+          {liveSolutions.length > 0 && (
+            <button
+              type="button"
+              onClick={onApplySolution}
+              className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-sm font-medium text-indigo-600 transition-colors hover:border-indigo-300 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 dark:hover:border-indigo-700 dark:hover:bg-indigo-900"
+            >
+              Apply Solution
+            </button>
+          )}
+        </div>
+
+        {/* Full-screen dashboard */}
+        {dashboardOpen && (
+          <SolverDashboard
+            liveSolutions={liveSolutions}
+            statsHistory={statsHistory}
+            liveStats={liveStats}
+            elapsedMs={elapsedMs}
+            totalAllowedMs={totalAllowedMs}
+            onClose={() => setDashboardOpen(false)}
+          />
         )}
       </div>
     </div>,
-    document.body,
+    calendarContainer,
   );
 }

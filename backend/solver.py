@@ -479,6 +479,7 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
 
     result = None
     error = None
+    last_solution_assignments = None  # Track last known good solution
 
     try:
         # Monitor the subprocess and relay progress to SSE
@@ -495,6 +496,9 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
                         msg = progress_queue.get_nowait()
                         if msg["type"] == "progress":
                             _broadcast_solver_progress(msg["event"], msg["data"])
+                            # Track solution assignments for force-abort recovery
+                            if msg["event"] == "solution" and "assignments" in msg["data"]:
+                                last_solution_assignments = msg["data"]["assignments"]
                         elif msg["type"] == "result":
                             result = msg["data"]
                         elif msg["type"] == "error":
@@ -508,6 +512,9 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
                 msg = progress_queue.get(timeout=0.1)
                 if msg["type"] == "progress":
                     _broadcast_solver_progress(msg["event"], msg["data"])
+                    # Track solution assignments for force-abort recovery
+                    if msg["event"] == "solution" and "assignments" in msg["data"]:
+                        last_solution_assignments = msg["data"]["assignments"]
                 elif msg["type"] == "result":
                     result = msg["data"]
                 elif msg["type"] == "error":
@@ -520,6 +527,14 @@ def solve_week(payload: SolveWeekRequest, current_user: UserPublic = Depends(_ge
 
         if error:
             raise Exception(error.get("error", "Unknown solver error"))
+
+        # If result is None but we have a last solution (force-abort case), use it
+        if result is None and last_solution_assignments is not None:
+            result = {
+                "startISO": payload.startISO,
+                "endISO": payload.endISO,
+                "assignments": last_solution_assignments,
+            }
 
         if result is None:
             raise Exception("Solver process terminated without result")
@@ -598,7 +613,7 @@ def _solve_week_impl(
     timer = SolverTimer()
 
     # Broadcast phase progress for UI feedback
-    on_progress("phase", {"phase": "load_state", "label": "Loading schedule data..."})
+    on_progress("phase", {"phase": "load_state", "label": "Preparation (1/10): Loading schedule data..."})
     state = _load_state(current_user.username)
     timer.checkpoint("load_state")
     diagnostics: List[str] = []  # Track potential issues for debugging
@@ -632,7 +647,7 @@ def _solve_week_impl(
     day_index_by_iso = {date_iso: idx for idx, date_iso in enumerate(day_isos)}
     timer.checkpoint("date_setup")
 
-    on_progress("phase", {"phase": "slot_contexts", "label": "Analyzing shift patterns..."})
+    on_progress("phase", {"phase": "slot_contexts", "label": "Preparation (2/10): Analyzing shift patterns..."})
     slot_contexts = _collect_slot_contexts(state)
     slot_ids = {ctx["slot_id"] for ctx in slot_contexts}
     section_by_slot_id = {ctx["slot_id"]: ctx["section_id"] for ctx in slot_contexts}
@@ -643,7 +658,7 @@ def _solve_week_impl(
         )
     timer.checkpoint("slot_contexts")
 
-    on_progress("phase", {"phase": "create_variables", "label": "Setting up assignment options..."})
+    on_progress("phase", {"phase": "create_variables", "label": "Preparation (3/10): Setting up assignment options..."})
     holidays = state.holidays or []
     day_type_by_iso = {iso: _get_day_type(iso, holidays) for iso in day_isos}
     weekday_by_iso = {iso: _get_weekday_key(iso) for iso in day_isos}
@@ -736,7 +751,7 @@ def _solve_week_impl(
                     time_window_terms.append(var)
     timer.checkpoint("create_variables")
 
-    on_progress("phase", {"phase": "overlap_constraints", "label": "Adding schedule conflict rules..."})
+    on_progress("phase", {"phase": "overlap_constraints", "label": "Preparation (4/10): Adding schedule conflict rules..."})
     # Diagnostic: check if we have any variables at all
     if not var_map:
         # Figure out why no variables were created
@@ -870,7 +885,7 @@ def _solve_week_impl(
                         model.Add(var_c <= 0)
     timer.checkpoint("overlap_constraints")
 
-    on_progress("phase", {"phase": "coverage_constraints", "label": "Applying staffing requirements..."})
+    on_progress("phase", {"phase": "coverage_constraints", "label": "Preparation (5/10): Applying staffing requirements..."})
     # Coverage + rules
     coverage_terms = []
     slack_terms = []
@@ -970,7 +985,7 @@ def _solve_week_impl(
         slack_terms.append(slack * order_weight)
     timer.checkpoint("coverage_constraints")
 
-    on_progress("phase", {"phase": "on_call_rest_days", "label": "Setting up on-call rest rules..."})
+    on_progress("phase", {"phase": "on_call_rest_days", "label": "Preparation (6/10): Setting up on-call rest rules..."})
     # On-call rest days
     rest_class_id = solver_settings.onCallRestClassId
     rest_before = max(0, solver_settings.onCallRestDaysBefore or 0)
@@ -1078,7 +1093,7 @@ def _solve_week_impl(
         notes.append(f"WARNING: {len(rest_day_conflicts)} manual assignment(s) violate on-call rest day rules.")
     timer.checkpoint("on_call_rest_days")
 
-    on_progress("phase", {"phase": "working_hours_constraints", "label": "Balancing working hours..."})
+    on_progress("phase", {"phase": "working_hours_constraints", "label": "Preparation (7/10): Balancing working hours..."})
     hours_penalty_terms: List[cp_model.IntVar] = []
     total_days = len(target_day_isos)
     scale = total_days / 7.0 if total_days else 0
@@ -1144,7 +1159,7 @@ def _solve_week_impl(
         hours_penalty_terms.append(under_blocks + over_blocks)
     timer.checkpoint("working_hours_constraints")
 
-    on_progress("phase", {"phase": "continuous_shift_constraints", "label": "Grouping consecutive shifts..."})
+    on_progress("phase", {"phase": "continuous_shift_constraints", "label": "Preparation (8/10): Grouping consecutive shifts..."})
     # Continuous shift preference: reward assigning adjacent slots to same clinician
     # We use AddMultiplicationEquality to create: both = var_a * var_b
     # This is 1 only when both adjacent slots are assigned to the same clinician
@@ -1188,7 +1203,7 @@ def _solve_week_impl(
                                 continuous_terms.append(both)
     timer.checkpoint("continuous_shift_constraints")
 
-    on_progress("phase", {"phase": "objective_setup", "label": "Finalizing optimization goals..."})
+    on_progress("phase", {"phase": "objective_setup", "label": "Preparation (9/10): Finalizing optimization goals..."})
     total_slack = sum(slack_terms) if slack_terms else 0
     total_coverage = sum(coverage_terms) if coverage_terms else 0
 
@@ -1234,7 +1249,7 @@ def _solve_week_impl(
         )
     timer.checkpoint("objective_setup")
 
-    on_progress("phase", {"phase": "solve", "label": "Solving constraints..."})
+    on_progress("phase", {"phase": "solve", "label": "Preparation (10/10): Solving constraints..."})
     # Solution callback to track when solutions are found and check for cancellation
     class SolutionCallback(cp_model.CpSolverSolutionCallback):
         def __init__(self, timer: SolverTimer, cancel_event_ref, var_map: Dict, progress_callback):

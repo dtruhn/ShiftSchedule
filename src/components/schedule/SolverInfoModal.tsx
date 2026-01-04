@@ -142,7 +142,7 @@ export default function SolverInfoModal({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-[1050]">
       {/* Backdrop */}
       <button
         className="absolute inset-0 cursor-default bg-slate-900/30 backdrop-blur-[1px]"

@@ -601,26 +601,27 @@ SSE live updates (real-time progress):
 - When aborted, the last solution's assignments can be applied immediately.
 
 Solver overlay (SolverOverlay.tsx):
-- Renders inside the schedule grid element via `createPortal(content, gridElement)`.
-- Uses absolute positioning (`absolute inset-0`) so it scrolls with the grid content.
+- Renders inside the calendar container via `createPortal(content, calendarContainer)` where `calendarContainer` is the parent of `.calendar-scroll`.
+- Uses absolute positioning (`absolute inset-0 z-30`) so it only covers the calendar area.
 - Only shows when the displayed week overlaps with the solve range.
-- Panel width: 90% of calendar width (no max-width cap).
+- Compact panel width (`w-auto max-w-lg`) that fits content.
 - Components:
   - Animated spinner with indigo accent.
   - Date range label (DD.MM.YYYY format).
   - Preparation phase indicator: shows current solver phase before first solution (e.g., "Loading schedule data...", "Solving constraints...").
   - Live solution chart: SVG line chart showing objective value over time (log scale, inverted so better scores appear higher).
-  - Live stats display (clickable to expand graphs):
-    - Filled Open Slots: X/Y
-    - Shifts that are non-consecutive: N (amber if > 0)
-    - People within working hour range: X/Y (only shown if clinicians have targets; amber if not all OK)
-  - Stats graphs panel (expandable): mini sparkline charts for each metric showing evolution over time.
-  - Collapsible details table: solution number, time, score, and delta percentage.
-  - Elapsed time counter (MM:SS format).
-  - Action button: "Abort" (rose/red) when no solutions yet, "Apply Solution" (indigo/blue) once a solution is found.
-- Working hours scaling: uses working days (Mon-Fri) minus holidays, not total days. E.g., 4 working days = 4/5 of weekly target.
-- Grid element requires `position: relative` for absolute positioning to work (added to ScheduleGrid.tsx).
+  - Elapsed/total time counter (X:XX / Y:XX format, e.g., "0:45 / 1:00").
+  - Action buttons:
+    - "Abort" (rose/red) - always visible, discards any solutions found.
+    - "Apply Solution" (indigo/blue) - only shown after solutions found, applies current best solution.
+    - "Details" button - opens full-screen dashboard with all graphs.
+- Full-screen dashboard (SolverDashboard):
+  - Opens via "Details" button, renders as full-viewport overlay via portal to `document.body` (z-[1100]).
+  - Shows all graphs: Score, Filled Slots, Non-consecutive Shifts, People-Weeks within Working Hours, Location Changes.
+  - Live updates continue while dashboard is open.
+  - "← Back" button to close and return to compact overlay.
 - Solver stats calculation: modular function in `src/lib/solverStats.ts` (`calculateSolverLiveStats`).
+- Stats tracked: filledSlots, totalRequiredSlots, openSlots, nonConsecutiveShifts, peopleWeeksWithinHours, totalPeopleWeeksWithTarget, locationChanges.
 
 Automated Shift Planning panel (frontend):
 - Timeframe: "Current week" and "Today" quick buttons; custom date pickers (DD.MM.YYYY) for start/end displayed inline with dash separator.

@@ -1065,7 +1065,35 @@ export default function WeeklySchedulePage({
     }
   };
 
-  const handleAbortAutomatedPlanning = async () => {
+  // Abort without applying - discards any solutions found
+  const handleAbortWithoutApplying = async () => {
+    // Clear live solutions first so the response handler doesn't apply them
+    liveSolutionsRef.current = [];
+    setLiveSolutions([]);
+
+    // Signal the backend to stop the solver (force abort)
+    try {
+      await abortSolver(true);
+    } catch {
+      // Ignore errors - the abort request is best-effort
+    }
+
+    // Abort the fetch immediately
+    if (autoPlanAbortRef.current) {
+      autoPlanAbortRef.current.abort();
+    }
+
+    // Reset state immediately since we're discarding
+    autoPlanAbortRef.current = null;
+    setAutoPlanRunning(false);
+    setAutoPlanProgress(null);
+    setAutoPlanStartedAt(null);
+    setAutoPlanElapsedMs(0);
+    setAutoPlanDateRange(null);
+  };
+
+  // Apply solution - stops solver and applies the current best solution
+  const handleApplySolution = async () => {
     // Check if we have any solutions via SSE
     const hasSolutions = liveSolutionsRef.current.length > 0;
 
@@ -1077,8 +1105,7 @@ export default function WeeklySchedulePage({
       // Ignore errors - the abort request is best-effort
     }
 
-    // Abort the fetch immediately - we'll use the SSE solution if available
-    // The backend may continue running briefly but that's fine
+    // Abort the fetch - the response handler will apply the SSE solution
     if (autoPlanAbortRef.current) {
       autoPlanAbortRef.current.abort();
     }
@@ -2983,12 +3010,14 @@ export default function WeeklySchedulePage({
         isVisible={autoPlanRunning}
         progress={autoPlanProgress}
         elapsedMs={autoPlanElapsedMs}
+        totalAllowedMs={solverTimeoutSeconds * 1000}
         solveRange={autoPlanDateRange}
         displayedRange={{
           startISO: toISODate(weekStart),
           endISO: toISODate(weekEndInclusive),
         }}
-        onAbort={handleAbortAutomatedPlanning}
+        onAbort={handleAbortWithoutApplying}
+        onApplySolution={handleApplySolution}
         liveSolutions={liveSolutions}
         scheduleRows={scheduleRows}
         clinicians={clinicians}

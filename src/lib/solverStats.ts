@@ -6,8 +6,9 @@ export type SolverLiveStats = {
   totalRequiredSlots: number;
   openSlots: number;
   nonConsecutiveShifts: number;
-  cliniciansWithinHours: number;
-  totalCliniciansWithTarget: number;
+  peopleWeeksWithinHours: number; // Number of (clinician, week) pairs within working hours
+  totalPeopleWeeksWithTarget: number; // Total (clinician, week) pairs with targets
+  locationChanges: number; // Number of (clinician, date) pairs with location changes
 };
 
 // Map day of week (0=Sun, 1=Mon, ..., 6=Sat) to DayType
@@ -153,15 +154,25 @@ export function calculateSolverLiveStats(
 
   const openSlots = totalRequiredSlots - filledSlots;
 
-  // ===== 2. Calculate non-consecutive shifts =====
-  // Group assignments by clinician and date, then check for gaps
+  // ===== 2. Calculate non-consecutive shifts and location changes =====
+  // Group assignments by clinician and date, then check for gaps and location changes
   const assignmentsByClinicianDate = new Map<string, Set<string>>();
+  const locationsByClinicianDate = new Map<string, Set<string>>();
   for (const a of assignments) {
     const key = `${a.clinicianId}|${a.dateISO}`;
     if (!assignmentsByClinicianDate.has(key)) {
       assignmentsByClinicianDate.set(key, new Set());
     }
     assignmentsByClinicianDate.get(key)!.add(a.rowId);
+
+    // Track locations per (clinician, date)
+    const row = rowById.get(a.rowId);
+    if (row?.locationId) {
+      if (!locationsByClinicianDate.has(key)) {
+        locationsByClinicianDate.set(key, new Set());
+      }
+      locationsByClinicianDate.get(key)!.add(row.locationId);
+    }
   }
 
   let nonConsecutiveShifts = 0;
@@ -204,40 +215,72 @@ export function calculateSolverLiveStats(
     }
   }
 
-  // ===== 3. Calculate clinicians within working hours =====
-  // Sum up hours per clinician and compare to their target
-  const minutesByClinicianId = new Map<string, number>();
+  // ===== 3. Calculate location changes =====
+  // Count (clinician, date) pairs where the clinician works at multiple locations
+  let locationChanges = 0;
+  for (const [_key, locationIds] of locationsByClinicianDate) {
+    if (locationIds.size > 1) {
+      locationChanges++;
+    }
+  }
+
+  // ===== 4. Calculate people-weeks within working hours =====
+  // Group hours by (clinician, week) and compare to their target
+  // A "week" is determined by the ISO week number of each date
+
+  // Helper to get ISO week key (YYYY-Www format)
+  const getWeekKey = (dateISO: string): string => {
+    const date = new Date(dateISO);
+    // Get Thursday of the current week to determine the year for ISO week
+    const thursday = new Date(date);
+    thursday.setDate(date.getDate() + (4 - ((date.getDay() + 6) % 7 + 1)));
+    const yearStart = new Date(thursday.getFullYear(), 0, 1);
+    const weekNum = Math.ceil(((thursday.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+    return `${thursday.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
+  };
+
+  // Sum up hours per (clinician, week)
+  const minutesByClinicianWeek = new Map<string, number>();
+  const weeksInRange = new Set<string>();
+
+  for (const dateISO of dates) {
+    weeksInRange.add(getWeekKey(dateISO));
+  }
 
   for (const a of assignments) {
     const row = rowById.get(a.rowId);
     if (!row) continue;
     const duration = getSlotDurationMinutes(row);
-    minutesByClinicianId.set(
-      a.clinicianId,
-      (minutesByClinicianId.get(a.clinicianId) ?? 0) + duration,
-    );
+    const weekKey = getWeekKey(a.dateISO);
+    const key = `${a.clinicianId}|${weekKey}`;
+    minutesByClinicianWeek.set(key, (minutesByClinicianWeek.get(key) ?? 0) + duration);
   }
 
-  let cliniciansWithinHours = 0;
-  let totalCliniciansWithTarget = 0;
+  let peopleWeeksWithinHours = 0;
+  let totalPeopleWeeksWithTarget = 0;
 
+  // For each clinician with a target, check each week in the solve range
   for (const clinician of clinicians) {
     const targetHoursPerWeek = clinician.workingHoursPerWeek;
     if (typeof targetHoursPerWeek !== "number" || targetHoursPerWeek <= 0) {
       continue; // Skip clinicians without a target
     }
 
-    totalCliniciansWithTarget++;
-
     const toleranceHours = clinician.workingHoursToleranceHours ?? 5;
-    const targetMinutes = targetHoursPerWeek * 60 * scale;
-    const toleranceMinutes = toleranceHours * 60 * scale;
+    const targetMinutes = targetHoursPerWeek * 60;
+    const toleranceMinutes = toleranceHours * 60;
 
-    const actualMinutes = minutesByClinicianId.get(clinician.id) ?? 0;
-    const deviation = Math.abs(actualMinutes - targetMinutes);
+    // Check each week in the solve range for this clinician
+    for (const weekKey of weeksInRange) {
+      totalPeopleWeeksWithTarget++;
 
-    if (deviation <= toleranceMinutes) {
-      cliniciansWithinHours++;
+      const key = `${clinician.id}|${weekKey}`;
+      const actualMinutes = minutesByClinicianWeek.get(key) ?? 0;
+      const deviation = Math.abs(actualMinutes - targetMinutes);
+
+      if (deviation <= toleranceMinutes) {
+        peopleWeeksWithinHours++;
+      }
     }
   }
 
@@ -246,7 +289,8 @@ export function calculateSolverLiveStats(
     totalRequiredSlots,
     openSlots,
     nonConsecutiveShifts,
-    cliniciansWithinHours,
-    totalCliniciansWithTarget,
+    peopleWeeksWithinHours,
+    totalPeopleWeeksWithTarget,
+    locationChanges,
   };
 }
