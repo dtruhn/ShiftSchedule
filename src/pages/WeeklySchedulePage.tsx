@@ -1125,12 +1125,20 @@ export default function WeeklySchedulePage({
         historyStatus = "aborted";
       }
 
-      if (result.notes.length > 0 || result.debugInfo) {
+      // Only show notice for warnings/errors, not for successful completion
+      // Detailed debug info is available in the solver history (gear icon)
+      const warningNotes = result.notes.filter(
+        (n) => n.toLowerCase().includes("warning") ||
+               n.toLowerCase().includes("error") ||
+               n.toLowerCase().includes("could not") ||
+               n.toLowerCase().includes("ignored")
+      );
+      if (warningNotes.length > 0) {
         setSolverNotice({
-          notes: result.notes.join("\n"),
-          debugInfo: result.debugInfo,
+          notes: warningNotes.join("\n"),
         });
-        // Notice stays open until user clicks to dismiss
+        // Auto-dismiss after 5 seconds for warnings
+        window.setTimeout(() => setSolverNotice(null), 5000);
       }
       const filtered = result.assignments.filter(
         (a) => a.dateISO >= args.startISO && a.dateISO <= args.endISO,

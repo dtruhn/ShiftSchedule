@@ -455,12 +455,14 @@ export default function SolverInfoModal({
   const [view, setView] = useState<View>("info");
   const [selectedEntry, setSelectedEntry] = useState<SolverHistoryEntry | null>(null);
   const [weightsExpanded, setWeightsExpanded] = useState(false);
+  const [debugExpanded, setDebugExpanded] = useState(false);
 
   // Reset view to info when modal opens
   useEffect(() => {
     if (isOpen) {
       setView("info");
       setSelectedEntry(null);
+      setDebugExpanded(false);
     }
   }, [isOpen]);
 
@@ -870,9 +872,43 @@ export default function SolverInfoModal({
                   </div>
                 )}
 
-                {/* Debug info */}
+                {/* Debug info - expandable */}
                 {selectedEntry.debugInfo ? (
-                  <SolverDebugPanel debugInfo={selectedEntry.debugInfo} />
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDebugExpanded(!debugExpanded)}
+                      className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition-colors hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700"
+                    >
+                      <div className="flex items-center gap-2">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          className="h-4 w-4 text-slate-500 dark:text-slate-400"
+                        >
+                          <path fillRule="evenodd" d="M2 4.25A2.25 2.25 0 014.25 2h11.5A2.25 2.25 0 0118 4.25v8.5A2.25 2.25 0 0115.75 15h-3.105a3.501 3.501 0 001.1 1.677A.75.75 0 0113.26 18H6.74a.75.75 0 01-.484-1.323A3.501 3.501 0 007.355 15H4.25A2.25 2.25 0 012 12.75v-8.5zm1.5 0a.75.75 0 01.75-.75h11.5a.75.75 0 01.75.75v7.5a.75.75 0 01-.75.75H4.25a.75.75 0 01-.75-.75v-7.5z" clipRule="evenodd" />
+                        </svg>
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                          Technical Details
+                        </span>
+                      </div>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        className={cx(
+                          "h-4 w-4 text-slate-400 transition-transform dark:text-slate-500",
+                          debugExpanded && "rotate-180"
+                        )}
+                      >
+                        <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                    {debugExpanded && (
+                      <SolverDebugPanel debugInfo={selectedEntry.debugInfo} />
+                    )}
+                  </div>
                 ) : (
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
                     Detailed timing data not available for this run.
