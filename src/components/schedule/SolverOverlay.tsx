@@ -533,15 +533,16 @@ export default function SolverOverlay({
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [calendarContainer, setCalendarContainer] = useState<HTMLElement | null>(null);
 
-  // Find the calendar container on mount
+  // Find the calendar container when visible or on mount
   useEffect(() => {
+    if (!isVisible) return;
     // Find the parent of .calendar-scroll which has position:relative
     const scrollEl = document.querySelector('.calendar-scroll');
     const container = scrollEl?.parentElement;
     if (container instanceof HTMLElement) {
       setCalendarContainer(container);
     }
-  }, []);
+  }, [isVisible]);
 
   // Cache for incremental stats computation
   // Key: solution_num, Value: computed stats entry
@@ -607,15 +608,19 @@ export default function SolverOverlay({
   const hasOverlap =
     isVisible && solveRange && rangesOverlap(solveRange, displayedRange);
 
-  // Don't render if no overlap or no container found
-  if (!hasOverlap || !calendarContainer) return null;
+  // Don't render if not visible or no overlap
+  if (!hasOverlap) return null;
 
   const dateRangeLabel = solveRange
     ? `${formatEuropeanDate(solveRange.startISO)} – ${formatEuropeanDate(solveRange.endISO)}`
     : null;
 
+  // If no calendar container found (e.g., settings view is open), render as fixed overlay
+  const portalTarget = calendarContainer ?? document.body;
+  const isFixedOverlay = !calendarContainer;
+
   return createPortal(
-    <div className="absolute inset-0 z-30 flex items-center justify-center">
+    <div className={isFixedOverlay ? "fixed inset-0 z-30 flex items-center justify-center" : "absolute inset-0 z-30 flex items-center justify-center"}>
       {/* Semi-transparent overlay */}
       <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80" />
 
@@ -745,6 +750,6 @@ export default function SolverOverlay({
         )}
       </div>
     </div>,
-    calendarContainer,
+    portalTarget,
   );
 }
