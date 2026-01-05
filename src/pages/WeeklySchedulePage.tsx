@@ -1353,7 +1353,7 @@ export default function WeeklySchedulePage({
     });
   };
 
-  // Reset all assignments (both manual and solver-generated)
+  // Reset all assignments (both manual and solver-generated, including pool assignments)
   const handleResetAll = (args: { startISO: string; endISO: string }) => {
     setAutoPlanError(null);
     setAssignmentMap((prev) => {
@@ -1361,7 +1361,6 @@ export default function WeeklySchedulePage({
       for (const [key, list] of next.entries()) {
         const { rowId, dateISO: keyDate } = splitAssignmentKey(key);
         if (!rowId || !keyDate) continue;
-        if (rowId.startsWith("pool-")) continue;
         if (keyDate < args.startISO || keyDate > args.endISO) continue;
         const filtered = list.filter((item) => isOnVacation(item.clinicianId, keyDate));
         if (filtered.length === 0) next.delete(key);

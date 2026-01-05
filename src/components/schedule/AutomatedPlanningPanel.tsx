@@ -365,7 +365,7 @@ export default function AutomatedPlanningPanel({
                     </span>
                     <span className="text-xs text-slate-500 dark:text-slate-400">
                       Removes all assignments in the selected timeframe,
-                      including both manual and solver-generated ones.
+                      including manual, solver-generated, and pool assignments (Rest Day, Vacation).
                     </span>
                   </button>
                 </div>
