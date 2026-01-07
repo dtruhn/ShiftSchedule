@@ -331,6 +331,20 @@ export default function DatabaseHealthCheck() {
         Click on any stat for an explanation.
       </p>
 
+      {/* Link to full inspector page */}
+      <a
+        href="/db-inspector"
+        className="mb-3 flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-300 dark:hover:bg-indigo-900/30"
+      >
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+        </svg>
+        <span className="font-medium">Open Database Inspector</span>
+        <span className="text-xs text-indigo-500 dark:text-indigo-400">
+          View all slots and assignments for any week
+        </span>
+      </a>
+
       {error && (
         <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-300">
           {error}

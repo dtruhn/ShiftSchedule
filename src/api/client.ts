@@ -407,6 +407,69 @@ export async function checkDatabaseHealth(): Promise<DatabaseHealthCheckResult> 
   return res.json();
 }
 
+// Weekly slot inspection types
+export type SlotInspection = {
+  slotId: string;
+  locationId: string;
+  locationName: string;
+  rowBandId: string;
+  rowBandLabel: string | null;
+  colBandId: string;
+  colBandLabel: string | null;
+  dayType: string;
+  blockId: string;
+  sectionId: string | null;
+  sectionName: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  dateISO: string;
+  dayOfWeek: string;
+  status: "open" | "assigned";
+  assignments: Array<{
+    assignmentId: string;
+    clinicianId: string;
+    clinicianName: string;
+    source: string;
+  }>;
+};
+
+export type PoolInspection = {
+  poolId: string;
+  poolName: string;
+  dateISO: string;
+  dayOfWeek: string;
+  assignments: Array<{
+    assignmentId: string;
+    clinicianId: string;
+    clinicianName: string;
+    source: string;
+  }>;
+};
+
+export type WeeklyInspectionResult = {
+  weekStartISO: string;
+  weekEndISO: string;
+  slots: SlotInspection[];
+  poolAssignments: PoolInspection[];
+  stats: {
+    totalSlots: number;
+    assignedSlots: number;
+    openSlots: number;
+    poolAssignments: number;
+  };
+};
+
+export async function inspectWeek(weekStart: string): Promise<WeeklyInspectionResult> {
+  const res = await fetch(`${API_BASE}/v1/state/inspect/week?week_start=${encodeURIComponent(weekStart)}`, {
+    headers: buildHeaders(),
+  });
+  if (res.status === 401) handleUnauthorized();
+  if (!res.ok) {
+    throw new Error(`Failed to inspect week: ${res.status}`);
+  }
+  return res.json();
+}
+
 export type SolverDebugSolutionTime = {
   solution: number;
   time_ms: number;

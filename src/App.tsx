@@ -6,6 +6,7 @@ import {
   setAuthToken,
   type AuthUser,
 } from "./api/client";
+import DatabaseInspectorPage from "./pages/DatabaseInspectorPage";
 import LoginPage from "./pages/LoginPage";
 import PrintWeekPage from "./pages/PrintWeekPage";
 import PrintWeeksPage from "./pages/PrintWeeksPage";
@@ -46,9 +47,10 @@ export default function App() {
   const pathname = typeof window !== "undefined" ? window.location.pathname : "";
   const isPrintWeekRoute = pathname.startsWith("/print/week");
   const isPrintWeeksRoute = pathname.startsWith("/print/weeks");
+  const isDbInspectorRoute = pathname === "/db-inspector";
   const publicMatch = pathname.match(/^\/public\/([^/]+)\/?$/);
 
-  if (isPrintWeekRoute || isPrintWeeksRoute) {
+  if (isPrintWeekRoute || isPrintWeeksRoute || isDbInspectorRoute) {
     if (loading) {
       return (
         <div className="min-h-screen bg-white px-6 py-10 text-sm text-slate-500">
@@ -61,6 +63,16 @@ export default function App() {
         <div className="min-h-screen bg-white px-6 py-10 text-sm text-rose-600">
           Unauthorized.
         </div>
+      );
+    }
+    if (isDbInspectorRoute) {
+      return (
+        <DatabaseInspectorPage
+          theme={theme}
+          onBack={() => {
+            window.location.href = "/";
+          }}
+        />
       );
     }
     return isPrintWeeksRoute ? <PrintWeeksPage theme={theme} /> : <PrintWeekPage theme={theme} />;

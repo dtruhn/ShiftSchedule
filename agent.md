@@ -190,6 +190,29 @@ Holidays
 - Add Holiday button is a dashed, full-width button below the list and opens an inline add panel.
 - Holidays behave like weekends in solver + min slot logic and show in the calendar header.
 
+Database Health Check
+- Located at the bottom of the Settings page.
+- "Run Check" button performs integrity checks on the database:
+  - Orphaned assignments (assignments referencing non-existent slots)
+  - Slot collisions (multiple sections at same position causing hidden sections)
+  - Duplicate assignments (same clinician assigned multiple times to same slot/date)
+  - ColBand explosion (excessive colBands per day type, limit 20)
+  - Pool assignments info (count of persisted pool assignments)
+- Stats are clickable with explanations for each metric.
+- "Open Database Inspector" link opens a separate full-page view.
+
+Database Inspector
+- Route: `/db-inspector` (requires authentication).
+- Full-page view showing all slots and assignments directly from the database.
+- Week selector with navigation arrows and "Today" button.
+- Stats overview: Total Slots, Assigned, Open, Pool Assignments.
+- Filter toggle: "Show only open slots".
+- Expandable day sections with tables showing:
+  - Time, Row, Column, Status (open/assigned), Assigned To, Source (manual/solver).
+- Pool assignments table at the bottom showing persisted pool entries.
+- Data comes directly from the database, not from the UI view.
+- Backend endpoint: `GET /v1/state/inspect/week?week_start=YYYY-MM-DD`.
+
 Solver Settings
 - Toggle: Enforce same location per day (default: enabled).
 - Toggle: Prefer continuous shifts (default: enabled). When enabled, the solver prefers assigning adjacent time slots (where one slot's end time equals another's start time, same location) to the same clinician, creating continuous work blocks rather than fragmented schedules.
@@ -902,9 +925,12 @@ Backend
 - `backend/ical_routes.py` (iCal endpoints)
 - `backend/publication.py` (tokens + caching helpers)
 - `backend/solver.py` (solver endpoint + logic)
-- `backend/state_routes.py` (health + state endpoints)
+- `backend/state_routes.py` (health + state endpoints + database inspection)
 - `backend/requirements.txt`
 - `backend/schedule.db`
+
+Database Inspector
+- `src/pages/DatabaseInspectorPage.tsx` (full-page database inspection view)
 
 ---
 

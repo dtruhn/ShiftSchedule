@@ -1,5 +1,6 @@
-from typing import List
-from fastapi import APIRouter, Depends
+from datetime import datetime, timedelta
+from typing import List, Optional
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from .auth import _get_current_user
@@ -220,4 +221,207 @@ def check_database_health(current_user: UserPublic = Depends(_get_current_user))
         healthy=len(error_warning_issues) == 0,
         issues=issues,
         stats=stats,
+    )
+
+
+class SlotInspection(BaseModel):
+    slotId: str
+    locationId: str
+    locationName: str
+    rowBandId: str
+    rowBandLabel: Optional[str]
+    colBandId: str
+    colBandLabel: Optional[str]
+    dayType: str
+    blockId: str
+    sectionId: Optional[str]
+    sectionName: Optional[str]
+    startTime: Optional[str]
+    endTime: Optional[str]
+    dateISO: str
+    dayOfWeek: str
+    status: str  # "open", "assigned"
+    assignments: List[dict]  # list of {clinicianId, clinicianName, source, assignmentId}
+
+
+class PoolInspection(BaseModel):
+    poolId: str
+    poolName: str
+    dateISO: str
+    dayOfWeek: str
+    assignments: List[dict]  # list of {clinicianId, clinicianName, source, assignmentId}
+
+
+class WeeklyInspectionResult(BaseModel):
+    weekStartISO: str
+    weekEndISO: str
+    slots: List[SlotInspection]
+    poolAssignments: List[PoolInspection]
+    stats: dict
+
+
+def _get_day_type(date: datetime, holidays: list) -> str:
+    """Determine day type for a given date."""
+    date_iso = date.strftime("%Y-%m-%d")
+    if any(h.dateISO == date_iso for h in holidays):
+        return "holiday"
+    weekday = date.weekday()
+    if weekday == 5:
+        return "saturday"
+    if weekday == 6:
+        return "sunday"
+    return "weekday"
+
+
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+@router.get("/v1/state/inspect/week", response_model=WeeklyInspectionResult)
+def inspect_week(
+    week_start: str = Query(..., description="Week start date in YYYY-MM-DD format"),
+    current_user: UserPublic = Depends(_get_current_user),
+):
+    """
+    Inspect all slots for a given week directly from the database.
+    Returns all slots with their assignment status (open or assigned).
+    """
+    state = _load_state(current_user.username)
+    template = state.weeklyTemplate
+
+    # Parse week start
+    try:
+        start_date = datetime.strptime(week_start, "%Y-%m-%d")
+    except ValueError:
+        start_date = datetime.now()
+        # Adjust to Monday
+        start_date = start_date - timedelta(days=start_date.weekday())
+
+    # Generate dates for the week (Monday to Sunday)
+    week_dates = [start_date + timedelta(days=i) for i in range(7)]
+    week_end = week_dates[-1]
+
+    # Build lookup maps
+    location_names = {loc.id: loc.name for loc in (state.locations or [])}
+    clinician_names = {c.id: c.name for c in (state.clinicians or [])}
+    section_names = {row.id: row.name for row in (state.rows or []) if row.kind == "section"}
+    pool_names = {row.id: row.name for row in (state.rows or []) if row.kind == "pool"}
+    pool_ids = set(pool_names.keys())
+
+    # Build assignment lookup: (rowId, dateISO) -> list of assignments
+    assignment_lookup: dict = {}
+    for assignment in state.assignments or []:
+        key = (assignment.rowId, assignment.dateISO)
+        if key not in assignment_lookup:
+            assignment_lookup[key] = []
+        assignment_lookup[key].append(assignment)
+
+    slots_result: List[SlotInspection] = []
+    pool_result: List[PoolInspection] = []
+
+    if template:
+        # Build slot info from template
+        for loc in template.locations or []:
+            loc_name = location_names.get(loc.locationId, loc.locationId)
+            row_band_by_id = {rb.id: rb for rb in (loc.rowBands or [])}
+            col_band_by_id = {cb.id: cb for cb in (loc.colBands or [])}
+            block_by_id = {b.id: b for b in (template.blocks or [])}
+
+            for slot in loc.slots or []:
+                col_band = col_band_by_id.get(slot.colBandId)
+                row_band = row_band_by_id.get(slot.rowBandId)
+                block = block_by_id.get(slot.blockId)
+
+                if not col_band:
+                    continue
+
+                slot_day_type = col_band.dayType
+
+                # Find which days this slot applies to
+                for date in week_dates:
+                    date_iso = date.strftime("%Y-%m-%d")
+                    day_type = _get_day_type(date, state.holidays or [])
+
+                    # Check if this slot applies to this day
+                    if slot_day_type != day_type:
+                        continue
+
+                    # Get assignments for this slot on this date
+                    key = (slot.id, date_iso)
+                    slot_assignments = assignment_lookup.get(key, [])
+
+                    assignment_list = []
+                    for a in slot_assignments:
+                        assignment_list.append({
+                            "assignmentId": a.id,
+                            "clinicianId": a.clinicianId,
+                            "clinicianName": clinician_names.get(a.clinicianId, a.clinicianId),
+                            "source": a.source or "unknown",
+                        })
+
+                    status = "assigned" if assignment_list else "open"
+
+                    slots_result.append(SlotInspection(
+                        slotId=slot.id,
+                        locationId=loc.locationId,
+                        locationName=loc_name,
+                        rowBandId=slot.rowBandId,
+                        rowBandLabel=row_band.label if row_band else None,
+                        colBandId=slot.colBandId,
+                        colBandLabel=col_band.label if col_band else None,
+                        dayType=slot_day_type,
+                        blockId=slot.blockId,
+                        sectionId=block.sectionId if block else None,
+                        sectionName=section_names.get(block.sectionId) if block else None,
+                        startTime=slot.startTime,
+                        endTime=slot.endTime,
+                        dateISO=date_iso,
+                        dayOfWeek=DAY_NAMES[date.weekday()],
+                        status=status,
+                        assignments=assignment_list,
+                    ))
+
+    # Collect pool assignments for the week
+    for date in week_dates:
+        date_iso = date.strftime("%Y-%m-%d")
+        for pool_id, pool_name in pool_names.items():
+            key = (pool_id, date_iso)
+            pool_assignments = assignment_lookup.get(key, [])
+
+            if pool_assignments:
+                assignment_list = []
+                for a in pool_assignments:
+                    assignment_list.append({
+                        "assignmentId": a.id,
+                        "clinicianId": a.clinicianId,
+                        "clinicianName": clinician_names.get(a.clinicianId, a.clinicianId),
+                        "source": a.source or "unknown",
+                    })
+
+                pool_result.append(PoolInspection(
+                    poolId=pool_id,
+                    poolName=pool_name,
+                    dateISO=date_iso,
+                    dayOfWeek=DAY_NAMES[date.weekday()],
+                    assignments=assignment_list,
+                ))
+
+    # Sort slots by date, location, section, row, col
+    slots_result.sort(key=lambda s: (s.dateISO, s.locationName, s.sectionName or "", s.rowBandLabel or "", s.colBandLabel or ""))
+
+    # Calculate stats
+    total_slots = len(slots_result)
+    assigned_slots = sum(1 for s in slots_result if s.status == "assigned")
+    open_slots = total_slots - assigned_slots
+
+    return WeeklyInspectionResult(
+        weekStartISO=start_date.strftime("%Y-%m-%d"),
+        weekEndISO=week_end.strftime("%Y-%m-%d"),
+        slots=slots_result,
+        poolAssignments=pool_result,
+        stats={
+            "totalSlots": total_slots,
+            "assignedSlots": assigned_slots,
+            "openSlots": open_slots,
+            "poolAssignments": len(pool_result),
+        },
     )
